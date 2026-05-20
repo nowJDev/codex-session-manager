@@ -86,14 +86,28 @@ pub fn run_claude_headless(prompt: &str) -> Result<String> {
     // 호출 직전 스냅샷 (이후 새로 생긴 파일만 정리)
     let projects_root = crate::scanner::projects_dir();
 
-    let output = Command::new("claude")
-        .arg("-p")
+    // claude CLI 절대 경로 (Tauri GUI 앱은 PATH가 불완전할 수 있음)
+    let claude = crate::environment::locate_claude()
+        .ok_or_else(|| anyhow!("claude CLI를 찾을 수 없음. 설치 후 PATH 또는 ~/.local/bin/claude 위치에 있어야 함"))?;
+
+    let mut cmd = Command::new(&claude);
+    cmd.arg("-p")
         .arg("--model")
         .arg(MODEL)
         .arg(prompt)
-        .current_dir(&cwd)
+        .current_dir(&cwd);
+
+    // Windows에서 콘솔 창 뜨는 거 방지
+    #[cfg(target_os = "windows")]
+    {
+        use std::os::windows::process::CommandExt;
+        const CREATE_NO_WINDOW: u32 = 0x0800_0000;
+        cmd.creation_flags(CREATE_NO_WINDOW);
+    }
+
+    let output = cmd
         .output()
-        .map_err(|e| anyhow!("claude CLI 실행 실패: {} (PATH에 claude 있는지 확인)", e))?;
+        .map_err(|e| anyhow!("claude CLI 실행 실패 ({}): {}", claude, e))?;
 
     // 격리 cwd로 만들어진 project 폴더 (이름에 .summary-runs 포함) 내부 jsonl 정리
     if projects_root.exists() {

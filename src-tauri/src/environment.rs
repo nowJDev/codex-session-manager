@@ -36,6 +36,46 @@ fn locate_in_path(name: &str) -> Option<String> {
     None
 }
 
+/// claude CLI를 찾는다. PATH 검색이 실패하면(Tauri GUI 앱은 사용자 PATH를
+/// 못 받는 경우가 있음) 일반적인 설치 위치도 직접 검사한다.
+pub fn locate_claude() -> Option<String> {
+    // 1순위: 환경변수
+    if let Ok(p) = std::env::var("CLAUDE_CLI") {
+        if std::path::Path::new(&p).exists() {
+            return Some(p);
+        }
+    }
+    // 2순위: PATH
+    if let Some(p) = locate_in_path("claude") {
+        return Some(p);
+    }
+    // 3순위: 알려진 설치 위치들
+    if let Some(home) = dirs::home_dir() {
+        let mut candidates: Vec<std::path::PathBuf> = Vec::new();
+        // Anthropic 공식 설치 스크립트 위치
+        candidates.push(home.join(".local").join("bin").join("claude.exe"));
+        candidates.push(home.join(".local").join("bin").join("claude"));
+        // npm global (사용자)
+        candidates.push(home.join("AppData").join("Roaming").join("npm").join("claude.cmd"));
+        candidates.push(home.join("AppData").join("Roaming").join("npm").join("claude"));
+        // pnpm
+        candidates.push(home.join("AppData").join("Local").join("pnpm").join("claude.cmd"));
+        // yarn global
+        candidates.push(home.join("AppData").join("Local").join("Yarn").join("bin").join("claude.cmd"));
+
+        // macOS / Linux Homebrew
+        candidates.push(std::path::PathBuf::from("/usr/local/bin/claude"));
+        candidates.push(std::path::PathBuf::from("/opt/homebrew/bin/claude"));
+
+        for c in candidates {
+            if c.exists() {
+                return Some(c.to_string_lossy().to_string());
+            }
+        }
+    }
+    None
+}
+
 fn run_with_timeout(program: &str, args: &[&str], timeout: Duration) -> Option<String> {
     let mut cmd = Command::new(program);
     cmd.args(args);
@@ -71,10 +111,10 @@ fn run_with_timeout(program: &str, args: &[&str], timeout: Duration) -> Option<S
 
 pub fn check_environment() -> EnvironmentReport {
     let target_os = current_target_os();
-    let claude_path = locate_in_path("claude");
+    let claude_path = locate_claude();
     let claude_found = claude_path.is_some();
-    let claude_version = if claude_found {
-        run_with_timeout("claude", &["--version"], Duration::from_secs(5))
+    let claude_version = if let Some(p) = &claude_path {
+        run_with_timeout(p, &["--version"], Duration::from_secs(5))
     } else {
         None
     };
