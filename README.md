@@ -211,6 +211,21 @@ CLAUDE_SESSION_HOME=/tmp/scratch ./target/debug/session-cli list
 2. `cargo test --tests` and `pnpm tauri dev` to verify
 3. Submit a PR
 
+## 문제 신고 / Bug reports
+
+세션 실행, 자동 요약 등이 동작하지 않으면 csm이 자동으로 진단 로그를 남깁니다.
+
+**로그 위치**
+- Windows: `%USERPROFILE%\.claude-sessions\debug.log`
+- macOS/Linux: `~/.claude-sessions/debug.log`
+
+**신고 방법**
+1. 앱 → 설정(톱니바퀴 아이콘) → 맨 아래 "문제 신고 / 디버그 로그" → **로그 불러오기** → **마지막 부분 복사**
+2. [GitHub Issues](https://github.com/glowElephant/claude-session-manager/issues/new)에 새 이슈 생성
+3. 어떤 동작을 시도했는지(예: "세션 더블클릭 → 새 git-bash 창 떴는데 즉시 닫힘") + 복사한 로그 텍스트 + `claude --version` 결과 첨부
+
+claude CLI 자체 에러일 수도 있고 csm spawn 환경 문제일 수도 있어서, **로그가 없으면 원인 파악이 어렵습니다**. 신고 시 꼭 같이 보내주세요.
+
 ## License
 
 MIT — see [LICENSE](./LICENSE).

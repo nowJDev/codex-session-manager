@@ -2,6 +2,17 @@
 
 All notable changes to this project are documented here.
 
+## [0.4.1] — 2026-05-20
+
+### Fixed
+- **자동 요약 "program not found" 실패** — Tauri GUI 앱이 사용자 PATH를 못 받는 환경에서 `claude` CLI 찾기 실패하던 문제. `environment::locate_claude()`에 환경변수(`CLAUDE_CLI`) → PATH → 알려진 설치 위치(Anthropic 공식 `~/.local/bin/claude`, npm/pnpm/yarn global, Homebrew) 순으로 검색하는 fallback 추가.
+- 자동 요약 호출 시 Windows에서 콘솔 창이 잠깐 떴다 사라지는 깜빡임 (CREATE_NO_WINDOW).
+
+### Added
+- **디버그 로그** — `~/.claude-sessions/debug.log`에 세션 resume / 자동 요약 호출 전체 명령과 결과 누적 기록.
+- **설정 → "문제 신고 / 디버그 로그" 섹션** — 로그 불러오기, 폴더 열기, 마지막 부분 클립보드 복사, GitHub Issue 링크 안내.
+- `get_debug_log_cmd` / `open_debug_log_folder_cmd` Tauri 커맨드.
+
 ## [0.4.0] — 2026-05-15
 
 ### Added

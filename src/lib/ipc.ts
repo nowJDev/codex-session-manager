@@ -31,4 +31,7 @@ export const ipc = {
   startAutoSummary: () => invoke<boolean>("start_auto_summary"),
   detectGoogleDrive: () => invoke<{ found: boolean; path: string | null }>("detect_google_drive_cmd"),
   connectGoogleDrive: () => invoke<string>("connect_google_drive_cmd"),
+  getDebugLog: () =>
+    invoke<{ path: string; exists: boolean; size: number; tail: string }>("get_debug_log_cmd"),
+  openDebugLogFolder: () => invoke<void>("open_debug_log_folder_cmd"),
 };

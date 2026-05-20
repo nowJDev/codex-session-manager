@@ -87,8 +87,11 @@ pub fn run_claude_headless(prompt: &str) -> Result<String> {
     let projects_root = crate::scanner::projects_dir();
 
     // claude CLI 절대 경로 (Tauri GUI 앱은 PATH가 불완전할 수 있음)
-    let claude = crate::environment::locate_claude()
-        .ok_or_else(|| anyhow!("claude CLI를 찾을 수 없음. 설치 후 PATH 또는 ~/.local/bin/claude 위치에 있어야 함"))?;
+    let claude = crate::environment::locate_claude().ok_or_else(|| {
+        crate::debuglog::log("summary", "ERROR: claude CLI not found anywhere");
+        anyhow!("claude CLI를 찾을 수 없음. 설치 후 PATH 또는 ~/.local/bin/claude 위치에 있어야 함")
+    })?;
+    crate::debuglog::log("summary", &format!("claude path: {}", claude));
 
     let mut cmd = Command::new(&claude);
     cmd.arg("-p")
@@ -105,9 +108,10 @@ pub fn run_claude_headless(prompt: &str) -> Result<String> {
         cmd.creation_flags(CREATE_NO_WINDOW);
     }
 
-    let output = cmd
-        .output()
-        .map_err(|e| anyhow!("claude CLI 실행 실패 ({}): {}", claude, e))?;
+    let output = cmd.output().map_err(|e| {
+        crate::debuglog::log("summary", &format!("ERROR spawn failed: {}", e));
+        anyhow!("claude CLI 실행 실패 ({}): {}", claude, e)
+    })?;
 
     // 격리 cwd로 만들어진 project 폴더 (이름에 .summary-runs 포함) 내부 jsonl 정리
     if projects_root.exists() {
@@ -133,9 +137,14 @@ pub fn run_claude_headless(prompt: &str) -> Result<String> {
 
     if !output.status.success() {
         let stderr = String::from_utf8_lossy(&output.stderr);
+        crate::debuglog::log(
+            "summary",
+            &format!("ERROR claude exit {}: stderr={}", output.status, stderr),
+        );
         return Err(anyhow!("claude exit {}: {}", output.status, stderr));
     }
     let stdout = String::from_utf8_lossy(&output.stdout).trim().to_string();
+    crate::debuglog::log("summary", &format!("OK ({} chars)", stdout.len()));
     Ok(stdout)
 }
 

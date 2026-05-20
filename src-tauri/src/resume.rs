@@ -61,19 +61,45 @@ pub fn resume_in_new_terminal(session_id: &str, cwd: Option<&str>) -> Result<()>
     let target = current_target_os();
     let plan = build_resume_plan(session_id, cwd, target);
 
+    // 디버그 로그: 어떤 명령이 spawn되는지 전부 기록
+    let env = crate::environment::check_environment();
+    crate::debuglog::log(
+        "resume",
+        &format!(
+            "session={} cwd={:?} target={} claude_version={:?} claude_path={:?}\n  program: {}\n  args: {:?}",
+            session_id,
+            cwd,
+            target,
+            env.claude_cli_version,
+            env.claude_cli_path,
+            plan.program,
+            plan.args,
+        ),
+    );
+
     if target == "linux" {
         let detected = detect_all_terminals(target);
         if detected.is_empty() {
             for term in &["x-terminal-emulator", "gnome-terminal", "konsole", "xterm"] {
                 let args: Vec<&str> = plan.args.iter().map(|s| s.as_str()).collect();
                 if Command::new(term).args(&args).spawn().is_ok() {
+                    crate::debuglog::log("resume", &format!("spawned fallback linux terminal: {}", term));
                     return Ok(());
                 }
             }
+            crate::debuglog::log("resume", "ERROR: no terminal emulator found");
             return Err(anyhow!("no terminal emulator found"));
         }
     }
 
-    Command::new(&plan.program).args(&plan.args).spawn()?;
-    Ok(())
+    match Command::new(&plan.program).args(&plan.args).spawn() {
+        Ok(_) => {
+            crate::debuglog::log("resume", "spawn OK");
+            Ok(())
+        }
+        Err(e) => {
+            crate::debuglog::log("resume", &format!("ERROR spawn failed: {}", e));
+            Err(anyhow!(e))
+        }
+    }
 }

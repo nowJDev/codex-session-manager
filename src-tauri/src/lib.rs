@@ -1,5 +1,6 @@
 pub mod cloud;
 pub mod config;
+pub mod debuglog;
 pub mod environment;
 pub mod resume;
 pub mod scanner;
@@ -134,6 +135,68 @@ fn set_cloud_folder(root: String) -> Result<String, String> {
         .map_err(to_str)
 }
 
+#[derive(serde::Serialize)]
+#[serde(rename_all = "camelCase")]
+struct DebugLogInfo {
+    path: String,
+    exists: bool,
+    size: u64,
+    tail: String,
+}
+
+#[tauri::command]
+fn get_debug_log_cmd() -> DebugLogInfo {
+    let path = debuglog::log_path();
+    let exists = path.exists();
+    let size = std::fs::metadata(&path).map(|m| m.len()).unwrap_or(0);
+    let tail = if exists {
+        std::fs::read_to_string(&path)
+            .map(|s| {
+                // 마지막 4000자만
+                let chars: Vec<char> = s.chars().collect();
+                let start = chars.len().saturating_sub(4000);
+                chars[start..].iter().collect::<String>()
+            })
+            .unwrap_or_default()
+    } else {
+        String::new()
+    };
+    DebugLogInfo {
+        path: path.to_string_lossy().to_string(),
+        exists,
+        size,
+        tail,
+    }
+}
+
+#[tauri::command]
+fn open_debug_log_folder_cmd() -> Result<(), String> {
+    let path = debuglog::log_path();
+    let folder = path.parent().ok_or("no parent dir")?;
+    #[cfg(target_os = "windows")]
+    {
+        std::process::Command::new("explorer")
+            .arg(folder)
+            .spawn()
+            .map_err(to_str)?;
+    }
+    #[cfg(target_os = "macos")]
+    {
+        std::process::Command::new("open")
+            .arg(folder)
+            .spawn()
+            .map_err(to_str)?;
+    }
+    #[cfg(target_os = "linux")]
+    {
+        std::process::Command::new("xdg-open")
+            .arg(folder)
+            .spawn()
+            .map_err(to_str)?;
+    }
+    Ok(())
+}
+
 #[tauri::command]
 fn detect_google_drive_cmd() -> cloud::CloudDetectResult {
     cloud::detect_google_drive_result()
@@ -226,6 +289,8 @@ pub fn run() {
             start_auto_summary,
             detect_google_drive_cmd,
             connect_google_drive_cmd,
+            get_debug_log_cmd,
+            open_debug_log_folder_cmd,
         ])
         .run(tauri::generate_context!())
         .expect("error while running tauri application");

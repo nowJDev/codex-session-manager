@@ -98,6 +98,35 @@ export function SettingsDialog({ open, current, locale, t, onClose, onSaved }: P
     }
   }
 
+  const [debugLog, setDebugLog] = useState<{ path: string; exists: boolean; size: number; tail: string } | null>(null);
+
+  async function loadDebugLog() {
+    try {
+      const r = await ipc.getDebugLog();
+      setDebugLog(r);
+    } catch (err) {
+      alert(String(err));
+    }
+  }
+
+  async function openLogFolder() {
+    try {
+      await ipc.openDebugLogFolder();
+    } catch (err) {
+      alert(String(err));
+    }
+  }
+
+  async function copyLogTail() {
+    if (!debugLog?.tail) return;
+    try {
+      await navigator.clipboard.writeText(debugLog.tail);
+      alert("로그 마지막 부분을 클립보드에 복사했어요. GitHub Issue에 붙여넣어 주세요.");
+    } catch (err) {
+      alert(String(err));
+    }
+  }
+
   async function autoConnectGoogleDrive() {
     try {
       const saved = await ipc.connectGoogleDrive();
@@ -360,6 +389,52 @@ export function SettingsDialog({ open, current, locale, t, onClose, onSaved }: P
                     </ul>
                   )}
                 </div>
+              </div>
+            )}
+          </div>
+
+          <div className="space-y-2 border-t border-border/60 pt-4">
+            <div className="flex items-center justify-between">
+              <Label>문제 신고 / 디버그 로그</Label>
+              <Button variant="outline" size="sm" onClick={loadDebugLog}>
+                로그 불러오기
+              </Button>
+            </div>
+            <p className="text-xs text-muted-foreground">
+              세션 실행/자동 요약 시 무엇이 spawn되는지 자세한 로그를 남깁니다. 문제가 생기면 아래 로그와 함께{" "}
+              <a
+                href="https://github.com/glowElephant/claude-session-manager/issues/new"
+                target="_blank"
+                rel="noreferrer"
+                className="underline hover:text-foreground"
+              >
+                GitHub Issue
+              </a>
+              에 등록해주세요.
+            </p>
+            {debugLog && (
+              <div className="space-y-2 rounded-md border border-border/60 bg-muted/30 p-3">
+                <div className="flex flex-wrap items-center gap-2 text-xs">
+                  <span className="font-mono text-muted-foreground break-all">{debugLog.path}</span>
+                  <span className="text-muted-foreground">
+                    ({debugLog.exists ? `${(debugLog.size / 1024).toFixed(1)} KB` : "파일 없음"})
+                  </span>
+                </div>
+                <div className="flex gap-2">
+                  <Button variant="outline" size="sm" onClick={openLogFolder}>
+                    폴더 열기
+                  </Button>
+                  {debugLog.exists && (
+                    <Button variant="outline" size="sm" onClick={copyLogTail}>
+                      마지막 부분 복사
+                    </Button>
+                  )}
+                </div>
+                {debugLog.tail && (
+                  <pre className="max-h-40 overflow-auto rounded bg-background/80 p-2 text-[10px] leading-tight font-mono whitespace-pre-wrap break-all">
+                    {debugLog.tail}
+                  </pre>
+                )}
               </div>
             )}
           </div>
