@@ -2,6 +2,11 @@
 
 All notable changes to this project are documented here.
 
+## [Unreleased]
+
+### Fixed
+- **Release 워크플로우 중복 release 생성 문제** — `create-release` job이 별도 draft를 만들고 `tauri-action`이 또 published release를 만들어 같은 태그에 release 2개가 생성되던 문제. v0.4.0/v0.4.1 모두 `publish-release` 단계에서 422 `already_exists` 에러로 실패. `create-release` job 제거하고 `tauri-action`에 `tagName` + `releaseDraft: true`로 find-or-create 위임. `publish-release`는 release_id 대신 태그명으로 draft를 찾아 publish.
+
 ## [0.4.1] — 2026-05-20
 
 ### Fixed
