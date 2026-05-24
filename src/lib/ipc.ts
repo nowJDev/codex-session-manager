@@ -12,8 +12,8 @@ export const ipc = {
   getConfig: () => invoke<AppConfig>("get_config_cmd"),
   saveSessionMeta: (sessionId: string, patch: SessionMeta) =>
     invoke<void>("save_session_meta", { sessionId, patch }),
-  deleteSession: (sessionId: string, projectDir: string) =>
-    invoke<void>("delete_session", { sessionId, projectDir }),
+  deleteSession: (sessionId: string, filePath: string) =>
+    invoke<void>("delete_session", { sessionId, filePath }),
   saveSettings: (patch: Settings) => invoke<void>("save_settings", { patch }),
   setCloudFolder: (root: string) =>
     invoke<string>("set_cloud_folder", { root }),

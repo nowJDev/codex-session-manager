@@ -88,5 +88,11 @@ pub fn update_settings(patch: Settings) -> Result<()> {
     if patch.custom_terminal_args.is_some() {
         cfg.settings.custom_terminal_args = patch.custom_terminal_args;
     }
+    if patch.extra_project_dirs.is_some() {
+        cfg.settings.extra_project_dirs = patch.extra_project_dirs;
+    }
+    if patch.wsl_auto_detect.is_some() {
+        cfg.settings.wsl_auto_detect = patch.wsl_auto_detect;
+    }
     save_config(&cfg)
 }

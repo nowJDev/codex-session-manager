@@ -34,6 +34,8 @@ export interface Settings {
   resumeFlags?: string | null;
   customTerminalProgram?: string | null;
   customTerminalArgs?: string | null;
+  extraProjectDirs?: string[] | null;
+  wslAutoDetect?: boolean | null;
 }
 
 export type TerminalKind =

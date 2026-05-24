@@ -48,6 +48,10 @@ export function SettingsDialog({ open, current, locale, t, onClose, onSaved }: P
   const [extraFlags, setExtraFlags] = useState<string>("");
   const [customProgram, setCustomProgram] = useState<string>(current.customTerminalProgram || "");
   const [customArgs, setCustomArgs] = useState<string>(current.customTerminalArgs || "");
+  const [extraDirs, setExtraDirs] = useState<string[]>(current.extraProjectDirs || []);
+  const [wslAuto, setWslAuto] = useState<boolean>(
+    current.wslAutoDetect ?? true,
+  );
 
   function parseFlags(raw: string): { bypass: boolean; debug: boolean; verbose: boolean; extra: string } {
     const tokens = raw.trim().split(/\s+/).filter(Boolean);
@@ -86,6 +90,8 @@ export function SettingsDialog({ open, current, locale, t, onClose, onSaved }: P
       setExtraFlags(parsed.extra);
       setCustomProgram(current.customTerminalProgram || "");
       setCustomArgs(current.customTerminalArgs || "");
+      setExtraDirs(current.extraProjectDirs || []);
+      setWslAuto(current.wslAutoDetect ?? true);
       setReport(null);
     }
   }, [open, current, locale]);
@@ -157,6 +163,8 @@ export function SettingsDialog({ open, current, locale, t, onClose, onSaved }: P
       resumeFlags: composeFlags() || null,
       customTerminalProgram: customProgram || null,
       customTerminalArgs: customArgs || null,
+      extraProjectDirs: extraDirs,
+      wslAutoDetect: wslAuto,
     });
     onSaved();
     onClose();
@@ -310,6 +318,58 @@ export function SettingsDialog({ open, current, locale, t, onClose, onSaved }: P
             <div className="rounded bg-muted/30 px-2 py-1.5 font-mono text-[11px] text-muted-foreground">
               <span className="text-foreground/70">미리보기:</span>{" "}
               claude {composeFlags() || <span className="italic">(플래그 없음)</span>} --resume &lt;id&gt;
+            </div>
+          </div>
+
+          <div className="space-y-2">
+            <Label>추가 세션 경로 (WSL · 외부 디렉토리)</Label>
+            <p className="text-xs text-muted-foreground">
+              기본 <code>~/.claude/projects</code> 외에 추가로 스캔할 폴더.
+              Windows에서는 WSL의 <code>~/.claude/projects</code>를 자동으로 찾아 합칩니다.
+            </p>
+
+            <label className="flex items-center gap-2 cursor-pointer">
+              <input
+                type="checkbox"
+                checked={wslAuto}
+                onChange={(e) => setWslAuto(e.target.checked)}
+              />
+              <span className="text-sm">WSL 배포판 자동 탐지</span>
+            </label>
+
+            <div className="space-y-1">
+              {extraDirs.length === 0 ? (
+                <p className="text-xs text-muted-foreground italic">추가된 경로 없음</p>
+              ) : (
+                extraDirs.map((p, i) => (
+                  <div key={i} className="flex items-center gap-2 text-xs">
+                    <span className="flex-1 font-mono break-all rounded bg-muted/30 px-2 py-1">
+                      {p}
+                    </span>
+                    <Button
+                      variant="outline"
+                      size="sm"
+                      onClick={() =>
+                        setExtraDirs(extraDirs.filter((_, idx) => idx !== i))
+                      }
+                    >
+                      제거
+                    </Button>
+                  </div>
+                ))
+              )}
+              <Button
+                variant="outline"
+                size="sm"
+                onClick={async () => {
+                  const result = await openDialog({ directory: true, multiple: false });
+                  if (typeof result === "string" && !extraDirs.includes(result)) {
+                    setExtraDirs([...extraDirs, result]);
+                  }
+                }}
+              >
+                폴더 추가
+              </Button>
             </div>
           </div>
 

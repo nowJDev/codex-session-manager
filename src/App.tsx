@@ -105,7 +105,7 @@ function App() {
     const ok = confirm(t("prompt.confirmDelete"));
     if (!ok) return;
     try {
-      await ipc.deleteSession(s.sessionId, s.projectDir);
+      await ipc.deleteSession(s.sessionId, s.filePath);
       setSelectedId((cur) => (cur === s.sessionId ? null : cur));
       await refresh();
     } catch (err) {

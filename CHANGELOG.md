@@ -4,6 +4,18 @@ All notable changes to this project are documented here.
 
 ## [Unreleased]
 
+### Added
+- **멀티 루트 세션 스캔** — `~/.claude/projects/` 외에 사용자가 등록한 `extraProjectDirs` + (Windows에서) WSL 배포판의 `~/.claude/projects/`를 자동 탐지해 한 화면에서 통합 표시. Settings에 "추가 세션 경로" 섹션 추가 (폴더 picker + WSL 자동 탐지 토글).
+- WSL 탐지는 `wsl.exe -l -q`로 배포판 목록을 읽어 `\\wsl.localhost\<distro>\home\*\.claude\projects` 중 존재하는 경로를 모두 포함.
+- 같은 session_id가 여러 루트에 있으면 primary(기본 `~/.claude/projects/`) 우선, 중복 제거.
+
+### Changed
+- `delete_session` Tauri command: `(sessionId, projectDir)` → `(sessionId, filePath)`. 멀티 루트에서 projectDir만으로는 실제 파일을 식별할 수 없어 절대 경로 기반으로 변경.
+- `scanner::delete_session_file(session_id, project_dir)` → `delete_session_file(file_path)`.
+
+### Docs
+- README 정리 — `anthropicApiKey` 관련 문구 삭제. 자동 요약은 `claude` CLI subprocess 호출이라 API 키 불필요 (CLI 자체 인증 사용). 설정의 `anthropicApiKey` 필드는 저장만 되고 사용되지 않음 (legacy).
+
 ### Fixed
 - **Release 워크플로우 중복 release 생성 문제** — `create-release` job이 별도 draft를 만들고 `tauri-action`이 또 published release를 만들어 같은 태그에 release 2개가 생성되던 문제. v0.4.0/v0.4.1 모두 `publish-release` 단계에서 422 `already_exists` 에러로 실패. `create-release` job 제거하고 `tauri-action`에 `tagName` + `releaseDraft: true`로 find-or-create 위임. `publish-release`는 release_id 대신 태그명으로 draft를 찾아 publish.
 

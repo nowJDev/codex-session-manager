@@ -19,6 +19,95 @@ pub fn projects_dir() -> PathBuf {
     claude_dir().join("projects")
 }
 
+/// 기본 projects_dir + 사용자가 추가한 extra_project_dirs + (Windows에서) WSL 자동 탐지.
+/// 존재하지 않는 경로는 자동으로 제외.
+pub fn projects_roots() -> Vec<PathBuf> {
+    let mut roots: Vec<PathBuf> = Vec::new();
+    let primary = projects_dir();
+    if primary.exists() {
+        roots.push(primary);
+    }
+
+    let cfg = crate::config::load_config();
+
+    if let Some(extra) = &cfg.settings.extra_project_dirs {
+        for p in extra {
+            let pb = PathBuf::from(p);
+            if pb.exists() && !roots.iter().any(|r| r == &pb) {
+                roots.push(pb);
+            }
+        }
+    }
+
+    // WSL 자동 탐지 (Windows 전용, 기본 활성)
+    #[cfg(target_os = "windows")]
+    {
+        let wsl_on = cfg.settings.wsl_auto_detect.unwrap_or(true);
+        if wsl_on {
+            for p in detect_wsl_projects_dirs() {
+                if !roots.iter().any(|r| r == &p) {
+                    roots.push(p);
+                }
+            }
+        }
+    }
+
+    roots
+}
+
+/// `wsl.exe -l -q` 로 배포판 목록을 얻고, 각 배포판의 `\\wsl.localhost\<distro>\home\*\.claude\projects`
+/// 중 존재하는 경로를 반환.
+#[cfg(target_os = "windows")]
+fn detect_wsl_projects_dirs() -> Vec<PathBuf> {
+    use std::os::windows::process::CommandExt;
+    use std::process::Command;
+    const CREATE_NO_WINDOW: u32 = 0x0800_0000;
+
+    let output = match Command::new("wsl.exe")
+        .args(["-l", "-q"])
+        .creation_flags(CREATE_NO_WINDOW)
+        .output()
+    {
+        Ok(o) => o,
+        Err(_) => return Vec::new(),
+    };
+    if !output.status.success() {
+        return Vec::new();
+    }
+
+    // wsl.exe -l -q 는 UTF-16 LE BOM 출력
+    let raw = &output.stdout;
+    let text = if raw.len() >= 2 && raw[0] == 0xFF && raw[1] == 0xFE {
+        let u16s: Vec<u16> = raw[2..]
+            .chunks_exact(2)
+            .map(|c| u16::from_le_bytes([c[0], c[1]]))
+            .collect();
+        String::from_utf16_lossy(&u16s)
+    } else {
+        String::from_utf8_lossy(raw).into_owned()
+    };
+
+    let mut result = Vec::new();
+    for line in text.lines() {
+        let distro = line.trim().trim_matches('\0');
+        if distro.is_empty() {
+            continue;
+        }
+        let home_root = PathBuf::from(format!(r"\\wsl.localhost\{}\home", distro));
+        if !home_root.exists() {
+            continue;
+        }
+        let Ok(users) = fs::read_dir(&home_root) else { continue };
+        for user_entry in users.flatten() {
+            let projects = user_entry.path().join(".claude").join("projects");
+            if projects.exists() && projects.is_dir() {
+                result.push(projects);
+            }
+        }
+    }
+    result
+}
+
 struct JsonlMeta {
     first_timestamp: Option<String>,
     last_timestamp: Option<String>,
@@ -114,7 +203,7 @@ fn decode_project_name(dir: &str) -> String {
 pub fn scan_local_sessions() -> Result<Vec<Session>> {
     use std::io::Write;
     let mut out = Vec::new();
-    let root = projects_dir();
+    let roots = projects_roots();
 
     let log_path = dirs::home_dir()
         .unwrap_or_else(|| PathBuf::from("."))
@@ -127,11 +216,13 @@ pub fn scan_local_sessions() -> Result<Vec<Session>> {
     let ts = chrono::Utc::now().to_rfc3339();
     if let Some(f) = log.as_mut() {
         let _ = writeln!(f, "=== scan_local_sessions @ {} ===", ts);
-        let _ = writeln!(f, "projects_dir = {}", root.display());
-        let _ = writeln!(f, "projects_dir.exists = {}", root.exists());
+        let _ = writeln!(f, "roots = {}", roots.len());
+        for r in &roots {
+            let _ = writeln!(f, "  - {}", r.display());
+        }
     }
 
-    if !root.exists() {
+    if roots.is_empty() {
         return Ok(out);
     }
     let saved = load_config().sessions;
@@ -141,8 +232,10 @@ pub fn scan_local_sessions() -> Result<Vec<Session>> {
     let mut meta_fail = 0usize;
     let mut stem_fail = 0usize;
     let mut stat_fail = 0usize;
+    let mut seen_session_ids: std::collections::HashSet<String> = std::collections::HashSet::new();
 
-    for entry in fs::read_dir(&root)? {
+    for root in &roots {
+    for entry in fs::read_dir(root)? {
         let Ok(entry) = entry else {
             if let Some(f) = log.as_mut() {
                 let _ = writeln!(f, "[ERR] read_dir entry failed in projects_dir");
@@ -200,6 +293,14 @@ pub fn scan_local_sessions() -> Result<Vec<Session>> {
                 continue;
             };
 
+            // 같은 session_id가 여러 루트에 있으면 먼저 본 것(primary 우선)만 사용
+            if !seen_session_ids.insert(stem.clone()) {
+                if let Some(f) = log.as_mut() {
+                    let _ = writeln!(f, "[dup-skip] {} ({})", stem, path.display());
+                }
+                continue;
+            }
+
             let meta = match read_jsonl_meta(&path) {
                 Ok(m) => Some(m),
                 Err(e) => {
@@ -244,6 +345,7 @@ pub fn scan_local_sessions() -> Result<Vec<Session>> {
             );
         }
     }
+    } // end for root in &roots
 
     if let Some(f) = log.as_mut() {
         let _ = writeln!(f, "---");
@@ -291,8 +393,8 @@ pub fn get_session_messages(file_path: &str, max_messages: usize) -> Result<Vec<
     Ok(out)
 }
 
-pub fn delete_session_file(session_id: &str, project_dir: &str) -> Result<()> {
-    let path = projects_dir().join(project_dir).join(format!("{}.jsonl", session_id));
+pub fn delete_session_file(file_path: &str) -> Result<()> {
+    let path = PathBuf::from(file_path);
     if path.exists() {
         fs::remove_file(path)?;
     }

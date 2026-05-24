@@ -118,8 +118,8 @@ fn save_session_meta(session_id: String, patch: SessionMeta) -> Result<(), Strin
 }
 
 #[tauri::command]
-fn delete_session(session_id: String, project_dir: String) -> Result<(), String> {
-    scanner::delete_session_file(&session_id, &project_dir).map_err(to_str)?;
+fn delete_session(session_id: String, file_path: String) -> Result<(), String> {
+    scanner::delete_session_file(&file_path).map_err(to_str)?;
     cfg_delete_meta(&session_id).map_err(to_str)
 }
 

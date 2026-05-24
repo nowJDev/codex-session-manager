@@ -8,7 +8,7 @@ Built with **Tauri 2 + React + TypeScript + Tailwind + shadcn/ui**. Modern dark 
 
 ## Features
 
-- **세션 목록** — `~/.claude/projects/` 아래 모든 세션 표시 (이름·설명·프로젝트·마지막 활동·크기·저장 위치)
+- **세션 목록** — `~/.claude/projects/` 아래 모든 세션 표시 (이름·설명·프로젝트·마지막 활동·크기·저장 위치). **WSL 세션 자동 합산** (Windows): 모든 WSL 배포판의 `~/.claude/projects/`를 자동 탐지해서 한 화면에서 같이 보임. 설정에서 추가 외부 폴더도 등록 가능
 - **즐겨찾기** — 별 아이콘 토글로 최상단 고정
 - **이름/ID 분리** — 사용자 이름이 없으면 "이름 없음" 회색 표시, ID는 항상 별도 컬럼
 - **자동 요약 + 이름 생성** — 백그라운드에서 `claude -p --model claude-haiku-4-5` subprocess로 호출, 5개씩 배치로 처리해 빈 description 자동 채움 (API 키 불필요 — claude CLI 자체 인증 사용)
@@ -58,8 +58,7 @@ Installers land in `src-tauri/target/release/bundle/`.
 
 #### Runtime prerequisites
 
-- [Claude Code](https://docs.anthropic.com/en/docs/claude-code) on `PATH` — required to actually resume sessions
-- *(optional)* Anthropic API key in Settings — enables the auto-summary feature
+- [Claude Code](https://docs.anthropic.com/en/docs/claude-code) on `PATH` — required to resume sessions **and** for auto-summary (no API key needed; we shell out to `claude -p` which uses its own auth)
 
 ## Configuration
 
@@ -79,21 +78,23 @@ Stored at `~/.claude-sessions/config.json`:
   "settings": {
     "locale": "en",
     "cloudPath": "G:/My Drive/Claude Sessions",
-    "anthropicApiKey": "sk-ant-..."
+    "extraProjectDirs": ["D:/other/.claude/projects"],
+    "wslAutoDetect": true
   }
 }
 ```
 
-The API key is stored locally only; nothing is transmitted except the direct call to `api.anthropic.com` when you request a summary.
+> Auto-summary uses the local `claude` CLI as a subprocess (`claude -p --model claude-haiku-4-5`). It uses whatever auth your Claude Code install already has — **no Anthropic API key required**. The legacy `anthropicApiKey` field is ignored.
 
 ### Environment variables
 
 | Variable | Purpose |
 |---|---|
 | `CLAUDE_SESSION_HOME` | Override the home directory used to resolve `~/.claude/projects/` and `~/.claude-sessions/`. Used mainly by the test suite and CLI harness for isolated runs. |
+| (settings) `extraProjectDirs` | 추가로 스캔할 `~/.claude/projects/` 경로 목록. Settings → "추가 세션 경로"에서 폴더 추가/제거. |
+| (settings) `wslAutoDetect` | Windows 전용. `wsl.exe -l -q`로 배포판을 자동 탐지하여 `\\wsl.localhost\<distro>\home\*\.claude\projects`를 스캔 대상에 포함. 기본값 `true`. |
 | `GIT_BASH` | Windows: explicit path to `git-bash.exe`. |
 | `WINDOWS_TERMINAL` | Windows: explicit path to `wt.exe`. |
-| `ANTHROPIC_API_KEY` | Used as a fallback for the auto-summary feature when the key is not set in Settings. |
 
 ### Terminal selection (Windows)
 

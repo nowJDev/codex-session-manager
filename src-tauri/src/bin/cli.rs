@@ -228,6 +228,7 @@ fn main() -> ExitCode {
                 "config_file": config::config_file(),
                 "claude_dir": scanner::claude_dir(),
                 "projects_dir": scanner::projects_dir(),
+                "projects_roots": scanner::projects_roots(),
                 "home_override": std::env::var("CLAUDE_SESSION_HOME").ok(),
             }))?);
             Ok(())

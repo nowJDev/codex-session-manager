@@ -232,7 +232,7 @@ fn scanner_delete_removes_jsonl_file() {
     );
     assert!(file.exists());
 
-    scanner::delete_session_file("doomed", "proj").unwrap();
+    scanner::delete_session_file(file.to_str().unwrap()).unwrap();
     assert!(!file.exists());
 }
 

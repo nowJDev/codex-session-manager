@@ -35,6 +35,10 @@ pub struct Settings {
     pub custom_terminal_program: Option<String>,
     #[serde(default)]
     pub custom_terminal_args: Option<String>,
+    #[serde(default)]
+    pub extra_project_dirs: Option<Vec<String>>,
+    #[serde(default)]
+    pub wsl_auto_detect: Option<bool>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, Default)]
