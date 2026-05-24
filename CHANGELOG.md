@@ -2,7 +2,7 @@
 
 All notable changes to this project are documented here.
 
-## [Unreleased]
+## [0.4.2] — 2026-05-24
 
 ### Added
 - **멀티 루트 세션 스캔** — `~/.claude/projects/` 외에 사용자가 등록한 `extraProjectDirs` + (Windows에서) WSL 배포판의 `~/.claude/projects/`를 자동 탐지해 한 화면에서 통합 표시. Settings에 "추가 세션 경로" 섹션 추가 (폴더 picker + WSL 자동 탐지 토글).
