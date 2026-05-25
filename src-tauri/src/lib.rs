@@ -98,10 +98,28 @@ fn start_auto_summary(app: tauri::AppHandle) -> Result<bool, String> {
 #[tauri::command]
 fn list_sessions() -> Result<Vec<Session>, String> {
     let mut local = scanner::scan_local_sessions().map_err(to_str)?;
-    let cloud_only: Vec<Session> = cloud::list_cloud_sessions()
-        .unwrap_or_default()
+    let cloud_all = cloud::list_cloud_sessions().unwrap_or_default();
+
+    // 로컬에도 있고 클라우드에도 있으면 storage_type = "synced"
+    use std::collections::HashSet;
+    let cloud_ids: HashSet<String> = cloud_all.iter().map(|c| c.session_id.clone()).collect();
+    for l in local.iter_mut() {
+        if cloud_ids.contains(&l.session_id) {
+            l.storage_type = "synced".into();
+        } else {
+            l.storage_type = "local-only".into();
+        }
+    }
+
+    // 클라우드에만 있는 세션 → "cloud-only"
+    let local_ids: HashSet<String> = local.iter().map(|l| l.session_id.clone()).collect();
+    let cloud_only: Vec<Session> = cloud_all
         .into_iter()
-        .filter(|c| !local.iter().any(|l| l.session_id == c.session_id))
+        .filter(|c| !local_ids.contains(&c.session_id))
+        .map(|mut c| {
+            c.storage_type = "cloud-only".into();
+            c
+        })
         .collect();
     local.extend(cloud_only);
     Ok(local)

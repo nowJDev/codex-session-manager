@@ -15,7 +15,10 @@
     "noName": "이름 없음",
     "noSessions": "세션을 찾을 수 없습니다.",
     "scanning": "세션 스캔 중...",
-    "total": "총 {count}개 세션"
+    "total": "총 {count}개 세션",
+    "synced": "동기화됨",
+    "cloudOnly": "클라우드만",
+    "localOnly": "로컬"
   },
   "action": {
     "select": "세션을 선택하세요",
@@ -27,6 +30,7 @@
     "delete": "세션 삭제",
     "syncToCloud": "클라우드에 업로드",
     "syncFromCloud": "클라우드에서 다운로드",
+    "resync": "로컬→클라우드 동기화",
     "generateSummary": "요약 재생성",
     "newSession": "새 세션",
     "back": "목록으로 돌아가기",

@@ -115,10 +115,33 @@ On macOS the app uses Terminal.app via `osascript`; on Linux it tries `x-termina
 
 ## Cloud sync — how it works
 
-1. Open **Settings → Cloud folder → Browse** and pick any cloud-synced local folder (Google Drive desktop, OneDrive, Dropbox, etc.). A `Claude Sessions` subfolder is created there.
-2. From the action menu, **Upload to cloud** copies the session JSONL + a `.meta.json` sidecar into that folder. Your cloud app handles syncing.
-3. On another machine, install this app and point Settings at the same cloud folder. Uploaded sessions show up with the `cloud` badge.
-4. **Resume** on a cloud session auto-checks it out to local `~/.claude/projects/`, runs `claude --resume`, and you can check back in when done.
+### Setup (one-time)
+1. Open **Settings → Cloud folder**. Click **자동 연결** (Auto-connect) — works for Google Drive desktop (English / Korean / 8+ other locales) and macOS CloudStorage. Falls back to **직접 선택** (Browse) for any cloud-synced local folder (OneDrive, Dropbox, etc.).
+2. A `Claude Sessions` subfolder is created there. JSONL + `.meta.json` sidecars land in that folder.
+
+### Storage states (since v0.4.4)
+
+Each session shows one of three badges in the Type column:
+
+| Badge | Meaning | Sync button action |
+|---|---|---|
+| `local` (🗄) | Lives only in `~/.claude/projects/` on this PC | ☁↑ Upload to cloud |
+| `synced` (☁) | Exists in BOTH the cloud folder AND local | ↻ Re-sync: overwrite cloud with local (local stays) |
+| `cloud only` (☁) | In the cloud folder but not on this PC's local | ☁↓ Check out: copy cloud → local |
+
+The small icon button **inside the Type cell** is the primary one-click sync action. The `⋯` menu has the same action for keyboard / accessibility.
+
+### Workflow — multi-PC
+
+1. **PC-A**: work normally → click ☁↑ in the Type cell → cloud has a copy. **Local stays in place** so claude can keep appending to the same JSONL.
+2. **PC-A**: keep working. When you want to share progress → click ↻ to overwrite cloud with the latest local.
+3. **PC-B**: open csm → see the same session as `synced` (if PC-B has local too) or `cloud only`. Click ☁↓ to download. Then `claude --resume` (or double-click) — same context, same memory.
+
+⚠️ The lock file (`<id>.lock` in the cloud folder) prevents two PCs from checking out the same session simultaneously. If you see "session locked by hostX" — the other PC currently has it.
+
+### Important behaviour (v0.4.4+)
+
+**"Upload to cloud" never deletes local anymore.** Earlier versions used a "single source of truth" rule that removed the local JSONL after upload — but the active claude session would just create a new JSONL with the same session_id, splitting the data. Now upload = "copy local → cloud, keep local". You're responsible for re-syncing when local has newer changes (just click ↻ again).
 
 No vendor-specific APIs, no OAuth. Works with any sync provider that mounts locally.
 

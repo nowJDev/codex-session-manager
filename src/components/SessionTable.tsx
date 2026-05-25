@@ -1,5 +1,13 @@
 import { memo, useCallback, useEffect, useRef, useState } from "react";
-import { Cloud, HardDrive, MoreHorizontal, Star } from "lucide-react";
+import {
+  Cloud,
+  CloudUpload,
+  CloudDownload,
+  RefreshCw,
+  HardDrive,
+  MoreHorizontal,
+  Star,
+} from "lucide-react";
 import {
   Table,
   TableBody,
@@ -286,19 +294,71 @@ function SessionTableInner({
                 {formatBytes(s.size)}
               </TableCell>
               <TableCell style={cellStyle("type")}>
-                <span className="inline-flex items-center gap-1 text-xs text-muted-foreground">
-                  {s.storageType === "cloud" ? (
-                    <>
-                      <Cloud className="h-3 w-3 text-sky-400" />
-                      {t("list.cloud") !== "list.cloud" ? t("list.cloud") : "cloud"}
-                    </>
-                  ) : (
-                    <>
-                      <HardDrive className="h-3 w-3 text-emerald-400" />
-                      {t("list.local") !== "list.local" ? t("list.local") : "local"}
-                    </>
-                  )}
-                </span>
+                <div className="inline-flex items-center gap-1.5">
+                  {(() => {
+                    const st = s.storageType;
+                    const isSynced = st === "synced";
+                    const isCloudOnly = st === "cloud-only" || st === "cloud";
+                    const isLocalOnly = st === "local-only" || st === "local";
+                    const label = isSynced
+                      ? t("list.synced") !== "list.synced"
+                        ? t("list.synced")
+                        : "synced"
+                      : isCloudOnly
+                      ? t("list.cloudOnly") !== "list.cloudOnly"
+                        ? t("list.cloudOnly")
+                        : "cloud"
+                      : t("list.localOnly") !== "list.localOnly"
+                      ? t("list.localOnly")
+                      : "local";
+                    const Icon = isSynced
+                      ? Cloud
+                      : isCloudOnly
+                      ? Cloud
+                      : HardDrive;
+                    const colorClass = isSynced
+                      ? "text-sky-400"
+                      : isCloudOnly
+                      ? "text-sky-400"
+                      : "text-emerald-400";
+                    const SyncIcon = isLocalOnly
+                      ? CloudUpload
+                      : isCloudOnly
+                      ? CloudDownload
+                      : RefreshCw;
+                    const syncTooltip = isLocalOnly
+                      ? t("action.syncToCloud") !== "action.syncToCloud"
+                        ? t("action.syncToCloud")
+                        : "클라우드에 업로드"
+                      : isCloudOnly
+                      ? t("action.syncFromCloud") !== "action.syncFromCloud"
+                        ? t("action.syncFromCloud")
+                        : "로컬로 다운로드"
+                      : t("action.resync") !== "action.resync"
+                      ? t("action.resync")
+                      : "로컬→클라우드 동기화";
+                    return (
+                      <>
+                        <span className="inline-flex items-center gap-1 text-xs text-muted-foreground">
+                          <Icon className={`h-3 w-3 ${colorClass}`} />
+                          {label}
+                        </span>
+                        <button
+                          type="button"
+                          onClick={(e) => {
+                            e.stopPropagation();
+                            onToggleCloud(s);
+                          }}
+                          title={syncTooltip}
+                          aria-label={syncTooltip}
+                          className="ml-0.5 inline-flex h-5 w-5 items-center justify-center rounded text-muted-foreground/70 hover:bg-muted/40 hover:text-foreground transition-colors"
+                        >
+                          <SyncIcon className="h-3 w-3" />
+                        </button>
+                      </>
+                    );
+                  })()}
+                </div>
               </TableCell>
               <TableCell
                 style={cellStyle("actions")}
@@ -325,7 +385,13 @@ function SessionTableInner({
                     </DropdownMenuItem>
                     <DropdownMenuSeparator />
                     <DropdownMenuItem onSelect={() => onToggleCloud(s)}>
-                      {s.storageType === "cloud" ? t("action.syncFromCloud") : t("action.syncToCloud")}
+                      {s.storageType === "cloud-only" || s.storageType === "cloud"
+                        ? t("action.syncFromCloud")
+                        : s.storageType === "synced"
+                        ? t("action.resync") !== "action.resync"
+                          ? t("action.resync")
+                          : t("action.syncToCloud")
+                        : t("action.syncToCloud")}
                     </DropdownMenuItem>
                     <DropdownMenuSeparator />
                     <DropdownMenuItem destructive onSelect={() => onDelete(s)}>
