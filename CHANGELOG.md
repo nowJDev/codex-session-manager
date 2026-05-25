@@ -2,6 +2,17 @@
 
 All notable changes to this project are documented here.
 
+## [0.4.4] — 2026-05-25
+
+### Changed (Breaking 동작 변경)
+- **"단일 본체(single source of truth)" 원칙 폐기 — 업로드 시 로컬 jsonl 삭제 중단.** 활성 세션이 업로드 후에도 jsonl을 계속 갱신하기 때문에 삭제하면 같은 session_id로 새 jsonl이 만들어져 데이터가 클라우드/로컬로 분리되는 버그 발생. 이제 업로드 = "Sync to cloud (overwrite cloud with local)" 의미. 로컬은 그대로 유지되어 활성 세션이 계속 적힘.
+- `cloud::upload_session()`: `fs::remove_file(&local)` 제거.
+- `cloud::checkin()`: 마찬가지로 로컬 삭제 제거.
+
+### Migration 노트
+- 이미 업로드해서 로컬이 사라진 세션이 있다면: csm에서 해당 세션을 **Check out** 한 번 누르면 클라우드 → 로컬로 다시 끌어오기. 그 후 활성 세션 작업.
+- 0.4.3 이하에서 업로드한 직후 그 세션을 계속 사용하던 경우, 로컬에 새로 생긴 jsonl과 클라우드 jsonl이 분리되었을 수 있음. 이 버그는 0.4.4부터 발생 안 함.
+
 ## [0.4.3] — 2026-05-25
 
 ### Fixed
