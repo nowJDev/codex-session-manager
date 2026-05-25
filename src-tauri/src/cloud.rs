@@ -190,11 +190,9 @@ pub fn upload_session(s: &Session) -> Result<()> {
         serde_json::to_string_pretty(&meta)?,
     )?;
 
-    // 단일 본체 원칙: 업로드 끝나면 로컬 jsonl 삭제
-    let local = PathBuf::from(&s.file_path);
-    if local.exists() {
-        let _ = fs::remove_file(&local);
-    }
+    // 로컬은 보존 — 활성 세션이 계속 jsonl을 갱신할 수 있으므로 삭제하면
+    // 새 jsonl이 생기면서 데이터가 분리되는 문제가 생긴다. 사용자가 명시적으로
+    // "Sync to cloud"를 다시 누를 때 클라우드를 로컬 최신본으로 덮어쓰면 됨.
 
     upsert_session_meta(
         &s.session_id,
@@ -339,8 +337,7 @@ pub fn checkin(session: &Session) -> Result<()> {
     if local_path.exists() {
         let dest = cloud.join(format!("{}.jsonl", session.session_id));
         fs::copy(&local_path, &dest)?;
-        // 로컬 본체 삭제 (single source of truth)
-        let _ = fs::remove_file(&local_path);
+        // 로컬 보존 — single source of truth 폐기 (활성 세션 데이터 분리 방지)
     }
 
     let meta_path = cloud.join(format!("{}.meta.json", session.session_id));
