@@ -116,10 +116,16 @@ function App() {
 
   async function handleToggleCloud(s: Session) {
     try {
-      if (s.storageType === "cloud") {
+      // storage_type 분기:
+      //  - cloud-only: 다운로드 (다른 PC에서 만든 세션 → 로컬로)
+      //  - synced: 재동기화 (로컬 → 클라우드 덮어쓰기)
+      //  - local-only / local: 첫 업로드
+      //  - 레거시 "cloud": cloud-only로 취급
+      const st = s.storageType;
+      if (st === "cloud-only" || st === "cloud") {
         await ipc.checkoutSession(s);
-        await ipc.saveSessionMeta(s.sessionId, { storageType: "local" });
       } else {
+        // local-only 또는 synced → 둘 다 upload_session() 호출 (v0.4.4 동작: 로컬 유지 + 클라우드 덮어쓰기)
         await ipc.uploadToCloud(s);
       }
       await refresh();

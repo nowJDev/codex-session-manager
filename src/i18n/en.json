@@ -15,7 +15,10 @@
     "noName": "(no name)",
     "noSessions": "No sessions found.",
     "scanning": "Scanning sessions...",
-    "total": "{count} session(s) found"
+    "total": "{count} session(s) found",
+    "synced": "synced",
+    "cloudOnly": "cloud only",
+    "localOnly": "local"
   },
   "action": {
     "select": "Select a session",
@@ -27,6 +30,7 @@
     "delete": "Delete session",
     "syncToCloud": "Upload to cloud",
     "syncFromCloud": "Download from cloud",
+    "resync": "Sync local → cloud",
     "generateSummary": "Regenerate summary",
     "newSession": "New session",
     "back": "Back to list",

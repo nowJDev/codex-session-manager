@@ -2,6 +2,23 @@
 
 All notable changes to this project are documented here.
 
+## [0.4.5] — 2026-05-25
+
+### Added
+- **Type 셀 inline 동기화 버튼** — 세션 목록의 Type 컬럼 안에 작은 아이콘 버튼 추가. ⋯ 메뉴를 거치지 않고 한 클릭으로 동기화 가능. 상태별 다른 아이콘/툴팁:
+  - `local-only` → ☁↑ "클라우드에 업로드"
+  - `synced` → ↻ "로컬→클라우드 동기화"
+  - `cloud-only` → ☁↓ "로컬로 다운로드"
+- **3가지 storage state 구분**: 이전엔 `cloud`/`local` 2가지였는데 v0.4.5부터 `local-only`, `synced`, `cloud-only` 3가지로 정확히 표시. 로컬+클라우드 양쪽에 있는 일반적 케이스(`synced`)가 명시적으로 보임.
+- 새 i18n 키: `list.synced`, `list.cloudOnly`, `list.localOnly`, `action.resync`
+
+### Changed
+- `list_sessions` Tauri 커맨드가 local/cloud presence를 교차 검증해서 storage_type을 결정. local에 있고 cloud에도 있으면 `synced`, local만 있으면 `local-only`, cloud만 있으면 `cloud-only`.
+- 드롭다운 메뉴의 액션 라벨도 새 상태를 반영 (`synced`일 땐 "로컬→클라우드 동기화" 표시).
+
+### Compatibility
+- 레거시 `storage_type = "cloud"` / `"local"` 값을 사용하던 0.4.4 이하 config는 그대로 호환 (UI가 cloud → cloud-only, local → local-only로 처리).
+
 ## [0.4.4] — 2026-05-25
 
 ### Changed (Breaking 동작 변경)
