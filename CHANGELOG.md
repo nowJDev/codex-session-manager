@@ -2,6 +2,12 @@
 
 All notable changes to this project are documented here.
 
+## [0.4.3] — 2026-05-25
+
+### Fixed
+- **Google Drive 자동 연결 실패 (한글/일본어/중국어 등 비영어 Windows)** — `detect_google_drive()`가 `My Drive` 영문 폴더명만 찾아서 한국어 OS의 `내 드라이브` 등 localized 이름을 못 잡았음. 영어/한국어/일본어/독일어/포르투갈어/스페인어/프랑스어/이탈리아어/중국어(간/번) 9개 언어 폴더명 시도 추가.
+- 알려진 이름으로도 못 찾을 경우 fallback: 드라이브 루트에 `.shortcut-targets-by-id`(Google Drive 시그니처) 존재 시 첫 사용자 디렉토리를 My Drive로 추정.
+
 ## [0.4.2] — 2026-05-24
 
 ### Added

@@ -13,7 +13,49 @@ const CLOUD_FOLDER: &str = "Claude Sessions";
 /// 1. 환경변수 GOOGLE_DRIVE_PATH
 /// 2. `%USERPROFILE%\Google Drive\My Drive` (구버전 Backup&Sync)
 /// 3. Drive for desktop의 가상 드라이브 (G:\My Drive, H:\My Drive ...)
+///    - Windows가 OS 언어로 localize하므로 한국어/일본어/중국어 폴더명도 시도
+///    - 그래도 못 찾으면 `.shortcut-targets-by-id` (Google Drive 시그니처) 존재 시
+///      해당 드라이브에서 가장 큰 사용자 폴더를 root로 채택
 /// 4. macOS: ~/Library/CloudStorage/GoogleDrive-*/My Drive
+/// Google Drive의 "My Drive" 폴더 — OS 언어에 따라 localize된 이름들.
+/// Windows Drive for desktop은 OS 표시 언어를 따라간다 (영어 OS면 영어, 한국어 OS면 한국어 등).
+const MY_DRIVE_NAMES: &[&str] = &[
+    "My Drive",      // English
+    "내 드라이브",    // Korean
+    "マイドライブ",   // Japanese
+    "Mein Drive",    // German
+    "Meu Drive",     // Portuguese
+    "Mi unidad",     // Spanish
+    "Mon Drive",     // French
+    "Il mio Drive",  // Italian
+    "我的云端硬盘",   // Chinese (Simplified)
+    "我的雲端硬碟",   // Chinese (Traditional)
+];
+
+/// 알려진 이름으로 못 찾았을 때 — 드라이브 루트에서 사용자 폴더로 보이는 것
+/// (숨김/시스템 제외, 디렉토리)을 하나 골라낸다. 시그니처 검증을 통과한
+/// 드라이브에 한해서만 호출되므로 false positive 위험은 낮다.
+#[cfg(target_os = "windows")]
+fn find_my_drive_fallback(drive_root: &PathBuf) -> Option<PathBuf> {
+    let entries = fs::read_dir(drive_root).ok()?;
+    for entry in entries.flatten() {
+        let path = entry.path();
+        if !path.is_dir() {
+            continue;
+        }
+        let name = entry.file_name().to_string_lossy().to_string();
+        // 시스템/숨김 폴더 스킵
+        if name.starts_with('.') || name.starts_with('$') {
+            continue;
+        }
+        // "다른 컴퓨터" / "Other computers" 류는 우리가 원하는 게 아님
+        // 하지만 일반화하기 어려우니, 알려진 이름 외엔 다 후보로 인정
+        // (자동 연결 안 되면 어차피 사용자가 수동 선택)
+        return Some(path);
+    }
+    None
+}
+
 pub fn detect_google_drive() -> Option<PathBuf> {
     if let Ok(p) = std::env::var("GOOGLE_DRIVE_PATH") {
         let pb = PathBuf::from(&p);
@@ -24,10 +66,12 @@ pub fn detect_google_drive() -> Option<PathBuf> {
 
     let home = dirs::home_dir()?;
 
-    // Windows Backup & Sync
-    let legacy = home.join("Google Drive").join("My Drive");
-    if legacy.exists() {
-        return Some(legacy);
+    // Windows Backup & Sync (영어/한국어/일본어/중국어)
+    for name in MY_DRIVE_NAMES {
+        let p = home.join("Google Drive").join(name);
+        if p.exists() {
+            return Some(p);
+        }
     }
     let legacy2 = home.join("Google Drive");
     if legacy2.exists() && legacy2.is_dir() {
@@ -38,9 +82,20 @@ pub fn detect_google_drive() -> Option<PathBuf> {
     #[cfg(target_os = "windows")]
     {
         for letter in ['G', 'H', 'I', 'J', 'K', 'L'] {
-            let p = PathBuf::from(format!("{}:\\My Drive", letter));
-            if p.exists() {
-                return Some(p);
+            let drive = PathBuf::from(format!("{}:\\", letter));
+            // 알려진 이름들 시도 (영어/한국어/일본어/중국어 간체/번체)
+            for name in MY_DRIVE_NAMES {
+                let p = drive.join(name);
+                if p.exists() {
+                    return Some(p);
+                }
+            }
+            // Fallback: Google Drive 시그니처(.shortcut-targets-by-id)가 있으면
+            // 이 드라이브의 첫 정상 디렉토리를 My Drive로 추정
+            if drive.join(".shortcut-targets-by-id").exists() {
+                if let Some(found) = find_my_drive_fallback(&drive) {
+                    return Some(found);
+                }
             }
         }
     }
