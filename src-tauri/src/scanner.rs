@@ -200,6 +200,38 @@ fn decode_project_name(dir: &str) -> String {
     s
 }
 
+/// cwd 경로(예: `C:\Git\foo`)를 Claude Code 프로젝트 폴더명으로 인코딩.
+/// Claude Code 규칙: 영숫자/`-`/`_`/`.` 외 모든 문자(`:`, `\`, `/`, 공백 등)는 `-`로 치환.
+/// 예) `C:\Git\claude-session-manager` -> `C--Git-claude-session-manager`
+pub fn encode_cwd_to_project_dir(cwd: &str) -> String {
+    cwd.chars()
+        .map(|c| {
+            if c.is_ascii_alphanumeric() || c == '-' || c == '_' || c == '.' {
+                c
+            } else {
+                '-'
+            }
+        })
+        .collect()
+}
+
+/// jsonl 본문 앞부분에서 `cwd` 필드를 추출. 어느 줄에든 있을 수 있으므로 최대 20줄 스캔.
+pub fn read_cwd_from_jsonl(path: &PathBuf) -> Option<String> {
+    let file = fs::File::open(path).ok()?;
+    let reader = BufReader::new(file);
+    for (i, line) in reader.lines().enumerate() {
+        if i >= 20 {
+            break;
+        }
+        let Ok(line) = line else { continue };
+        let Ok(val) = serde_json::from_str::<Value>(&line) else { continue };
+        if let Some(cwd) = val.get("cwd").and_then(|v| v.as_str()) {
+            return Some(cwd.to_string());
+        }
+    }
+    None
+}
+
 pub fn scan_local_sessions() -> Result<Vec<Session>> {
     use std::io::Write;
     let mut out = Vec::new();
@@ -314,6 +346,27 @@ pub fn scan_local_sessions() -> Result<Vec<Session>> {
             let saved_meta = saved.get(&stem).cloned().unwrap_or_default();
             let favorite = saved_meta.favorite.unwrap_or(false);
 
+            // cwd 기반 project_dir 보정.
+            // jsonl 본문의 cwd가 가리키는 인코딩 폴더와 실제 폴더가 다르면
+            // (예: 잘못된 위치로 동기화된 파일) cwd 쪽을 정답으로 본다.
+            // Claude Code resume도 cwd 기준 폴더에서만 세션을 찾으므로 이게 맞다.
+            let effective_project_dir = match meta.as_ref().and_then(|m| m.cwd.as_deref()) {
+                Some(c) => {
+                    let encoded = encode_cwd_to_project_dir(c);
+                    if encoded != project_dir {
+                        if let Some(f) = log.as_mut() {
+                            let _ = writeln!(
+                                f,
+                                "[cwd-fix] folder={} cwd={} -> project_dir={}",
+                                project_dir, c, encoded
+                            );
+                        }
+                    }
+                    encoded
+                }
+                None => project_dir.clone(),
+            };
+
             per_proj_pushed += 1;
             total_pushed += 1;
             out.push(Session {
@@ -322,8 +375,8 @@ pub fn scan_local_sessions() -> Result<Vec<Session>> {
                 description: saved_meta.description,
                 auto_summary: saved_meta.auto_summary,
                 favorite,
-                project: decode_project_name(&project_dir),
-                project_dir: project_dir.clone(),
+                project: decode_project_name(&effective_project_dir),
+                project_dir: effective_project_dir,
                 file_path: path.to_string_lossy().to_string(),
                 size: stat.len(),
                 total_lines: meta.as_ref().map(|m| m.total_lines).unwrap_or(0),

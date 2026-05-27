@@ -2,6 +2,18 @@
 
 All notable changes to this project are documented here.
 
+## [0.4.6] — 2026-05-27
+
+### Fixed
+- **클라우드 동기화 후 resume 실패 — `No conversation found with session ID`** 버그 수정. 세션 jsonl이 `~/.claude/projects/` 아래 **잘못된 프로젝트 폴더**에 떨어져서 Claude Code가 cwd 기준으로 검색해도 못 찾던 문제.
+  - **원인**: scanner가 jsonl 본문의 `cwd` 필드를 무시하고 **현재 파일이 들어있는 폴더 이름**을 그대로 `project_dir`로 사용 → 한 번이라도 엉뚱한 폴더(예: 상위 폴더의 `C--Git`)에 있던 jsonl은 그 값이 클라우드 메타에 박혀서 다른 PC들로 계속 전파됨 (악순환).
+  - **수정**: scanner가 jsonl의 `cwd`를 읽어 인코딩한 폴더명과 실제 폴더가 다르면 **cwd 쪽을 정답**으로 보고 `project_dir` 자동 보정. checkout 시에도 다운받은 jsonl의 `cwd`를 다시 읽어 올바른 폴더에 떨어뜨려서 과거에 잘못 박힌 메타가 있어도 자동 복구.
+  - `scanner::encode_cwd_to_project_dir(cwd)`, `scanner::read_cwd_from_jsonl(path)` 추가 (Claude Code 폴더 인코딩 규칙: 영숫자/`-`/`_`/`.` 외 → `-`).
+  - `cloud::checkin`도 보정된 `project_dir`과 실제 파일 위치가 어긋날 수 있어 `session.file_path`(스캐너가 기록한 실제 경로)를 우선 사용하도록 보강.
+
+### Migration
+- 이미 잘못된 폴더에 동기화된 세션들은 v0.4.6 설치 후 csm을 한 번 켜기만 하면 됨 — 스캔 시 `project_dir`이 자동 보정되어 메타가 다시 쓰임. 그 다음 checkout부터는 모든 PC가 올바른 폴더로 받게 됨.
+
 ## [0.4.5] — 2026-05-25
 
 ### Added
