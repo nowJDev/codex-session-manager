@@ -116,7 +116,10 @@ fn scanner_returns_empty_when_no_projects_dir() {
 fn scanner_parses_jsonl_meta_correctly() {
     let _h = setup_temp_home();
     let projects = scanner::projects_dir();
-    let project_dir = projects.join("C--Git--demo");
+    // v0.4.6: 폴더명은 cwd 인코딩 결과와 일치해야 cwd-보정이 발동하지 않음.
+    // Claude Code 인코딩 규칙은 영숫자/`-`/`_`/`.` 외 모든 문자(`:` `/` `\` 등) → `-` 한 자.
+    // cwd `C:/Git/demo`의 인코딩 결과는 `C--Git-demo`.
+    let project_dir = projects.join("C--Git-demo");
     let session_id = "11111111-2222-3333-4444-555555555555";
     let file = project_dir.join(format!("{}.jsonl", session_id));
 
@@ -131,8 +134,8 @@ fn scanner_parses_jsonl_meta_correctly() {
     assert_eq!(sessions.len(), 1);
     let s = &sessions[0];
     assert_eq!(s.session_id, session_id);
-    assert_eq!(s.project_dir, "C--Git--demo");
-    assert_eq!(s.project, "C:/Git/demo");
+    assert_eq!(s.project_dir, "C--Git-demo");
+    assert_eq!(s.project, "C:/Git-demo");
     assert_eq!(s.total_lines, 3);
     assert_eq!(s.first_timestamp.as_deref(), Some("2026-04-01T10:00:00Z"));
     assert_eq!(s.last_timestamp.as_deref(), Some("2026-04-01T10:01:00Z"));
@@ -140,6 +143,51 @@ fn scanner_parses_jsonl_meta_correctly() {
     assert_eq!(s.version.as_deref(), Some("1.0.0"));
     assert_eq!(s.first_user_message.as_deref(), Some("hello world"));
     assert_eq!(s.storage_type, "local");
+}
+
+#[test]
+fn scanner_corrects_project_dir_from_cwd_mismatch() {
+    // 회귀 방지: jsonl이 잘못된 폴더에 떨어져 있어도 cwd 기준으로 project_dir이 보정돼야 함.
+    // (v0.4.6에서 수정한 클라우드 동기화 후 resume 실패 버그의 핵심 동작)
+    let _h = setup_temp_home();
+    let projects = scanner::projects_dir();
+    // 의도적으로 잘못된 상위 폴더(`C--Git`)에 jsonl을 둠 — 실제 cwd는 더 깊은 경로.
+    let wrong_dir = projects.join("C--Git");
+    let session_id = "22222222-3333-4444-5555-666666666666";
+    let file = wrong_dir.join(format!("{}.jsonl", session_id));
+
+    let lines = [
+        r#"{"type":"user","timestamp":"2026-04-01T10:00:00Z","cwd":"C:\\Git\\claude-session-manager","message":{"content":"hi"}}"#,
+    ];
+    write_jsonl(&file, &lines);
+
+    let sessions = scanner::scan_local_sessions().unwrap();
+    assert_eq!(sessions.len(), 1);
+    let s = &sessions[0];
+    // project_dir이 폴더명(C--Git)이 아니라 cwd 인코딩 결과로 보정돼야 함.
+    assert_eq!(s.project_dir, "C--Git-claude-session-manager");
+}
+
+#[test]
+fn encode_cwd_handles_windows_and_posix_paths() {
+    // 인코딩 규칙: 영숫자/-/_/. 외 모두 `-`. backslash와 slash 모두 `-` 한 자.
+    assert_eq!(
+        scanner::encode_cwd_to_project_dir("C:\\Git\\claude-session-manager"),
+        "C--Git-claude-session-manager"
+    );
+    assert_eq!(
+        scanner::encode_cwd_to_project_dir("C:/Git/demo"),
+        "C--Git-demo"
+    );
+    assert_eq!(
+        scanner::encode_cwd_to_project_dir("/home/user/proj"),
+        "-home-user-proj"
+    );
+    // 이미 안전한 문자(영숫자/-/_/.)는 그대로 유지
+    assert_eq!(
+        scanner::encode_cwd_to_project_dir("plain_name-1.0"),
+        "plain_name-1.0"
+    );
 }
 
 #[test]
