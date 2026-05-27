@@ -318,7 +318,13 @@ pub fn checkout(session: &Session) -> Result<String> {
     // 락 획득 (다른 PC에서 사용 중이면 실패)
     acquire_lock(&session.session_id)?;
 
-    let local_dir = projects_dir().join(&session.project_dir);
+    // jsonl 본문의 cwd를 신뢰해서 폴더를 결정. 메타의 project_dir이 과거에 잘못
+    // 박혔어도 여기서 교정된다. cwd가 없는 비정상 jsonl만 fallback으로 메타 사용.
+    let project_dir = crate::scanner::read_cwd_from_jsonl(&src)
+        .map(|c| crate::scanner::encode_cwd_to_project_dir(&c))
+        .unwrap_or_else(|| session.project_dir.clone());
+
+    let local_dir = projects_dir().join(&project_dir);
     fs::create_dir_all(&local_dir)?;
     let dest = local_dir.join(format!("{}.jsonl", session.session_id));
     fs::copy(&src, &dest)?;
@@ -328,11 +334,20 @@ pub fn checkout(session: &Session) -> Result<String> {
 pub fn checkin(session: &Session) -> Result<()> {
     let Some(cloud) = cloud_path() else { return Ok(()) };
 
-    // 로컬 jsonl 위치 — session.file_path는 클라우드 경로일 수도 있으니
-    // projects_dir 기준으로 다시 계산
-    let local_path = projects_dir()
-        .join(&session.project_dir)
-        .join(format!("{}.jsonl", session.session_id));
+    // 로컬 jsonl 위치 — file_path가 실제 로컬 파일이면 그걸 우선 사용.
+    // (클라우드 폴더 안의 경로일 수도 있으니 그건 제외.) 못 찾으면 project_dir 기반으로 폴백.
+    let cloud_root = cloud.to_string_lossy().to_string();
+    let file_path_pb = PathBuf::from(&session.file_path);
+    let local_path = if !session.file_path.is_empty()
+        && !session.file_path.starts_with(&cloud_root)
+        && file_path_pb.exists()
+    {
+        file_path_pb
+    } else {
+        projects_dir()
+            .join(&session.project_dir)
+            .join(format!("{}.jsonl", session.session_id))
+    };
 
     if local_path.exists() {
         let dest = cloud.join(format!("{}.jsonl", session.session_id));
