@@ -21,9 +21,8 @@ jobs:
           - platform: macos-latest
             target: aarch64-apple-darwin
             args: "--target aarch64-apple-darwin"
-          - platform: macos-latest
-            target: x86_64-apple-darwin
-            args: "--target x86_64-apple-darwin"
+          # macOS x86_64 (Intel) 빌드는 macos-latest runner에서 bundle_dmg.sh가 일관적으로
+          # 실패하므로 제거. Intel Mac 사용자는 Rosetta로 arm64 dmg를 실행하거나 source에서 빌드.
           - platform: ubuntu-22.04
             target: ""
             args: ""
