@@ -9,14 +9,16 @@ Built with **Tauri 2 + React + TypeScript + Tailwind + shadcn/ui**. Modern dark 
 ## Features
 
 - **세션 목록** — `~/.claude/projects/` 아래 모든 세션 표시 (이름·설명·프로젝트·마지막 활동·크기·저장 위치). **WSL 세션 자동 합산** (Windows): 모든 WSL 배포판의 `~/.claude/projects/`를 자동 탐지해서 한 화면에서 같이 보임. 설정에서 추가 외부 폴더도 등록 가능
-- **즐겨찾기** — 별 아이콘 토글로 최상단 고정
+- **스캔 제외 경로** (v0.4.7+) — 자동화 봇이 반복 생성하는 세션 폴더를 Settings에서 substring으로 등록 → 매치되는 프로젝트 전체 스킵 → 로딩 속도 개선. 예: `currency-edge` 한 줄로 1452개 jsonl 파싱 회피
+- **컬럼 헤더 클릭 정렬** (v0.4.7+) — 이름·ID·설명·프로젝트·마지막 활동·크기·타입 헤더 클릭으로 정렬, 재클릭으로 역순. `localStorage`에 영구 저장
+- **즐겨찾기** — 별 아이콘 토글로 **항상 최상단 고정** (어떤 정렬이든 우선)
 - **이름/ID 분리** — 사용자 이름이 없으면 "이름 없음" 회색 표시, ID는 항상 별도 컬럼
 - **자동 요약 + 이름 생성** — 백그라운드에서 `claude -p --model claude-haiku-4-5` subprocess로 호출, 5개씩 배치로 처리해 빈 description 자동 채움 (API 키 불필요 — claude CLI 자체 인증 사용)
 - **무한 루프 방지** — 요약용 호출은 격리 cwd에서 실행, scanner가 격리 폴더 자동 skip
 - **빠른 resume** — 더블클릭 또는 "..." 메뉴로 새 터미널에 세션 이어가기. Git Bash / Windows Terminal / PowerShell / cmd / Terminal.app / Custom(자유 입력)
 - **Resume 플래그** — `--dangerously-skip-permissions` / `--debug` / `--verbose` 체크박스 + 자유 입력란. 실시간 미리보기
 - **이름 변경 / 설명 편집** — `~/.claude-sessions/config.json`에 영구 저장
-- **클라우드 동기화** — Google Drive 데스크탑 자동 감지(클릭 한 번), 업로드 후 로컬 jsonl 자동 삭제 (single source of truth), 락 파일로 다중 PC 동시 편집 방지
+- **클라우드 동기화** — Google Drive 데스크탑 자동 감지(클릭 한 번), 업로드 후 **로컬 유지** (v0.4.4+, 데이터 분리 방지). Type 셀에 inline 동기화 버튼: `local-only` → ☁↑ 업로드 / `synced` → ↻ 재동기화 / `cloud-only` → ☁↓ 다운로드. 락 파일로 다중 PC 동시 편집 방지
 - **컬럼 폭 드래그 조절** — 헤더 핸들 드래그 + `localStorage` 보존
 - **호버 툴팁** — 잘린 셀에 마우스 호버 시 전체 내용 표시
 - **검색 & 필터** — 이름 / 설명 / 프로젝트 / 첫 메시지 즉시 검색
@@ -79,7 +81,8 @@ Stored at `~/.claude-sessions/config.json`:
     "locale": "en",
     "cloudPath": "G:/My Drive/Claude Sessions",
     "extraProjectDirs": ["D:/other/.claude/projects"],
-    "wslAutoDetect": true
+    "wslAutoDetect": true,
+    "excludedScanPaths": ["currency-edge"]
   }
 }
 ```
@@ -93,6 +96,7 @@ Stored at `~/.claude-sessions/config.json`:
 | `CLAUDE_SESSION_HOME` | Override the home directory used to resolve `~/.claude/projects/` and `~/.claude-sessions/`. Used mainly by the test suite and CLI harness for isolated runs. |
 | (settings) `extraProjectDirs` | 추가로 스캔할 `~/.claude/projects/` 경로 목록. Settings → "추가 세션 경로"에서 폴더 추가/제거. |
 | (settings) `wslAutoDetect` | Windows 전용. `wsl.exe -l -q`로 배포판을 자동 탐지하여 `\\wsl.localhost\<distro>\home\*\.claude\projects`를 스캔 대상에 포함. 기본값 `true`. |
+| (settings) `excludedScanPaths` (v0.4.7+) | 스캔에서 제외할 폴더명 substring 또는 절대 경로 목록. 매치되는 프로젝트(`~/.claude/projects/<encoded>`) 전체를 스킵 — jsonl 파싱 자체를 건너뛰어 로딩 가속. raw substring + cwd 인코딩 변형 양쪽 매치. 예: `["currency-edge"]` → `C--Git-currency-edge`, `D--Code-currency-edge` 모두 스킵. Settings → "스캔 제외 경로"에서 추가/제거. |
 | `GIT_BASH` | Windows: explicit path to `git-bash.exe`. |
 | `WINDOWS_TERMINAL` | Windows: explicit path to `wt.exe`. |
 
