@@ -2,6 +2,15 @@
 
 All notable changes to this project are documented here.
 
+## [0.4.8] — 2026-05-31
+
+### Fixed
+- **`excludedScanPaths` 저장 안 되던 버그** — Settings → "스캔 제외 경로"에 추가하고 저장해도 다시 열면 사라지던 문제. `config::update_settings`의 필드별 `is_some()` 분기에 `excluded_scan_paths` 처리가 빠져있어서 발생. 패치 한 줄.
+
+### Added (Tests — 회귀 방지)
+- `settings_update_persists_excluded_scan_paths`: 위 버그 직접 재현 + 빈 배열 클리어도 동작 검증
+- `scanner_skips_excluded_scan_paths`: scanner가 매치되는 폴더 전체를 결과에서 빼는지 검증
+
 ## [0.4.7] — 2026-05-26
 
 ### Added
