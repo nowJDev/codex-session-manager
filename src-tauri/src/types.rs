@@ -39,6 +39,12 @@ pub struct Settings {
     pub extra_project_dirs: Option<Vec<String>>,
     #[serde(default)]
     pub wsl_auto_detect: Option<bool>,
+    /// 스캔에서 제외할 경로/폴더명 substring 목록.
+    /// 세션의 file_path 또는 project_dir에 substring으로 포함되면 스캔 결과에서 제외.
+    /// 예: "currency-edge" → C--Git-currency-edge / D--Code-currency-edge 둘 다 매치 (PC 무관).
+    /// 절대 경로(C:\Git\currency-edge)도 OK — file_path가 매치됨.
+    #[serde(default)]
+    pub excluded_scan_paths: Option<Vec<String>>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, Default)]

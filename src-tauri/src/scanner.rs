@@ -257,10 +257,33 @@ pub fn scan_local_sessions() -> Result<Vec<Session>> {
     if roots.is_empty() {
         return Ok(out);
     }
-    let saved = load_config().sessions;
+    let cfg_full = load_config();
+    let saved = cfg_full.sessions;
+
+    // 제외 경로 목록 — raw substring + cwd 인코딩 변형 둘 다 시도해서 매치.
+    // 사용자가 절대 경로(C:\Git\foo) 또는 폴더명(foo) 어느 쪽을 적어도 동작.
+    let excluded_raw: Vec<String> = cfg_full
+        .settings
+        .excluded_scan_paths
+        .clone()
+        .unwrap_or_default()
+        .into_iter()
+        .filter(|s| !s.trim().is_empty())
+        .collect();
+    let excluded_encoded: Vec<String> = excluded_raw
+        .iter()
+        .map(|p| encode_cwd_to_project_dir(p))
+        .filter(|s| !s.is_empty())
+        .collect();
+    if let Some(f) = log.as_mut() {
+        if !excluded_raw.is_empty() {
+            let _ = writeln!(f, "excluded_scan_paths = {:?}", excluded_raw);
+        }
+    }
 
     let mut total_found = 0usize;
     let mut total_pushed = 0usize;
+    let mut total_excluded = 0usize;
     let mut meta_fail = 0usize;
     let mut stem_fail = 0usize;
     let mut stat_fail = 0usize;
@@ -283,6 +306,28 @@ pub fn scan_local_sessions() -> Result<Vec<Session>> {
         if project_dir.contains(crate::summary::ISOLATION_MARKER) {
             if let Some(f) = log.as_mut() {
                 let _ = writeln!(f, "[skip-isolation] {}", project_dir);
+            }
+            continue;
+        }
+
+        // 사용자 지정 제외 경로 매치 시 폴더 전체 스킵 (jsonl 파싱 자체를 건너뜀)
+        let excluded_match = excluded_raw.iter().any(|p| project_dir.contains(p))
+            || excluded_encoded.iter().any(|p| project_dir.contains(p));
+        if excluded_match {
+            // 해당 폴더의 jsonl 개수만 카운트해서 로그 (실제 파싱은 안 함)
+            let skipped = fs::read_dir(&project_path)
+                .ok()
+                .map(|d| {
+                    d.flatten()
+                        .filter(|e| {
+                            e.path().extension().and_then(|s| s.to_str()) == Some("jsonl")
+                        })
+                        .count()
+                })
+                .unwrap_or(0);
+            total_excluded += skipped;
+            if let Some(f) = log.as_mut() {
+                let _ = writeln!(f, "[excluded] {} ({} jsonl skipped)", project_dir, skipped);
             }
             continue;
         }
@@ -402,12 +447,13 @@ pub fn scan_local_sessions() -> Result<Vec<Session>> {
 
     if let Some(f) = log.as_mut() {
         let _ = writeln!(f, "---");
-        let _ = writeln!(f, "TOTAL found  = {}", total_found);
-        let _ = writeln!(f, "TOTAL pushed = {}", total_pushed);
-        let _ = writeln!(f, "stat_fail    = {}", stat_fail);
-        let _ = writeln!(f, "stem_fail    = {}", stem_fail);
-        let _ = writeln!(f, "meta_fail    = {}", meta_fail);
-        let _ = writeln!(f, "out.len()    = {} (returned to frontend)", out.len());
+        let _ = writeln!(f, "TOTAL found    = {}", total_found);
+        let _ = writeln!(f, "TOTAL pushed   = {}", total_pushed);
+        let _ = writeln!(f, "TOTAL excluded = {}", total_excluded);
+        let _ = writeln!(f, "stat_fail      = {}", stat_fail);
+        let _ = writeln!(f, "stem_fail      = {}", stem_fail);
+        let _ = writeln!(f, "meta_fail      = {}", meta_fail);
+        let _ = writeln!(f, "out.len()      = {} (returned to frontend)", out.len());
     }
 
     out.sort_by(|a, b| {

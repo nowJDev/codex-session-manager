@@ -52,6 +52,10 @@ export function SettingsDialog({ open, current, locale, t, onClose, onSaved }: P
   const [wslAuto, setWslAuto] = useState<boolean>(
     current.wslAutoDetect ?? true,
   );
+  const [excludedPaths, setExcludedPaths] = useState<string[]>(
+    current.excludedScanPaths || [],
+  );
+  const [excludedInput, setExcludedInput] = useState<string>("");
 
   function parseFlags(raw: string): { bypass: boolean; debug: boolean; verbose: boolean; extra: string } {
     const tokens = raw.trim().split(/\s+/).filter(Boolean);
@@ -92,6 +96,8 @@ export function SettingsDialog({ open, current, locale, t, onClose, onSaved }: P
       setCustomArgs(current.customTerminalArgs || "");
       setExtraDirs(current.extraProjectDirs || []);
       setWslAuto(current.wslAutoDetect ?? true);
+      setExcludedPaths(current.excludedScanPaths || []);
+      setExcludedInput("");
       setReport(null);
     }
   }, [open, current, locale]);
@@ -165,6 +171,7 @@ export function SettingsDialog({ open, current, locale, t, onClose, onSaved }: P
       customTerminalArgs: customArgs || null,
       extraProjectDirs: extraDirs,
       wslAutoDetect: wslAuto,
+      excludedScanPaths: excludedPaths,
     });
     onSaved();
     onClose();
@@ -370,6 +377,68 @@ export function SettingsDialog({ open, current, locale, t, onClose, onSaved }: P
               >
                 폴더 추가
               </Button>
+            </div>
+          </div>
+
+          <div className="space-y-2 rounded-md border border-border/40 p-3">
+            <Label>스캔 제외 경로</Label>
+            <p className="text-xs text-muted-foreground">
+              여기 등록한 경로(또는 폴더명 substring)에 매치되는 프로젝트는
+              세션 스캔에서 전부 스킵됩니다. 자동화로 매번 생기는 반복 세션을
+              제외해 로딩 속도를 줄일 때 사용.<br/>
+              예: <code className="font-mono">currency-edge</code> 또는{" "}
+              <code className="font-mono">C:\Git\currency-edge</code>
+            </p>
+            <div className="space-y-1">
+              {excludedPaths.length === 0 ? (
+                <p className="text-xs text-muted-foreground italic">제외 경로 없음</p>
+              ) : (
+                excludedPaths.map((p, i) => (
+                  <div key={i} className="flex items-center gap-2 text-xs">
+                    <span className="flex-1 font-mono break-all rounded bg-muted/30 px-2 py-1">
+                      {p}
+                    </span>
+                    <Button
+                      variant="outline"
+                      size="sm"
+                      onClick={() =>
+                        setExcludedPaths(excludedPaths.filter((_, idx) => idx !== i))
+                      }
+                    >
+                      제거
+                    </Button>
+                  </div>
+                ))
+              )}
+              <div className="flex gap-2">
+                <Input
+                  value={excludedInput}
+                  placeholder="폴더명 substring 또는 절대 경로"
+                  onChange={(e) => setExcludedInput(e.target.value)}
+                  onKeyDown={(e) => {
+                    if (e.key === "Enter") {
+                      const v = excludedInput.trim();
+                      if (v && !excludedPaths.includes(v)) {
+                        setExcludedPaths([...excludedPaths, v]);
+                        setExcludedInput("");
+                      }
+                    }
+                  }}
+                />
+                <Button
+                  variant="outline"
+                  size="sm"
+                  onClick={() => {
+                    const v = excludedInput.trim();
+                    if (v && !excludedPaths.includes(v)) {
+                      setExcludedPaths([...excludedPaths, v]);
+                      setExcludedInput("");
+                    }
+                  }}
+                >
+                  추가
+                </Button>
+              </div>
             </div>
           </div>
 

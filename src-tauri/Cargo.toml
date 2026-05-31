@@ -1,6 +1,6 @@
 [package]
 name = "claude-session-manager"
-version = "0.4.6"
+version = "0.4.7"
 description = "Claude Code session manager (Tauri)"
 authors = ["glowElephant"]
 edition = "2021"
