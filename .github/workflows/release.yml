@@ -98,14 +98,19 @@ jobs:
               repo: context.repo.repo,
               per_page: 100,
             });
+            // 같은 tag의 draft 우선, 없으면 이미 published된 것도 받아들임 (idempotent)
             const draft = releases.find(r => r.tag_name === tag && r.draft);
-            if (!draft) {
-              throw new Error(`No draft release found for tag ${tag}`);
+            const published = releases.find(r => r.tag_name === tag && !r.draft);
+            if (draft) {
+              await github.rest.repos.updateRelease({
+                owner: context.repo.owner,
+                repo: context.repo.repo,
+                release_id: draft.id,
+                draft: false,
+              });
+              core.info(`Published release ${draft.id} for tag ${tag}`);
+            } else if (published) {
+              core.info(`Release for tag ${tag} is already published (id=${published.id}). Nothing to do.`);
+            } else {
+              throw new Error(`No release (draft or published) found for tag ${tag}`);
             }
-            await github.rest.repos.updateRelease({
-              owner: context.repo.owner,
-              repo: context.repo.repo,
-              release_id: draft.id,
-              draft: false,
-            });
-            core.info(`Published release ${draft.id} for tag ${tag}`);
