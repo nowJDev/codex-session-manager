@@ -94,5 +94,8 @@ pub fn update_settings(patch: Settings) -> Result<()> {
     if patch.wsl_auto_detect.is_some() {
         cfg.settings.wsl_auto_detect = patch.wsl_auto_detect;
     }
+    if patch.excluded_scan_paths.is_some() {
+        cfg.settings.excluded_scan_paths = patch.excluded_scan_paths;
+    }
     save_config(&cfg)
 }

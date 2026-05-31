@@ -106,6 +106,75 @@ fn settings_update_only_overwrites_provided_fields() {
 }
 
 #[test]
+fn settings_update_persists_excluded_scan_paths() {
+    // 회귀 방지: v0.4.7에서 추가한 excludedScanPaths 필드가 update_settings의 분기에
+    // 빠져있어 저장이 안 되던 버그를 재현. v0.4.8에서 수정.
+    let _h = setup_temp_home();
+    config::update_settings(claude_session_manager_lib::types::Settings {
+        excluded_scan_paths: Some(vec!["currency-edge".into(), "other-bot".into()]),
+        ..Default::default()
+    })
+    .unwrap();
+    let cfg = config::load_config();
+    assert_eq!(
+        cfg.settings.excluded_scan_paths.as_deref(),
+        Some(&["currency-edge".to_string(), "other-bot".to_string()][..])
+    );
+
+    // 빈 배열로 클리어도 가능해야 함
+    config::update_settings(claude_session_manager_lib::types::Settings {
+        excluded_scan_paths: Some(vec![]),
+        ..Default::default()
+    })
+    .unwrap();
+    let cfg = config::load_config();
+    assert_eq!(cfg.settings.excluded_scan_paths.as_deref(), Some(&[][..]));
+}
+
+#[test]
+fn scanner_skips_excluded_scan_paths() {
+    let _h = setup_temp_home();
+    let projects = scanner::projects_dir();
+
+    // 제외 대상 폴더
+    let excluded_dir = projects.join("C--Git-currency-edge");
+    let excluded_session = "aaaaaaaa-1111-2222-3333-444444444444";
+    let f1 = excluded_dir.join(format!("{}.jsonl", excluded_session));
+    write_jsonl(
+        &f1,
+        &[r#"{"type":"user","timestamp":"2026-04-01T10:00:00Z","cwd":"C:/Git/currency-edge","message":{"content":"x"}}"#],
+    );
+
+    // 살아남는 폴더
+    let keep_dir = projects.join("C--Git-keep");
+    let keep_session = "bbbbbbbb-1111-2222-3333-444444444444";
+    let f2 = keep_dir.join(format!("{}.jsonl", keep_session));
+    write_jsonl(
+        &f2,
+        &[r#"{"type":"user","timestamp":"2026-04-01T10:00:00Z","cwd":"C:/Git/keep","message":{"content":"y"}}"#],
+    );
+
+    config::update_settings(claude_session_manager_lib::types::Settings {
+        excluded_scan_paths: Some(vec!["currency-edge".into()]),
+        ..Default::default()
+    })
+    .unwrap();
+
+    let sessions = scanner::scan_local_sessions().unwrap();
+    let ids: Vec<&str> = sessions.iter().map(|s| s.session_id.as_str()).collect();
+    assert!(
+        !ids.contains(&excluded_session),
+        "excluded session should not appear, got {:?}",
+        ids
+    );
+    assert!(
+        ids.contains(&keep_session),
+        "keep session should appear, got {:?}",
+        ids
+    );
+}
+
+#[test]
 fn scanner_returns_empty_when_no_projects_dir() {
     let _h = setup_temp_home();
     let sessions = scanner::scan_local_sessions().unwrap();
