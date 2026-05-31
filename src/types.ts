@@ -36,6 +36,8 @@ export interface Settings {
   customTerminalArgs?: string | null;
   extraProjectDirs?: string[] | null;
   wslAutoDetect?: boolean | null;
+  /** 스캔에서 제외할 경로/폴더명 substring 목록. 매치되는 프로젝트는 전부 스킵. */
+  excludedScanPaths?: string[] | null;
 }
 
 export type TerminalKind =

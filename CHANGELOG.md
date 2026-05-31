@@ -2,6 +2,17 @@
 
 All notable changes to this project are documented here.
 
+## [0.4.7] — 2026-05-26
+
+### Added
+- **스캔 제외 경로(`excludedScanPaths`)**: Settings에서 폴더명 substring 또는 절대 경로를 등록하면 매치되는 프로젝트 전체가 스캔에서 스킵됨. 자동화 봇이 반복 생성하는 세션 수백~수천 개를 제외해 로딩 속도 개선. raw substring + cwd 인코딩 변형 둘 다 매치하므로 `currency-edge`(폴더명) 또는 `C:\Git\currency-edge`(절대 경로) 어느 쪽으로 적어도 동작. scan-debug.log에 `[excluded]`와 `TOTAL excluded` 카운트 기록.
+- **컬럼 헤더 클릭 정렬**: 이름/ID/설명/프로젝트/마지막 활동/크기/타입 헤더 클릭으로 정렬, 같은 헤더 재클릭으로 역순. 정렬 상태 인디케이터(↑/↓) 표시. localStorage에 정렬 상태 저장(`csm.sort.v1`) — 앱 재시작해도 유지.
+- **즐겨찾기 우선 정렬**: 사용자가 어떤 컬럼으로 정렬하든 즐겨찾기 표시된 세션은 항상 최상단에 고정.
+
+### Migration
+- `excludedScanPaths`는 새 옵션이라 기본값 빈 배열 — 기존 동작에 영향 없음.
+- 정렬 기본값: `lastActive` 내림차순 (기존 백엔드 정렬과 동일한 결과).
+
 ## [0.4.6] — 2026-05-27
 
 ### Fixed

@@ -1,5 +1,7 @@
-import { memo, useCallback, useEffect, useRef, useState } from "react";
+import { memo, useCallback, useEffect, useMemo, useRef, useState } from "react";
 import {
+  ArrowDown,
+  ArrowUp,
   Cloud,
   CloudUpload,
   CloudDownload,
@@ -79,6 +81,50 @@ const MIN_WIDTH: Record<ColKey, number> = {
 };
 
 const STORAGE_KEY = "csm.colWidths.v1";
+const SORT_KEY = "csm.sort.v1";
+
+type SortKey = "name" | "id" | "desc" | "project" | "lastActive" | "size" | "type";
+type SortDir = "asc" | "desc";
+type SortState = { key: SortKey; dir: SortDir };
+
+const DEFAULT_SORT: SortState = { key: "lastActive", dir: "desc" };
+
+function loadSort(): SortState {
+  try {
+    const raw = localStorage.getItem(SORT_KEY);
+    if (raw) {
+      const parsed = JSON.parse(raw);
+      if (parsed && typeof parsed.key === "string" && (parsed.dir === "asc" || parsed.dir === "desc")) {
+        return parsed as SortState;
+      }
+    }
+  } catch {}
+  return { ...DEFAULT_SORT };
+}
+
+function compareSessions(a: Session, b: Session, sort: SortState): number {
+  // 즐겨찾기는 항상 최상단 (사용자 정렬 무시)
+  if (a.favorite !== b.favorite) return a.favorite ? -1 : 1;
+  const sign = sort.dir === "asc" ? 1 : -1;
+  const cmp = (x: string | null | undefined, y: string | null | undefined) =>
+    (x ?? "").localeCompare(y ?? "");
+  switch (sort.key) {
+    case "name":
+      return sign * cmp(a.name, b.name);
+    case "id":
+      return sign * a.sessionId.localeCompare(b.sessionId);
+    case "desc":
+      return sign * cmp(a.description ?? a.autoSummary, b.description ?? b.autoSummary);
+    case "project":
+      return sign * cmp(a.project, b.project);
+    case "lastActive":
+      return sign * cmp(a.lastTimestamp, b.lastTimestamp);
+    case "size":
+      return sign * (a.size - b.size);
+    case "type":
+      return sign * a.storageType.localeCompare(b.storageType);
+  }
+}
 
 function loadWidths(): Record<ColKey, number> {
   try {
@@ -97,12 +143,19 @@ function ResizableHead({
   onResize,
   className,
   children,
+  sortKey,
+  sortState,
+  onSort,
 }: {
   colKey: ColKey;
   width: number;
   onResize: (key: ColKey, w: number) => void;
   className?: string;
   children?: React.ReactNode;
+  /** 이 컬럼이 정렬 가능하면 SortKey, 아니면 undefined */
+  sortKey?: SortKey;
+  sortState?: SortState;
+  onSort?: (key: SortKey) => void;
 }) {
   const startX = useRef(0);
   const startW = useRef(0);
@@ -134,12 +187,30 @@ function ResizableHead({
     [colKey, width, onResize]
   );
 
+  const isSortable = !!sortKey && !!onSort;
+  const isActiveSort = isSortable && sortState && sortKey === sortState.key;
+
   return (
     <TableHead
       style={{ width, minWidth: width, maxWidth: width }}
       className={cn("relative select-none", className)}
     >
-      <div className="truncate pr-2">{children}</div>
+      <div
+        className={cn(
+          "flex items-center gap-1 truncate pr-2",
+          isSortable && "cursor-pointer hover:text-foreground"
+        )}
+        onClick={isSortable ? () => onSort!(sortKey!) : undefined}
+        role={isSortable ? "button" : undefined}
+        title={isSortable ? "정렬: 다시 클릭하면 역순" : undefined}
+      >
+        <span className="truncate">{children}</span>
+        {isActiveSort && (
+          sortState!.dir === "asc"
+            ? <ArrowUp className="h-3 w-3 shrink-0 text-foreground/70" />
+            : <ArrowDown className="h-3 w-3 shrink-0 text-foreground/70" />
+        )}
+      </div>
       <div
         onPointerDown={onPointerDown}
         className="absolute right-0 top-0 h-full w-1.5 cursor-col-resize hover:bg-primary/40 active:bg-primary/60"
@@ -164,6 +235,7 @@ function SessionTableInner({
   onToggleFavorite,
 }: Props) {
   const [widths, setWidths] = useState<Record<ColKey, number>>(() => loadWidths());
+  const [sort, setSort] = useState<SortState>(() => loadSort());
 
   useEffect(() => {
     try {
@@ -171,9 +243,28 @@ function SessionTableInner({
     } catch {}
   }, [widths]);
 
+  useEffect(() => {
+    try {
+      localStorage.setItem(SORT_KEY, JSON.stringify(sort));
+    } catch {}
+  }, [sort]);
+
   const handleResize = useCallback((key: ColKey, w: number) => {
     setWidths((prev) => ({ ...prev, [key]: w }));
   }, []);
+
+  const handleSort = useCallback((key: SortKey) => {
+    setSort((prev) =>
+      prev.key === key
+        ? { key, dir: prev.dir === "asc" ? "desc" : "asc" }
+        : { key, dir: "asc" }
+    );
+  }, []);
+
+  const sortedSessions = useMemo(
+    () => [...sessions].sort((a, b) => compareSessions(a, b, sort)),
+    [sessions, sort]
+  );
 
   if (sessions.length === 0) {
     return (
@@ -194,19 +285,24 @@ function SessionTableInner({
       <TableHeader>
         <TableRow>
           <ResizableHead colKey="star" width={widths.star} onResize={handleResize} />
-          <ResizableHead colKey="name" width={widths.name} onResize={handleResize}>
+          <ResizableHead colKey="name" width={widths.name} onResize={handleResize}
+            sortKey="name" sortState={sort} onSort={handleSort}>
             {t("list.name")}
           </ResizableHead>
-          <ResizableHead colKey="id" width={widths.id} onResize={handleResize}>
+          <ResizableHead colKey="id" width={widths.id} onResize={handleResize}
+            sortKey="id" sortState={sort} onSort={handleSort}>
             {t("list.id")}
           </ResizableHead>
-          <ResizableHead colKey="desc" width={widths.desc} onResize={handleResize}>
+          <ResizableHead colKey="desc" width={widths.desc} onResize={handleResize}
+            sortKey="desc" sortState={sort} onSort={handleSort}>
             {t("list.description")}
           </ResizableHead>
-          <ResizableHead colKey="project" width={widths.project} onResize={handleResize}>
+          <ResizableHead colKey="project" width={widths.project} onResize={handleResize}
+            sortKey="project" sortState={sort} onSort={handleSort}>
             {t("list.project")}
           </ResizableHead>
-          <ResizableHead colKey="lastActive" width={widths.lastActive} onResize={handleResize}>
+          <ResizableHead colKey="lastActive" width={widths.lastActive} onResize={handleResize}
+            sortKey="lastActive" sortState={sort} onSort={handleSort}>
             {t("list.lastActive")}
           </ResizableHead>
           <ResizableHead
@@ -214,10 +310,12 @@ function SessionTableInner({
             width={widths.size}
             onResize={handleResize}
             className="text-right"
+            sortKey="size" sortState={sort} onSort={handleSort}
           >
             {t("list.size")}
           </ResizableHead>
-          <ResizableHead colKey="type" width={widths.type} onResize={handleResize}>
+          <ResizableHead colKey="type" width={widths.type} onResize={handleResize}
+            sortKey="type" sortState={sort} onSort={handleSort}>
             {t("list.type")}
           </ResizableHead>
           <TableHead
@@ -226,7 +324,7 @@ function SessionTableInner({
         </TableRow>
       </TableHeader>
       <TableBody>
-        {sessions.map((s) => {
+        {sortedSessions.map((s) => {
           const selected = selectedId === s.sessionId;
           const desc = s.description || s.autoSummary || s.firstUserMessage || "";
           return (
