@@ -21,6 +21,16 @@ fn to_str<E: std::fmt::Display>(e: E) -> String {
 use std::sync::atomic::{AtomicBool, Ordering};
 static AUTO_SUMMARY_RUNNING: AtomicBool = AtomicBool::new(false);
 
+fn is_retryable_auto_summary(value: Option<&str>) -> bool {
+    let text = value.unwrap_or("").trim();
+    text.is_empty()
+        || text.starts_with('(')
+        || text.contains("자동 요약 실패")
+        || text.contains("요약 누락")
+        || text.contains("codex CLI")
+        || text.contains("batch file arguments are invalid")
+}
+
 /// 빈 description 세션을 1개씩 순차 자동 요약하는 백그라운드 워커.
 /// 이미 실행 중이면 no-op.
 #[tauri::command]
@@ -40,7 +50,7 @@ fn start_auto_summary(app: tauri::AppHandle) -> Result<bool, String> {
                 .into_iter()
                 .filter(|s| {
                     s.description.as_deref().unwrap_or("").is_empty()
-                        && s.auto_summary.as_deref().unwrap_or("").is_empty()
+                        && is_retryable_auto_summary(s.auto_summary.as_deref())
                 })
                 .take(BATCH_SIZE)
                 .map(|s| (s.session_id, s.file_path))
@@ -299,6 +309,27 @@ async fn generate_summary_cmd(
     .map_err(to_str)?;
 
     Ok(desc)
+}
+
+#[cfg(test)]
+mod tests {
+    use super::is_retryable_auto_summary;
+
+    #[test]
+    fn auto_summary_failure_markers_are_retryable() {
+        assert!(is_retryable_auto_summary(None));
+        assert!(is_retryable_auto_summary(Some("")));
+        assert!(is_retryable_auto_summary(Some(
+            "(자동 요약 실패: codex CLI 실행 실패)"
+        )));
+        assert!(is_retryable_auto_summary(Some("(요약 누락 - 재시도 예정)")));
+        assert!(is_retryable_auto_summary(Some(
+            "(auto summary failed: batch file arguments are invalid)"
+        )));
+        assert!(!is_retryable_auto_summary(Some(
+            "세션 매니저 릴리즈를 점검했다."
+        )));
+    }
 }
 
 #[cfg_attr(mobile, tauri::mobile_entry_point)]

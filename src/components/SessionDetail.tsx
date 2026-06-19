@@ -1,5 +1,6 @@
 import { Archive, Cloud, HardDrive, Play } from "lucide-react";
 import { Button } from "@/components/ui/button";
+import { isAutoSummaryStatus } from "@/lib/sessionDisplay";
 import { formatBytes, formatRelativeTime } from "@/lib/utils";
 import type { Session } from "@/types";
 import type { Locale } from "@/i18n";
@@ -62,7 +63,7 @@ export function SessionDetail({ session, locale, t, onResume }: Props) {
         )}
         {session.autoSummary &&
           session.autoSummary !== session.description &&
-          !session.autoSummary.startsWith("(") && (
+          !isAutoSummaryStatus(session.autoSummary) && (
             <Field
               label={locale === "ko" ? "자동 요약" : "Auto summary"}
               value={session.autoSummary}

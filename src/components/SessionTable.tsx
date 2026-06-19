@@ -27,6 +27,7 @@ import {
   DropdownMenuSeparator,
   DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu";
+import { sessionDescriptionText } from "@/lib/sessionDisplay";
 import { cn, formatBytes, formatRelativeTime } from "@/lib/utils";
 import type { Session } from "@/types";
 import type { Locale } from "@/i18n";
@@ -116,7 +117,7 @@ function compareSessions(a: Session, b: Session, sort: SortState): number {
     case "id":
       return sign * a.sessionId.localeCompare(b.sessionId);
     case "desc":
-      return sign * cmp(a.description ?? a.autoSummary, b.description ?? b.autoSummary);
+      return sign * cmp(sessionDescriptionText(a), sessionDescriptionText(b));
     case "project":
       return sign * cmp(a.project, b.project);
     case "lastActive":
@@ -329,7 +330,7 @@ function SessionTableInner({
       <TableBody>
         {sortedSessions.map((s) => {
           const selected = selectedId === s.sessionId;
-          const desc = s.description || s.autoSummary || s.firstUserMessage || "";
+          const desc = sessionDescriptionText(s);
           return (
             <TableRow
               key={s.sessionId}
