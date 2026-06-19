@@ -18,7 +18,8 @@
     "total": "{count} session(s) found",
     "synced": "synced",
     "cloudOnly": "cloud only",
-    "localOnly": "local"
+    "localOnly": "local",
+    "archived": "archived"
   },
   "action": {
     "select": "Select a session",
@@ -28,6 +29,8 @@
     "rename": "Rename session",
     "describe": "Edit description",
     "delete": "Delete session",
+    "archive": "Archive session",
+    "unarchive": "Unarchive session",
     "syncToCloud": "Upload to cloud",
     "syncFromCloud": "Download from cloud",
     "resync": "Sync local → cloud",

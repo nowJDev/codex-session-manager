@@ -15,6 +15,8 @@ Built with **Tauri 2 + Rust + React + TypeScript + Tailwind + shadcn/ui**.
 - **검색과 정렬**: 이름, 설명, 프로젝트, 세션 ID, 첫 사용자 메시지 기준으로 빠르게 찾습니다.
 - **이름/설명/즐겨찾기**: 앱 전용 메타데이터는 `~/.codex-sessions/config.json`에 저장합니다.
 - **빠른 resume**: 더블클릭 또는 메뉴로 `codex resume <session-id>`를 새 터미널에서 실행합니다.
+- **Archive / Unarchive**: 메뉴에서 `codex archive <session-id>`와 `codex unarchive <session-id>`를 실행합니다.
+- **안전한 삭제**: 삭제 액션은 파일 직접 삭제보다 `codex delete <session-id>`를 우선 사용합니다.
 - **Resume 옵션**: `--dangerously-bypass-approvals-and-sandbox`, `--debug`, `--verbose`와 자유 입력 플래그를 지원합니다.
 - **환경 진단**: Codex CLI 위치와 사용 가능한 터미널을 설정 화면에서 확인합니다.
 - **클라우드 동기화**: Google Drive 등 로컬 동기화 폴더 아래 `Codex Sessions` 폴더에 JSONL과 `.meta.json`을 저장합니다.

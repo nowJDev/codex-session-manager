@@ -114,6 +114,21 @@ function App() {
     }
   }
 
+  async function handleToggleArchive(s: Session) {
+    try {
+      if (s.archived) {
+        await ipc.unarchiveSession(s.sessionId);
+      } else {
+        await ipc.archiveSession(s.sessionId);
+      }
+      setSelectedId(null);
+      await refresh();
+    } catch (err) {
+      console.error(err);
+      alert(String(err));
+    }
+  }
+
   async function handleToggleCloud(s: Session) {
     try {
       // storage_type 분기:
@@ -245,6 +260,7 @@ function App() {
             onRename={(s) => openEdit("rename", s)}
             onDescribe={(s) => openEdit("describe", s)}
             onDelete={handleDelete}
+            onToggleArchive={handleToggleArchive}
             onToggleCloud={handleToggleCloud}
             onGenerateSummary={handleGenerateSummary}
             onToggleFavorite={handleToggleFavorite}

@@ -2,6 +2,7 @@ import { memo, useCallback, useEffect, useMemo, useRef, useState } from "react";
 import {
   ArrowDown,
   ArrowUp,
+  Archive,
   Cloud,
   CloudUpload,
   CloudDownload,
@@ -40,6 +41,7 @@ interface Props {
   onRename: (s: Session) => void;
   onDescribe: (s: Session) => void;
   onDelete: (s: Session) => void;
+  onToggleArchive: (s: Session) => void;
   onToggleCloud: (s: Session) => void;
   onGenerateSummary: (s: Session) => void;
   onToggleFavorite: (s: Session) => void;
@@ -230,6 +232,7 @@ function SessionTableInner({
   onRename,
   onDescribe,
   onDelete,
+  onToggleArchive,
   onToggleCloud,
   onGenerateSummary,
   onToggleFavorite,
@@ -398,7 +401,11 @@ function SessionTableInner({
                     const isSynced = st === "synced";
                     const isCloudOnly = st === "cloud-only" || st === "cloud";
                     const isLocalOnly = st === "local-only" || st === "local";
-                    const label = isSynced
+                    const label = s.archived
+                      ? t("list.archived") !== "list.archived"
+                        ? t("list.archived")
+                        : "archived"
+                      : isSynced
                       ? t("list.synced") !== "list.synced"
                         ? t("list.synced")
                         : "synced"
@@ -409,12 +416,16 @@ function SessionTableInner({
                       : t("list.localOnly") !== "list.localOnly"
                       ? t("list.localOnly")
                       : "local";
-                    const Icon = isSynced
+                    const Icon = s.archived
+                      ? Archive
+                      : isSynced
                       ? Cloud
                       : isCloudOnly
                       ? Cloud
                       : HardDrive;
-                    const colorClass = isSynced
+                    const colorClass = s.archived
+                      ? "text-amber-400"
+                      : isSynced
                       ? "text-sky-400"
                       : isCloudOnly
                       ? "text-sky-400"
@@ -482,6 +493,15 @@ function SessionTableInner({
                       {t("action.generateSummary")}
                     </DropdownMenuItem>
                     <DropdownMenuSeparator />
+                    <DropdownMenuItem onSelect={() => onToggleArchive(s)}>
+                      {s.archived
+                        ? t("action.unarchive") !== "action.unarchive"
+                          ? t("action.unarchive")
+                          : "Unarchive"
+                        : t("action.archive") !== "action.archive"
+                        ? t("action.archive")
+                        : "Archive"}
+                    </DropdownMenuItem>
                     <DropdownMenuItem onSelect={() => onToggleCloud(s)}>
                       {s.storageType === "cloud-only" || s.storageType === "cloud"
                         ? t("action.syncFromCloud")

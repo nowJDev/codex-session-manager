@@ -1,4 +1,4 @@
-import { Cloud, HardDrive, Play } from "lucide-react";
+import { Archive, Cloud, HardDrive, Play } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { formatBytes, formatRelativeTime } from "@/lib/utils";
 import type { Session } from "@/types";
@@ -20,14 +20,20 @@ export function SessionDetail({ session, locale, t, onResume }: Props) {
     );
   }
 
-  const isCloud = session.storageType === "cloud";
+  const isCloud = session.storageType === "cloud" || session.storageType === "cloud-only";
 
   return (
     <div className="flex h-full flex-col gap-4 p-6 overflow-y-auto">
       <div>
         <div className="mb-1 flex items-center gap-2 text-xs uppercase tracking-wide text-muted-foreground">
-          {isCloud ? <Cloud className="h-3.5 w-3.5 text-sky-400" /> : <HardDrive className="h-3.5 w-3.5 text-emerald-400" />}
-          <span>{isCloud ? "cloud" : "local"}</span>
+          {session.archived ? (
+            <Archive className="h-3.5 w-3.5 text-amber-400" />
+          ) : isCloud ? (
+            <Cloud className="h-3.5 w-3.5 text-sky-400" />
+          ) : (
+            <HardDrive className="h-3.5 w-3.5 text-emerald-400" />
+          )}
+          <span>{session.archived ? "archived" : isCloud ? "cloud" : "local"}</span>
           <span>•</span>
           <span>{formatBytes(session.size)}</span>
           {session.lastTimestamp && (

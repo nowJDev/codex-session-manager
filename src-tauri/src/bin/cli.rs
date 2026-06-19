@@ -9,15 +9,18 @@ USAGE:\n  \
   session-cli get-config                        Print current config (JSON)\n  \
   session-cli set-name <session-id> <name>      Save a name for a session\n  \
   session-cli set-desc <session-id> <desc>      Save a description\n  \
+  session-cli delete <session-id>               Delete a Codex session\n  \
   session-cli delete-meta <session-id>          Remove saved metadata\n  \
   session-cli set-favorite <session-id> <0|1>   Toggle favorite flag\n  \
+  session-cli archive <session-id>              Archive a Codex session\n  \
+  session-cli unarchive <session-id>            Unarchive a Codex session\n  \
   session-cli auto-summarize <session-id>       Generate name+desc via codex exec (also saves)\n  \
   session-cli resume-plan <session-id> [cwd]    Print the resume command (no spawn)\n  \
   session-cli messages <file-path> [n]          Print first N user messages from a JSONL\n  \
   session-cli paths                             Print resolved paths (config, projects)\n  \
   session-cli detect-gdrive                     Detect Google Drive folder\n  \
   session-cli connect-gdrive                    Auto-connect Google Drive as cloud folder\n  \
-  session-cli upload <session-id>               Upload session to cloud (deletes local)\n  \
+  session-cli upload <session-id>               Upload session to cloud\n  \
   session-cli checkout <session-id>             Download from cloud to local + acquire lock\n  \
   session-cli checkin <session-id>              Re-upload local + release lock + delete local\n  \
   session-cli check-env                         Detect codex CLI + available terminals (JSON)\n  \
@@ -64,6 +67,18 @@ fn main() -> ExitCode {
             let id = args.get(1).ok_or_else(|| anyhow::anyhow!("session-id required"))?;
             config::delete_session_meta(id)?;
             println!("ok");
+            Ok(())
+        }
+        "delete" => {
+            let id = args.get(1).ok_or_else(|| anyhow::anyhow!("session-id required"))?;
+            let sessions = scanner::scan_local_sessions()?;
+            let s = sessions
+                .iter()
+                .find(|s| s.session_id == *id)
+                .ok_or_else(|| anyhow::anyhow!("session not found: {}", id))?;
+            scanner::delete_session(id, &s.file_path)?;
+            config::delete_session_meta(id)?;
+            println!("deleted: {}", id);
             Ok(())
         }
         "auto-summarize-batch" => {
@@ -132,6 +147,18 @@ fn main() -> ExitCode {
                 SessionMeta { favorite: Some(val), ..Default::default() },
             )?;
             println!("ok");
+            Ok(())
+        }
+        "archive" => {
+            let id = args.get(1).ok_or_else(|| anyhow::anyhow!("session-id required"))?;
+            scanner::archive_session(id)?;
+            println!("archived: {}", id);
+            Ok(())
+        }
+        "unarchive" => {
+            let id = args.get(1).ok_or_else(|| anyhow::anyhow!("session-id required"))?;
+            scanner::unarchive_session(id)?;
+            println!("unarchived: {}", id);
             Ok(())
         }
         "resume-plan" => {

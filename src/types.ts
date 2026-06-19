@@ -14,6 +14,7 @@ export interface Session {
   version: string | null;
   firstUserMessage: string | null;
   storageType: string;
+  archived: boolean;
   favorite: boolean;
 }
 

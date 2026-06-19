@@ -322,6 +322,7 @@ pub fn list_cloud_sessions() -> Result<Vec<Session>> {
             version: None,
             first_user_message: None,
             storage_type: "cloud".into(),
+            archived: false,
             favorite: false,
             locked_by,
         });

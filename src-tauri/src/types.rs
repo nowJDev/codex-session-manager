@@ -74,6 +74,8 @@ pub struct Session {
     pub first_user_message: Option<String>,
     pub storage_type: String,
     #[serde(default)]
+    pub archived: bool,
+    #[serde(default)]
     pub favorite: bool,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub locked_by: Option<String>,

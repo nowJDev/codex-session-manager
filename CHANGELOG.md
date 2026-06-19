@@ -12,6 +12,9 @@ All notable changes to this project are documented here.
 - 앱 설정과 디버그 로그 기본 경로를 `~/.codex-sessions`로 변경.
 - 클라우드 동기화 폴더명을 `Codex Sessions`로 변경하고, 체크아웃 시 Codex 날짜 폴더 구조를 복원하도록 수정.
 - Tauri 앱 이름, 패키지명, 릴리스 이름, README를 Codex 기준으로 정리.
+- 삭제 액션이 `codex delete <session-id>`를 우선 사용하도록 변경.
+- 메뉴와 CLI 하네스에 `codex archive <session-id>` / `codex unarchive <session-id>` 액션 추가.
+- archived 세션을 목록과 상세 패널에서 구분 표시.
 
 ### Fixed
 - Windows npm global 설치에서 `codex` extensionless shim보다 `codex.cmd`를 우선 사용하도록 수정해 버전 감지와 `codex exec` 실행 실패 가능성을 줄임.

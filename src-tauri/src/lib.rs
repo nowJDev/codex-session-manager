@@ -137,8 +137,18 @@ fn save_session_meta(session_id: String, patch: SessionMeta) -> Result<(), Strin
 
 #[tauri::command]
 fn delete_session(session_id: String, file_path: String) -> Result<(), String> {
-    scanner::delete_session_file(&file_path).map_err(to_str)?;
+    scanner::delete_session(&session_id, &file_path).map_err(to_str)?;
     cfg_delete_meta(&session_id).map_err(to_str)
+}
+
+#[tauri::command]
+fn archive_session(session_id: String) -> Result<(), String> {
+    scanner::archive_session(&session_id).map_err(to_str)
+}
+
+#[tauri::command]
+fn unarchive_session(session_id: String) -> Result<(), String> {
+    scanner::unarchive_session(&session_id).map_err(to_str)
 }
 
 #[tauri::command]
@@ -296,6 +306,8 @@ pub fn run() {
             get_config_cmd,
             save_session_meta,
             delete_session,
+            archive_session,
+            unarchive_session,
             save_settings,
             set_cloud_folder,
             upload_to_cloud,

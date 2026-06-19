@@ -1,11 +1,12 @@
 // Codex 세션 JSONL 파일을 찾아 앱 표시용 메타데이터로 변환한다.
 use crate::config::load_config;
 use crate::types::Session;
-use anyhow::Result;
+use anyhow::{anyhow, Result};
 use serde_json::Value;
 use std::fs;
 use std::io::{BufRead, BufReader};
 use std::path::{Path, PathBuf};
+use std::process::Command;
 
 pub fn codex_home() -> PathBuf {
     if let Ok(p) = std::env::var("CODEX_HOME") {
@@ -249,6 +250,7 @@ pub fn scan_local_sessions() -> Result<Vec<Session>> {
     use std::io::Write;
     let mut out = Vec::new();
     let roots = projects_roots();
+    let archived_root = archived_sessions_dir();
 
     let log_path = dirs::home_dir()
         .unwrap_or_else(|| PathBuf::from("."))
@@ -355,6 +357,7 @@ pub fn scan_local_sessions() -> Result<Vec<Session>> {
             let saved_meta = saved.get(&stem).cloned().unwrap_or_default();
             let favorite = saved_meta.favorite.unwrap_or(false);
             let project_dir = cwd.clone().unwrap_or_else(|| root.to_string_lossy().to_string());
+            let archived = path.starts_with(&archived_root);
 
             total_pushed += 1;
             out.push(Session {
@@ -374,6 +377,7 @@ pub fn scan_local_sessions() -> Result<Vec<Session>> {
                 version: meta.as_ref().and_then(|m| m.version.clone()),
                 first_user_message: meta.as_ref().and_then(|m| m.first_user_message.clone()),
                 storage_type: saved_meta.storage_type.unwrap_or_else(|| "local".into()),
+                archived,
                 locked_by: None,
             });
         }
@@ -434,4 +438,46 @@ pub fn delete_session_file(file_path: &str) -> Result<()> {
         fs::remove_file(path)?;
     }
     Ok(())
+}
+
+fn run_codex_session_action(action: &str, session_id: &str) -> Result<()> {
+    let codex = crate::environment::locate_codex()
+        .ok_or_else(|| anyhow!("codex CLI를 찾을 수 없음"))?;
+    let mut cmd = Command::new(&codex);
+    cmd.arg(action).arg(session_id);
+    #[cfg(target_os = "windows")]
+    {
+        use std::os::windows::process::CommandExt;
+        const CREATE_NO_WINDOW: u32 = 0x0800_0000;
+        cmd.creation_flags(CREATE_NO_WINDOW);
+    }
+    let output = cmd.output().map_err(|e| anyhow!("codex {} 실행 실패: {}", action, e))?;
+    if output.status.success() {
+        Ok(())
+    } else {
+        let stderr = String::from_utf8_lossy(&output.stderr).trim().to_string();
+        Err(anyhow!(
+            "codex {} {} 실패(exit {}): {}",
+            action,
+            session_id,
+            output.status,
+            stderr
+        ))
+    }
+}
+
+pub fn delete_session(session_id: &str, file_path: &str) -> Result<()> {
+    match run_codex_session_action("delete", session_id) {
+        Ok(()) => Ok(()),
+        Err(_) if crate::environment::locate_codex().is_none() => delete_session_file(file_path),
+        Err(e) => Err(e),
+    }
+}
+
+pub fn archive_session(session_id: &str) -> Result<()> {
+    run_codex_session_action("archive", session_id)
+}
+
+pub fn unarchive_session(session_id: &str) -> Result<()> {
+    run_codex_session_action("unarchive", session_id)
 }

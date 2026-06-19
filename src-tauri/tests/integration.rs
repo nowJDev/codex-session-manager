@@ -37,6 +37,56 @@ fn codex_rollout_path(home: &TempHome, date: &str, session_id: &str) -> std::pat
         .join(format!("rollout-{}T10-00-00-{}.jsonl", date, session_id))
 }
 
+fn archived_codex_rollout_path(home: &TempHome, date: &str, session_id: &str) -> std::path::PathBuf {
+    let _ = home;
+    let parts: Vec<&str> = date.split('-').collect();
+    scanner::archived_sessions_dir()
+        .join(parts[0])
+        .join(parts[1])
+        .join(parts[2])
+        .join(format!("rollout-{}T10-00-00-{}.jsonl", date, session_id))
+}
+
+#[cfg(target_os = "windows")]
+fn write_fake_codex(dir: &std::path::Path, log_path: &std::path::Path, target_path: Option<&std::path::Path>) -> std::path::PathBuf {
+    let cli = dir.join("codex.cmd");
+    let target = target_path
+        .map(|p| p.to_string_lossy().to_string())
+        .unwrap_or_default();
+    fs::write(
+        &cli,
+        format!(
+            "@echo off\r\necho %*>>\"{}\"\r\nif \"%1\"==\"delete\" del \"{}\"\r\nexit /b 0\r\n",
+            log_path.display(),
+            target
+        ),
+    )
+    .unwrap();
+    cli
+}
+
+#[cfg(not(target_os = "windows"))]
+fn write_fake_codex(dir: &std::path::Path, log_path: &std::path::Path, target_path: Option<&std::path::Path>) -> std::path::PathBuf {
+    use std::os::unix::fs::PermissionsExt;
+    let cli = dir.join("codex");
+    let target = target_path
+        .map(|p| p.to_string_lossy().to_string())
+        .unwrap_or_default();
+    fs::write(
+        &cli,
+        format!(
+            "#!/bin/sh\nprintf '%s\\n' \"$*\" >> '{}'\nif [ \"$1\" = delete ]; then rm -f '{}'; fi\nexit 0\n",
+            log_path.display(),
+            target
+        ),
+    )
+    .unwrap();
+    let mut perms = fs::metadata(&cli).unwrap().permissions();
+    perms.set_mode(0o755);
+    fs::set_permissions(&cli, perms).unwrap();
+    cli
+}
+
 #[test]
 fn config_roundtrip_creates_and_reads() {
     let _h = setup_temp_home();
@@ -243,6 +293,27 @@ fn scanner_reads_cwd_from_latest_turn_context() {
 }
 
 #[test]
+fn scanner_marks_archived_sessions() {
+    let h = setup_temp_home();
+    let active_id = "24242424-2424-2424-2424-242424242424";
+    let archived_id = "25252525-2525-2525-2525-252525252525";
+    write_jsonl(
+        &codex_rollout_path(&h, "2026-04-01", active_id),
+        &[r#"{"timestamp":"2026-04-01T10:00:00Z","type":"event_msg","payload":{"type":"user_message","message":"active"}}"#],
+    );
+    write_jsonl(
+        &archived_codex_rollout_path(&h, "2026-04-02", archived_id),
+        &[r#"{"timestamp":"2026-04-02T10:00:00Z","type":"event_msg","payload":{"type":"user_message","message":"archived"}}"#],
+    );
+
+    let sessions = scanner::scan_local_sessions().unwrap();
+    let active = sessions.iter().find(|s| s.session_id == active_id).unwrap();
+    let archived = sessions.iter().find(|s| s.session_id == archived_id).unwrap();
+    assert!(!active.archived);
+    assert!(archived.archived);
+}
+
+#[test]
 fn scanner_extracts_text_from_array_content() {
     let h = setup_temp_home();
     let file = codex_rollout_path(&h, "2026-04-01", "33333333-3333-3333-3333-333333333333");
@@ -330,6 +401,46 @@ fn scanner_delete_removes_jsonl_file() {
 
     scanner::delete_session_file(file.to_str().unwrap()).unwrap();
     assert!(!file.exists());
+}
+
+#[test]
+fn scanner_delete_session_uses_codex_cli_before_file_fallback() {
+    let h = setup_temp_home();
+    let cli_dir = tempfile::tempdir().unwrap();
+    let log = cli_dir.path().join("codex.log");
+    let session_id = "12121212-1212-1212-1212-121212121212";
+    let file = codex_rollout_path(&h, "2026-04-01", session_id);
+    write_jsonl(
+        &file,
+        &[r#"{"timestamp":"2026-04-01T00:00:00Z","type":"event_msg","payload":{"type":"user_message","message":"x"}}"#],
+    );
+    let fake = write_fake_codex(cli_dir.path(), &log, Some(&file));
+    std::env::set_var("CODEX_CLI", &fake);
+
+    scanner::delete_session(session_id, file.to_str().unwrap()).unwrap();
+
+    assert!(!file.exists());
+    assert_eq!(fs::read_to_string(log).unwrap().trim(), format!("delete {session_id}"));
+}
+
+#[test]
+fn scanner_archive_actions_use_codex_cli() {
+    let _h = setup_temp_home();
+    let cli_dir = tempfile::tempdir().unwrap();
+    let log = cli_dir.path().join("codex.log");
+    let session_id = "23232323-2323-2323-2323-232323232323";
+    let fake = write_fake_codex(cli_dir.path(), &log, None);
+    std::env::set_var("CODEX_CLI", &fake);
+
+    scanner::archive_session(session_id).unwrap();
+    scanner::unarchive_session(session_id).unwrap();
+
+    let body = fs::read_to_string(log).unwrap();
+    let lines: Vec<&str> = body.lines().collect();
+    assert_eq!(lines, vec![
+        format!("archive {session_id}"),
+        format!("unarchive {session_id}"),
+    ]);
 }
 
 #[test]
