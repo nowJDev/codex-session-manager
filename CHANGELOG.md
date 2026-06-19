@@ -2,6 +2,11 @@
 
 All notable changes to this project are documented here.
 
+## [0.5.1] — 2026-06-19
+
+### Fixed
+- GitHub Actions에서 `pnpm 11.8.0` 실행에 필요한 Node 버전을 24로 올려 릴리스 워크플로의 `node:sqlite` 오류를 수정.
+
 ## [0.5.0] — 2026-06-19
 
 ### Changed
