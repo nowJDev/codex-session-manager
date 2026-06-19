@@ -687,6 +687,35 @@ fn update_version_comparison_handles_v_prefixed_semver() {
     assert!(!update::is_newer_version("0.5.2", "v0.5.1"));
 }
 
+#[test]
+fn updater_configuration_is_enabled_for_installer_builds() {
+    let manifest_dir = std::path::PathBuf::from(env!("CARGO_MANIFEST_DIR"));
+    let tauri_conf = fs::read_to_string(manifest_dir.join("tauri.conf.json")).unwrap();
+    let tauri_conf: serde_json::Value = serde_json::from_str(&tauri_conf).unwrap();
+
+    assert_eq!(
+        tauri_conf["bundle"]["createUpdaterArtifacts"].as_bool(),
+        Some(true)
+    );
+    assert_eq!(
+        tauri_conf["plugins"]["updater"]["endpoints"][0].as_str(),
+        Some("https://github.com/nowJDev/codex-session-manager/releases/latest/download/latest.json")
+    );
+    assert!(tauri_conf["plugins"]["updater"]["pubkey"]
+        .as_str()
+        .is_some_and(|v| !v.trim().is_empty()));
+    assert_eq!(
+        tauri_conf["plugins"]["updater"]["windows"]["installMode"].as_str(),
+        Some("passive")
+    );
+
+    let capability = fs::read_to_string(manifest_dir.join("capabilities/default.json")).unwrap();
+    let capability: serde_json::Value = serde_json::from_str(&capability).unwrap();
+    let permissions = capability["permissions"].as_array().unwrap();
+    assert!(permissions.iter().any(|p| p.as_str() == Some("updater:default")));
+    assert!(permissions.iter().any(|p| p.as_str() == Some("process:default")));
+}
+
 #[cfg(target_os = "windows")]
 #[test]
 fn environment_prefers_cmd_shim_over_extensionless_npm_shim() {

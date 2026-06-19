@@ -1,6 +1,9 @@
 import { useEffect, useState } from "react";
 import { open as openDialog } from "@tauri-apps/plugin-dialog";
 import { openUrl } from "@tauri-apps/plugin-opener";
+import { relaunch } from "@tauri-apps/plugin-process";
+import { check } from "@tauri-apps/plugin-updater";
+import type { DownloadEvent } from "@tauri-apps/plugin-updater";
 import {
   Dialog,
   DialogContent,
@@ -37,6 +40,12 @@ const ALL_TERMINAL_OPTIONS: Array<{ value: "auto" | TerminalKind; labelKey: stri
 function tx(t: Props["t"], key: string, fallback: string) {
   const v = t(key);
   return v === key ? fallback : v;
+}
+
+function progressText(downloaded: number, total?: number): string {
+  if (!total) return `${(downloaded / 1024 / 1024).toFixed(1)} MB 다운로드 중...`;
+  const pct = Math.min(100, Math.round((downloaded / total) * 100));
+  return `${pct}% 다운로드 중 (${(downloaded / 1024 / 1024).toFixed(1)} / ${(total / 1024 / 1024).toFixed(1)} MB)`;
 }
 
 export function SettingsDialog({ open, current, locale, t, onClose, onSaved }: Props) {
@@ -85,6 +94,7 @@ export function SettingsDialog({ open, current, locale, t, onClose, onSaved }: P
   const [updateInfo, setUpdateInfo] = useState<UpdateInfo | null>(null);
   const [updateLoading, setUpdateLoading] = useState(false);
   const [updateError, setUpdateError] = useState<string | null>(null);
+  const [updateProgress, setUpdateProgress] = useState<string | null>(null);
 
   useEffect(() => {
     if (open) {
@@ -105,6 +115,7 @@ export function SettingsDialog({ open, current, locale, t, onClose, onSaved }: P
       setReport(null);
       setUpdateInfo(null);
       setUpdateError(null);
+      setUpdateProgress(null);
     }
   }, [open, current, locale]);
 
@@ -170,11 +181,51 @@ export function SettingsDialog({ open, current, locale, t, onClose, onSaved }: P
   async function checkForUpdates() {
     setUpdateLoading(true);
     setUpdateError(null);
+    setUpdateProgress(null);
     try {
-      const info = await ipc.checkUpdate();
-      setUpdateInfo(info);
+      const releaseInfo = await ipc.checkUpdate().catch(() => null);
+      const update = await check({ timeout: 30000 });
+      if (!update) {
+        if (releaseInfo) setUpdateInfo(releaseInfo);
+        setUpdateProgress("현재 최신 릴리즈를 사용 중입니다.");
+        return;
+      }
+
+      setUpdateInfo({
+        currentVersion: update.currentVersion,
+        latestVersion: update.version,
+        hasUpdate: true,
+        releaseUrl: releaseInfo?.releaseUrl || "https://github.com/nowJDev/codex-session-manager/releases/latest",
+      });
+      setUpdateProgress(`${update.version} 업데이트를 다운로드합니다.`);
+
+      let downloaded = 0;
+      let contentLength: number | undefined;
+      await update.downloadAndInstall((event: DownloadEvent) => {
+        switch (event.event) {
+          case "Started":
+            downloaded = 0;
+            contentLength = event.data.contentLength;
+            setUpdateProgress("다운로드를 시작합니다.");
+            break;
+          case "Progress":
+            downloaded += event.data.chunkLength;
+            setUpdateProgress(progressText(downloaded, contentLength));
+            break;
+          case "Finished":
+            setUpdateProgress("다운로드 완료. 업데이트를 설치합니다.");
+            break;
+        }
+      });
+
+      setUpdateProgress("업데이트 설치 완료. 앱을 재시작합니다.");
+      await relaunch();
     } catch (err) {
-      setUpdateError(String(err));
+      const fallback = await ipc.checkUpdate().catch(() => null);
+      if (fallback) setUpdateInfo(fallback);
+      setUpdateError(
+        `${String(err)}\n설치본 자동 업데이트를 사용할 수 없으면 portable은 릴리즈 열기로 업데이트하세요.`
+      );
     } finally {
       setUpdateLoading(false);
     }
@@ -554,14 +605,14 @@ export function SettingsDialog({ open, current, locale, t, onClose, onSaved }: P
                   onClick={checkForUpdates}
                   disabled={updateLoading}
                 >
-                  {updateLoading ? "확인 중..." : "업데이트 확인"}
+                  {updateLoading ? "진행 중..." : "확인 및 자동 업데이트"}
                 </Button>
                 <Button
                   variant="outline"
                   size="sm"
                   onClick={() => openReleases(updateInfo?.releaseUrl)}
                 >
-                  릴리즈 열기
+                  portable 릴리즈 열기
                 </Button>
               </div>
             </div>
@@ -575,9 +626,12 @@ export function SettingsDialog({ open, current, locale, t, onClose, onSaved }: P
                   </div>
                   <div className={updateInfo.hasUpdate ? "text-amber-400" : "text-green-500"}>
                     {updateInfo.hasUpdate
-                      ? "새 릴리즈가 있습니다. 설치 파일 또는 portable zip을 내려받아 업데이트하세요."
+                      ? "설치본은 자동 다운로드와 설치를 진행합니다. portable은 릴리즈 페이지에서 zip을 내려받아 교체하세요."
                       : "현재 최신 릴리즈를 사용 중입니다."}
                   </div>
+                  {updateProgress && (
+                    <div className="text-muted-foreground">{updateProgress}</div>
+                  )}
                 </div>
               ) : updateError ? (
                 <div className="space-y-1 text-amber-400">
@@ -588,8 +642,11 @@ export function SettingsDialog({ open, current, locale, t, onClose, onSaved }: P
                 </div>
               ) : (
                 <div className="text-muted-foreground">
-                  GitHub 최신 릴리즈를 확인하고 다운로드 페이지를 엽니다.
+                  설치본은 자동 업데이트를 시도하고, portable은 릴리즈 페이지를 엽니다.
                 </div>
+              )}
+              {!updateInfo && updateProgress && (
+                <div className="mt-1 text-muted-foreground">{updateProgress}</div>
               )}
             </div>
           </div>

@@ -29,6 +29,7 @@ Built with **Tauri 2 + Rust + React + TypeScript + Tailwind + shadcn/ui**.
 - **환경 진단**: Codex CLI 위치와 사용 가능한 터미널을 설정 화면에서 확인합니다.
 - **클라우드 동기화**: Google Drive 등 로컬 동기화 폴더 아래 `Codex Sessions` 폴더에 JSONL과 `.meta.json`을 저장합니다.
 - **자동 요약**: 로컬 `codex exec`를 사용해 이름/설명을 생성합니다. 이 기능은 Codex CLI 인증 상태에 의존합니다.
+- **자동 업데이트**: 설치형 앱은 설정 화면에서 새 버전을 확인하고 자동 다운로드/설치를 진행합니다. Portable zip 사용자는 같은 화면에서 릴리즈 페이지를 열어 수동 교체합니다.
 
 ## Requirements
 
@@ -47,6 +48,8 @@ The current release is [Codex Session Manager v0.5.3](https://github.com/nowJDev
 | Windows | `Codex.Session.Manager_0.5.3_x64-setup.exe`, `Codex.Session.Manager_0.5.3_x64_en-US.msi`, or `Codex.Session.Manager_v0.5.3_x64-portable.zip` |
 | macOS Apple Silicon | `Codex.Session.Manager_0.5.3_aarch64.dmg` |
 | Linux | `.deb`, `.rpm`, or `.AppImage` |
+
+설치형 앱의 자동 업데이트는 `v0.5.4` 이후 빌드부터 동작합니다. `v0.5.3` 이하에서 자동 업데이트 기능을 받으려면 한 번은 릴리즈 페이지에서 설치 파일을 직접 받아 설치해야 합니다.
 
 ## From Source
 

@@ -4,6 +4,10 @@ All notable changes to this project are documented here.
 
 ## [Unreleased]
 
+### Added
+- 설치형 앱에서 설정의 업데이트 확인 버튼으로 Tauri updater 기반 자동 다운로드/설치를 실행하도록 추가.
+- GitHub Release에 updater용 서명 산출물과 `latest.json`을 만들 수 있도록 배포 설정을 추가.
+
 ## [0.5.3] — 2026-06-19
 
 ### Fixed
