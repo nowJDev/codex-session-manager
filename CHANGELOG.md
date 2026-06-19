@@ -2,7 +2,7 @@
 
 All notable changes to this project are documented here.
 
-## [0.5.0-codex-port] — 2026-06-19
+## [0.5.0] — 2026-06-19
 
 ### Changed
 - Claude Session Manager를 Codex Session Manager로 fork 이식.
@@ -15,6 +15,9 @@ All notable changes to this project are documented here.
 - 삭제 액션이 `codex delete <session-id>`를 우선 사용하도록 변경.
 - 메뉴와 CLI 하네스에 `codex archive <session-id>` / `codex unarchive <session-id>` 액션 추가.
 - archived 세션을 목록과 상세 패널에서 구분 표시.
+- 첫 Codex 릴리스 버전을 `0.5.0`으로 지정하고 CI/Release pnpm 버전을 `11.8.0`으로 고정.
+- 문서 스크린샷을 Codex Session Manager 화면으로 교체.
+- 레거시 `anthropicApiKey` 설정 필드를 제거. 기존 config에 값이 남아 있어도 로드 후 저장 시 자동으로 제거됨.
 
 ### Fixed
 - Windows npm global 설치에서 `codex` extensionless shim보다 `codex.cmd`를 우선 사용하도록 수정해 버전 감지와 `codex exec` 실행 실패 가능성을 줄임.

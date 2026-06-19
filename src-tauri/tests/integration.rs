@@ -149,6 +149,23 @@ fn config_delete_removes_entry() {
 }
 
 #[test]
+fn config_drops_legacy_anthropic_api_key_on_save() {
+    let _h = setup_temp_home();
+    fs::create_dir_all(config::config_dir()).unwrap();
+    fs::write(
+        config::config_file(),
+        r#"{"sessions":{},"settings":{"locale":"ko","anthropicApiKey":"legacy-secret"}}"#,
+    )
+    .unwrap();
+
+    let cfg = config::load_config();
+    config::save_config(&cfg).unwrap();
+    let body = fs::read_to_string(config::config_file()).unwrap();
+    assert!(!body.contains("anthropicApiKey"));
+    assert!(body.contains("\"locale\": \"ko\""));
+}
+
+#[test]
 fn settings_update_only_overwrites_provided_fields() {
     let _h = setup_temp_home();
     config::update_settings(codex_session_manager_lib::types::Settings {

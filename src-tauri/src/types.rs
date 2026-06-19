@@ -26,8 +26,6 @@ pub struct Settings {
     #[serde(default)]
     pub cloud_path: Option<String>,
     #[serde(default)]
-    pub anthropic_api_key: Option<String>,
-    #[serde(default)]
     pub preferred_terminal: Option<String>,
     #[serde(default)]
     pub resume_flags: Option<String>,

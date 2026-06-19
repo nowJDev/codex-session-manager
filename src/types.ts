@@ -30,7 +30,6 @@ export interface SessionMeta {
 export interface Settings {
   locale?: string | null;
   cloudPath?: string | null;
-  anthropicApiKey?: string | null;
   preferredTerminal?: TerminalKind | "auto" | string | null;
   resumeFlags?: string | null;
   customTerminalProgram?: string | null;
