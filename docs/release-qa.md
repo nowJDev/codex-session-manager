@@ -23,6 +23,14 @@ Smoke-test checklist:
 4. Confirm Settings diagnostics find `codex` when Codex CLI is installed.
 5. Uninstall or keep the app intentionally after testing.
 
+Result on 2026-06-19:
+
+- Downloaded `Codex.Session.Manager_0.5.1_x64-setup.exe` from the GitHub release.
+- Verified SHA256 `f4ca828d4e583a332906c19cbf32e737d91d6fe7e9289688780f0eb28b3cdb4c`, matching the release asset digest.
+- Installed silently into a temporary directory.
+- Launched `codex-session-manager.exe` and confirmed it stayed alive for 8 seconds.
+- Ran the bundled `uninstall.exe /S`; install directory and Start Menu link were removed.
+
 ## Session Action Checks
 
 Archive and deletion actions should continue to use Codex CLI before direct file manipulation:
