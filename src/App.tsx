@@ -186,8 +186,12 @@ function App() {
   }
 
   const total = sessions.length;
-  const localCount = sessions.filter((s) => s.storageType !== "cloud").length;
-  const cloudCount = sessions.filter((s) => s.storageType === "cloud").length;
+  const localCount = sessions.filter(
+    (s) => s.storageType !== "cloud" && s.storageType !== "cloud-only",
+  ).length;
+  const cloudCount = sessions.filter(
+    (s) => s.storageType === "cloud" || s.storageType === "cloud-only",
+  ).length;
 
   return (
     <div className="flex h-screen flex-col bg-background text-foreground">

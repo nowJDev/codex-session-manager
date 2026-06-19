@@ -501,6 +501,37 @@ fn cloud_checkout_restores_codex_rollout_date_path() {
 }
 
 #[test]
+fn cloud_only_sessions_are_reported_with_cloud_only_storage_type() {
+    let h = setup_temp_home();
+    let cloud_root = tempfile::tempdir().unwrap();
+    let session_id = "31313131-3131-3131-3131-313131313131";
+    let file = codex_rollout_path(&h, "2026-04-04", session_id);
+    write_jsonl(
+        &file,
+        &[
+            r#"{"timestamp":"2026-04-04T10:00:00Z","type":"session_meta","payload":{"id":"31313131-3131-3131-3131-313131313131","timestamp":"2026-04-04T10:00:00Z","cwd":"C:/Git/cloud-only","originator":"codex_cli","cli_version":"codex-cli 0.141.0"}}"#,
+            r#"{"timestamp":"2026-04-04T10:00:01Z","type":"event_msg","payload":{"type":"user_message","message":"cloud only"}}"#,
+        ],
+    );
+
+    cloud::set_cloud_root(cloud_root.path().to_str().unwrap()).unwrap();
+    let session = scanner::scan_local_sessions()
+        .unwrap()
+        .into_iter()
+        .find(|s| s.session_id == session_id)
+        .unwrap();
+    cloud::upload_session(&session).unwrap();
+    scanner::delete_session_file(file.to_str().unwrap()).unwrap();
+
+    let cloud_session = cloud::list_cloud_sessions()
+        .unwrap()
+        .into_iter()
+        .find(|s| s.session_id == session_id)
+        .unwrap();
+    assert_eq!(cloud_session.storage_type, "cloud-only");
+}
+
+#[test]
 fn resume_plan_windows_with_git_bash_or_cmd() {
     let plan = resume::build_resume_plan("sess-id", Some("C:/some/path"), "windows");
     assert!(plan.args.iter().any(|a| a.contains("codex resume sess-id")));

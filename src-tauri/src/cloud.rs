@@ -321,7 +321,7 @@ pub fn list_cloud_sessions() -> Result<Vec<Session>> {
             cwd: None,
             version: None,
             first_user_message: None,
-            storage_type: "cloud".into(),
+            storage_type: "cloud-only".into(),
             archived: false,
             favorite: false,
             locked_by,
