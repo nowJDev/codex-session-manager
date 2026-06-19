@@ -7,6 +7,7 @@ pub mod scanner;
 pub mod summary;
 pub mod terminal;
 pub mod types;
+pub mod update;
 
 use crate::config::{
     delete_session_meta as cfg_delete_meta, load_config, update_settings, upsert_session_meta,
@@ -265,6 +266,11 @@ fn check_environment_cmd() -> environment::EnvironmentReport {
 }
 
 #[tauri::command]
+async fn check_update_cmd() -> Result<update::UpdateInfo, String> {
+    update::check_latest_release().await.map_err(to_str)
+}
+
+#[tauri::command]
 async fn generate_summary_cmd(
     session_id: String,
     file_path: String,
@@ -315,6 +321,7 @@ pub fn run() {
             checkin_session,
             resume_session,
             check_environment_cmd,
+            check_update_cmd,
             generate_summary_cmd,
             start_auto_summary,
             detect_google_drive_cmd,

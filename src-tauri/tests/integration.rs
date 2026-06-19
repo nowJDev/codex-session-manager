@@ -1,5 +1,5 @@
 use codex_session_manager_lib::{
-    cloud, config, environment, resume, scanner, summary, terminal,
+    cloud, config, environment, resume, scanner, summary, terminal, update,
     terminal::{DetectedTerminal, TerminalKind},
     types::SessionMeta,
 };
@@ -677,6 +677,14 @@ fn summary_exec_invocation_reads_prompt_from_stdin() {
     assert_eq!(invocation.program, "C:/Users/me/AppData/Roaming/npm/codex.cmd");
     assert_eq!(invocation.args, vec!["exec", "--model", "gpt-5-codex", "-"]);
     assert!(invocation.prompt_on_stdin);
+}
+
+#[test]
+fn update_version_comparison_handles_v_prefixed_semver() {
+    assert!(update::is_newer_version("0.5.1", "v0.5.2"));
+    assert!(update::is_newer_version("0.5.1", "0.6.0"));
+    assert!(!update::is_newer_version("0.5.2", "v0.5.2"));
+    assert!(!update::is_newer_version("0.5.2", "v0.5.1"));
 }
 
 #[cfg(target_os = "windows")]

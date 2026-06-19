@@ -63,6 +63,13 @@ export interface EnvironmentReport {
   terminals: DetectedTerminal[];
 }
 
+export interface UpdateInfo {
+  currentVersion: string;
+  latestVersion: string;
+  hasUpdate: boolean;
+  releaseUrl: string;
+}
+
 export interface AppConfig {
   sessions: Record<string, SessionMeta>;
   settings: Settings;

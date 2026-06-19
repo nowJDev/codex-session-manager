@@ -81,6 +81,20 @@ jobs:
           prerelease: false
           args: ${{ matrix.args }}
 
+      - name: Upload Windows portable zip
+        if: matrix.platform == 'windows-latest'
+        shell: pwsh
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          $tag = "${{ github.ref_name }}"
+          $asset = "Codex.Session.Manager_${tag}_x64-portable.zip"
+          Compress-Archive `
+            -Path "src-tauri/target/release/codex-session-manager.exe" `
+            -DestinationPath $asset `
+            -Force
+          gh release upload $tag $asset --clobber
+
   publish-release:
     needs: build
     runs-on: ubuntu-22.04

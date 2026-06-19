@@ -1,5 +1,6 @@
 import { useEffect, useState } from "react";
 import { open as openDialog } from "@tauri-apps/plugin-dialog";
+import { openUrl } from "@tauri-apps/plugin-opener";
 import {
   Dialog,
   DialogContent,
@@ -12,7 +13,7 @@ import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { ipc } from "@/lib/ipc";
 import type { Locale } from "@/i18n";
-import type { EnvironmentReport, Settings, TerminalKind } from "@/types";
+import type { EnvironmentReport, Settings, TerminalKind, UpdateInfo } from "@/types";
 
 interface Props {
   open: boolean;
@@ -81,6 +82,9 @@ export function SettingsDialog({ open, current, locale, t, onClose, onSaved }: P
   }
   const [report, setReport] = useState<EnvironmentReport | null>(null);
   const [diagLoading, setDiagLoading] = useState(false);
+  const [updateInfo, setUpdateInfo] = useState<UpdateInfo | null>(null);
+  const [updateLoading, setUpdateLoading] = useState(false);
+  const [updateError, setUpdateError] = useState<string | null>(null);
 
   useEffect(() => {
     if (open) {
@@ -99,6 +103,8 @@ export function SettingsDialog({ open, current, locale, t, onClose, onSaved }: P
       setExcludedPaths(current.excludedScanPaths || []);
       setExcludedInput("");
       setReport(null);
+      setUpdateInfo(null);
+      setUpdateError(null);
     }
   }, [open, current, locale]);
 
@@ -159,6 +165,23 @@ export function SettingsDialog({ open, current, locale, t, onClose, onSaved }: P
     } finally {
       setDiagLoading(false);
     }
+  }
+
+  async function checkForUpdates() {
+    setUpdateLoading(true);
+    setUpdateError(null);
+    try {
+      const info = await ipc.checkUpdate();
+      setUpdateInfo(info);
+    } catch (err) {
+      setUpdateError(String(err));
+    } finally {
+      setUpdateLoading(false);
+    }
+  }
+
+  async function openReleases(url?: string) {
+    await openUrl(url || "https://github.com/nowJDev/codex-session-manager/releases");
   }
 
   async function save() {
@@ -519,6 +542,56 @@ export function SettingsDialog({ open, current, locale, t, onClose, onSaved }: P
                 </div>
               </div>
             )}
+          </div>
+
+          <div className="space-y-2 border-t border-border/60 pt-4">
+            <div className="flex items-center justify-between gap-3">
+              <Label>업데이트</Label>
+              <div className="flex gap-2">
+                <Button
+                  variant="outline"
+                  size="sm"
+                  onClick={checkForUpdates}
+                  disabled={updateLoading}
+                >
+                  {updateLoading ? "확인 중..." : "업데이트 확인"}
+                </Button>
+                <Button
+                  variant="outline"
+                  size="sm"
+                  onClick={() => openReleases(updateInfo?.releaseUrl)}
+                >
+                  릴리즈 열기
+                </Button>
+              </div>
+            </div>
+            <div className="rounded-md border border-border/60 bg-muted/30 p-3 text-xs">
+              {updateInfo ? (
+                <div className="space-y-1">
+                  <div>
+                    현재 버전 <span className="font-mono">{updateInfo.currentVersion}</span>
+                    {" / "}
+                    최신 버전 <span className="font-mono">{updateInfo.latestVersion}</span>
+                  </div>
+                  <div className={updateInfo.hasUpdate ? "text-amber-400" : "text-green-500"}>
+                    {updateInfo.hasUpdate
+                      ? "새 릴리즈가 있습니다. 설치 파일 또는 portable zip을 내려받아 업데이트하세요."
+                      : "현재 최신 릴리즈를 사용 중입니다."}
+                  </div>
+                </div>
+              ) : updateError ? (
+                <div className="space-y-1 text-amber-400">
+                  <div>업데이트 정보를 가져오지 못했습니다.</div>
+                  <div className="break-all font-mono text-[11px] text-muted-foreground">
+                    {updateError}
+                  </div>
+                </div>
+              ) : (
+                <div className="text-muted-foreground">
+                  GitHub 최신 릴리즈를 확인하고 다운로드 페이지를 엽니다.
+                </div>
+              )}
+            </div>
           </div>
 
           <div className="space-y-2 border-t border-border/60 pt-4">
