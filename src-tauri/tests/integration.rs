@@ -1,5 +1,5 @@
 use codex_session_manager_lib::{
-    cloud, config, environment, resume, scanner, terminal,
+    cloud, config, environment, resume, scanner, summary, terminal,
     terminal::{DetectedTerminal, TerminalKind},
     types::SessionMeta,
 };
@@ -631,6 +631,14 @@ fn environment_check_returns_consistent_target() {
     assert!(["windows", "macos", "linux"].contains(&report.target_os.as_str()));
     // codex_cli_found must agree with codex_cli_path being Some/None
     assert_eq!(report.codex_cli_found, report.codex_cli_path.is_some());
+}
+
+#[test]
+fn summary_exec_invocation_reads_prompt_from_stdin() {
+    let invocation = summary::build_codex_exec_invocation("C:/Users/me/AppData/Roaming/npm/codex.cmd");
+    assert_eq!(invocation.program, "C:/Users/me/AppData/Roaming/npm/codex.cmd");
+    assert_eq!(invocation.args, vec!["exec", "--model", "gpt-5-codex", "-"]);
+    assert!(invocation.prompt_on_stdin);
 }
 
 #[cfg(target_os = "windows")]

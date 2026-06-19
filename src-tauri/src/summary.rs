@@ -1,12 +1,14 @@
+// Codex 세션 내용을 읽어 이름과 요약을 생성한다.
 use anyhow::{anyhow, Result};
 use std::fs;
+use std::io::Write;
 use std::path::PathBuf;
-use std::process::Command;
+use std::process::{Command, Stdio};
 
 const MODEL: &str = "gpt-5-codex";
 
-/// 격리 cwd. 이 폴더에서 `codex exec`를 실행하면 별도 rollout이 만들어진다.
-/// scanner는 이 폴더(이름에 ".summary-runs"가 포함된 project_dir)를 skip한다.
+/// Isolated cwd for `codex exec` summary runs.
+/// The scanner skips projects whose path contains this marker.
 pub fn isolation_cwd() -> PathBuf {
     let base = dirs::home_dir().unwrap_or_else(|| PathBuf::from("."));
     base.join(".codex-sessions").join(".summary-runs")
@@ -14,24 +16,44 @@ pub fn isolation_cwd() -> PathBuf {
 
 pub const ISOLATION_MARKER: &str = "summary-runs";
 
-/// session 전체에서 헤드 N줄 + 테일 M줄만 추출해 본문으로 쓴다.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct CodexExecInvocation {
+    pub program: String,
+    pub args: Vec<String>,
+    pub prompt_on_stdin: bool,
+}
+
+pub fn build_codex_exec_invocation(codex: &str) -> CodexExecInvocation {
+    CodexExecInvocation {
+        program: codex.to_string(),
+        args: vec![
+            "exec".into(),
+            "--model".into(),
+            MODEL.into(),
+            "-".into(),
+        ],
+        prompt_on_stdin: true,
+    }
+}
+
 fn collect_excerpt(file_path: &str, head_n: usize, tail_n: usize) -> Result<String> {
     use std::io::{BufRead, BufReader};
     let file = fs::File::open(file_path)?;
     let reader = BufReader::new(file);
-    let lines: Vec<String> = reader.lines().filter_map(|r| r.ok()).collect();
+    let lines: Vec<String> = reader.lines().map_while(Result::ok).collect();
     let total = lines.len();
 
-    let pick: Vec<&String> = if total <= head_n + tail_n {
+    let picked: Vec<&String> = if total <= head_n + tail_n {
         lines.iter().collect()
     } else {
-        let head = &lines[..head_n];
-        let tail = &lines[total - tail_n..];
-        head.iter().chain(tail.iter()).collect()
+        lines[..head_n]
+            .iter()
+            .chain(lines[total - tail_n..].iter())
+            .collect()
     };
 
     let mut out = String::new();
-    for line in pick {
+    for line in picked {
         let val: serde_json::Value = match serde_json::from_str(line) {
             Ok(v) => v,
             Err(_) => continue,
@@ -69,7 +91,7 @@ fn collect_excerpt(file_path: &str, head_n: usize, tail_n: usize) -> Result<Stri
             _ => None,
         };
         let Some((role, text)) = item else { continue };
-        if text.is_empty() {
+        if text.trim().is_empty() {
             continue;
         }
         let snippet = text.chars().take(400).collect::<String>();
@@ -105,30 +127,28 @@ fn extract_text(content: &serde_json::Value) -> Option<String> {
     None
 }
 
-/// codex CLI를 격리 cwd에서 헤드리스(exec)로 호출한다.
-/// 호출 직후 격리 폴더 내 모든 jsonl을 삭제하여 무한루프를 방지한다.
 pub fn run_codex_headless(prompt: &str) -> Result<String> {
     let cwd = isolation_cwd();
     fs::create_dir_all(&cwd)?;
 
-    // 호출 직전 스냅샷 (이후 새로 생긴 파일만 정리)
     let projects_root = crate::scanner::projects_dir();
-
-    // codex CLI 절대 경로 (Tauri GUI 앱은 PATH가 불완전할 수 있음)
     let codex = crate::environment::locate_codex().ok_or_else(|| {
         crate::debuglog::log("summary", "ERROR: codex CLI not found anywhere");
-        anyhow!("codex CLI를 찾을 수 없음. 설치 후 PATH 또는 npm global 위치에 있어야 함")
+        anyhow!("codex CLI를 찾을 수 없습니다. Codex CLI 설치와 PATH를 확인하세요.")
     })?;
-    crate::debuglog::log("summary", &format!("codex path: {}", codex));
+    let invocation = build_codex_exec_invocation(&codex);
+    crate::debuglog::log(
+        "summary",
+        &format!("codex path: {}; args: {:?}", invocation.program, invocation.args),
+    );
 
-    let mut cmd = Command::new(&codex);
-    cmd.arg("exec")
-        .arg("--model")
-        .arg(MODEL)
-        .arg(prompt)
-        .current_dir(&cwd);
+    let mut cmd = Command::new(&invocation.program);
+    cmd.args(&invocation.args)
+        .current_dir(&cwd)
+        .stdin(Stdio::piped())
+        .stdout(Stdio::piped())
+        .stderr(Stdio::piped());
 
-    // Windows에서 콘솔 창 뜨는 거 방지
     #[cfg(target_os = "windows")]
     {
         use std::os::windows::process::CommandExt;
@@ -136,32 +156,20 @@ pub fn run_codex_headless(prompt: &str) -> Result<String> {
         cmd.creation_flags(CREATE_NO_WINDOW);
     }
 
-    let output = cmd.output().map_err(|e| {
+    let mut child = cmd.spawn().map_err(|e| {
         crate::debuglog::log("summary", &format!("ERROR spawn failed: {}", e));
-        anyhow!("codex CLI 실행 실패 ({}): {}", codex, e)
+        anyhow!("codex CLI 실행 실패 ({}): {}", invocation.program, e)
     })?;
-
-    // 격리 cwd로 만들어진 project 폴더 (이름에 .summary-runs 포함) 내부 jsonl 정리
-    if projects_root.exists() {
-        if let Ok(entries) = fs::read_dir(&projects_root) {
-            for entry in entries.flatten() {
-                let name = entry.file_name().to_string_lossy().to_string();
-                if name.contains(ISOLATION_MARKER) {
-                    let p = entry.path();
-                    if p.is_dir() {
-                        if let Ok(files) = fs::read_dir(&p) {
-                            for f in files.flatten() {
-                                let fp = f.path();
-                                if fp.extension().and_then(|s| s.to_str()) == Some("jsonl") {
-                                    let _ = fs::remove_file(&fp);
-                                }
-                            }
-                        }
-                    }
-                }
-            }
-        }
+    if invocation.prompt_on_stdin {
+        let mut stdin = child
+            .stdin
+            .take()
+            .ok_or_else(|| anyhow!("codex stdin을 열 수 없습니다."))?;
+        stdin.write_all(prompt.as_bytes())?;
     }
+
+    let output = child.wait_with_output()?;
+    cleanup_summary_rollouts(&projects_root);
 
     if !output.status.success() {
         let stderr = String::from_utf8_lossy(&output.stderr);
@@ -176,9 +184,31 @@ pub fn run_codex_headless(prompt: &str) -> Result<String> {
     Ok(stdout)
 }
 
-/// 여러 세션을 한 번의 codex 호출로 일괄 요약.
-/// 입력: [(session_id, file_path)]
-/// 반환: HashMap<session_id, (name, desc)>. 응답에 누락된 세션은 맵에서 빠진다.
+fn cleanup_summary_rollouts(projects_root: &std::path::Path) {
+    if !projects_root.exists() {
+        return;
+    }
+    let Ok(entries) = fs::read_dir(projects_root) else { return };
+    for entry in entries.flatten() {
+        let name = entry.file_name().to_string_lossy().to_string();
+        if !name.contains(ISOLATION_MARKER) {
+            continue;
+        }
+        let p = entry.path();
+        if !p.is_dir() {
+            continue;
+        }
+        if let Ok(files) = fs::read_dir(&p) {
+            for f in files.flatten() {
+                let fp = f.path();
+                if fp.extension().and_then(|s| s.to_str()) == Some("jsonl") {
+                    let _ = fs::remove_file(&fp);
+                }
+            }
+        }
+    }
+}
+
 pub fn auto_summarize_batch(
     items: &[(String, String)],
 ) -> Result<std::collections::HashMap<String, (String, String)>> {
@@ -187,23 +217,20 @@ pub fn auto_summarize_batch(
     }
 
     let mut body = String::new();
-    body.push_str(
-        "다음은 여러 Codex 세션의 발췌다. 각 세션마다 한국어로 NAME과 DESC를 정확한 형식으로 출력하라.\n\n",
-    );
-    body.push_str("출력 형식 (반드시 모든 세션에 대해 빠짐없이):\n");
+    body.push_str("Summarize the following Codex sessions in Korean.\n");
+    body.push_str("Return every session in this exact format, without markdown fences:\n\n");
     body.push_str("=== 1 ===\n");
-    body.push_str("NAME: <12자 이내 짧은 제목, 따옴표 없이>\n");
-    body.push_str("DESC: <100자 이내 한 문장 요약, 따옴표 없이>\n");
+    body.push_str("NAME: <short Korean title, 12 chars or fewer, no quotes>\n");
+    body.push_str("DESC: <one Korean sentence, 100 chars or fewer, no quotes>\n");
     body.push_str("=== 2 ===\n");
     body.push_str("NAME: ...\n");
-    body.push_str("DESC: ...\n");
-    body.push_str("...\n\n");
-    body.push_str("세션 본문:\n\n");
+    body.push_str("DESC: ...\n\n");
+    body.push_str("Sessions:\n\n");
 
     for (i, (_id, path)) in items.iter().enumerate() {
         let excerpt = collect_excerpt(path, 30, 20).unwrap_or_default();
         if excerpt.trim().is_empty() {
-            body.push_str(&format!("--- {} ---\n(빈 세션)\n\n", i + 1));
+            body.push_str(&format!("--- {} ---\n(empty session)\n\n", i + 1));
         } else {
             body.push_str(&format!("--- {} ---\n{}\n\n", i + 1, excerpt));
         }
@@ -212,7 +239,6 @@ pub fn auto_summarize_batch(
     let out = run_codex_headless(&body)?;
     let mut result: std::collections::HashMap<String, (String, String)> = Default::default();
 
-    // === N === 블록 단위 파싱
     let mut current_idx: Option<usize> = None;
     let mut current_name = String::new();
     let mut current_desc = String::new();
@@ -252,31 +278,29 @@ pub fn auto_summarize_batch(
     Ok(result)
 }
 
-/// 세션 description+name 자동 생성.
-/// previous_summary가 있으면 재생성으로 간주해 이전 내용을 피해 다른 관점으로 요약.
 pub fn auto_summarize_session(
     file_path: &str,
     previous_summary: Option<&str>,
 ) -> Result<(String, String)> {
     let excerpt = collect_excerpt(file_path, 80, 40)?;
     if excerpt.trim().is_empty() {
-        return Err(anyhow!("세션이 비어있음"));
+        return Err(anyhow!("세션이 비어 있습니다."));
     }
 
     let regen_hint = match previous_summary {
         Some(prev) if !prev.trim().is_empty() => format!(
-            "\n\n이전 요약: \"{}\"\n위와 겹치지 않게 덜 강조한 부분/다른 관점으로 다시 요약하라.",
+            "\nPrevious summary: \"{}\"\nUse a different angle and avoid repeating it.",
             prev
         ),
         _ => String::new(),
     };
 
     let prompt = format!(
-        "다음은 Codex 세션의 일부 발췌다. 이 세션이 무엇에 관한 것인지 한국어로 두 줄만 출력하라.{}\n\n\
-        형식:\n\
-        NAME: <12자 이내 짧은 제목, 따옴표 없이>\n\
-        DESC: <100자 이내 한 문장 요약, 따옴표 없이>\n\n\
-        세션 발췌:\n{}",
+        "Summarize this Codex session in Korean.{}\n\n\
+        Output exactly two lines, without markdown fences:\n\
+        NAME: <short Korean title, 12 chars or fewer, no quotes>\n\
+        DESC: <one Korean sentence, 100 chars or fewer, no quotes>\n\n\
+        Session excerpt:\n{}",
         regen_hint, excerpt
     );
 
@@ -292,11 +316,9 @@ pub fn auto_summarize_session(
         }
     }
     if name.is_empty() && desc.is_empty() {
-        // 형식 무시하고 그냥 한 줄 떨어진 경우 — desc만 채움
         desc = out.lines().next().unwrap_or("").trim().to_string();
     }
     if name.is_empty() {
-        // name 누락 시 desc 앞부분 사용
         name = desc.chars().take(12).collect();
     }
     Ok((name, desc))
@@ -315,7 +337,7 @@ mod tests {
             &file,
             [
                 r#"{"timestamp":"2026-06-19T00:00:00Z","type":"event_msg","payload":{"type":"user_message","message":"사용자가 요청한 내용"}}"#,
-                r#"{"timestamp":"2026-06-19T00:00:01Z","type":"response_item","payload":{"type":"message","role":"assistant","content":[{"type":"output_text","text":"어시스턴트 응답"}]}}"#,
+                r#"{"timestamp":"2026-06-19T00:00:01Z","type":"response_item","payload":{"type":"message","role":"assistant","content":[{"type":"output_text","text":"어시스턴트의 응답"}]}}"#,
             ]
             .join("\n"),
         )
@@ -323,6 +345,6 @@ mod tests {
 
         let excerpt = collect_excerpt(file.to_str().unwrap(), 10, 10).unwrap();
         assert!(excerpt.contains("[user] 사용자가 요청한 내용"));
-        assert!(excerpt.contains("[assistant] 어시스턴트 응답"));
+        assert!(excerpt.contains("[assistant] 어시스턴트의 응답"));
     }
 }
