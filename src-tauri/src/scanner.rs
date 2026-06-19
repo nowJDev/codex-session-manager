@@ -3,6 +3,7 @@ use crate::config::load_config;
 use crate::types::Session;
 use anyhow::{anyhow, Result};
 use serde_json::Value;
+use std::collections::HashMap;
 use std::fs;
 use std::io::{BufRead, BufReader};
 use std::path::{Path, PathBuf};
@@ -178,6 +179,41 @@ fn truncate(s: &str, n: usize) -> String {
     s.chars().take(n).collect()
 }
 
+fn compact_whitespace(s: &str) -> String {
+    s.split_whitespace().collect::<Vec<_>>().join(" ")
+}
+
+fn first_user_message_name(message: &str) -> Option<String> {
+    let compact = compact_whitespace(message);
+    if compact.is_empty() {
+        None
+    } else {
+        Some(truncate(&compact, 24))
+    }
+}
+
+fn load_session_index_names() -> HashMap<String, String> {
+    let path = codex_home().join("session_index.jsonl");
+    let Ok(file) = fs::File::open(path) else { return HashMap::new() };
+    let reader = BufReader::new(file);
+    let mut names = HashMap::new();
+    for line in reader.lines().map_while(Result::ok) {
+        let Ok(val) = serde_json::from_str::<Value>(&line) else { continue };
+        let Some(id) = val.get("id").and_then(|v| v.as_str()) else { continue };
+        let name = val
+            .get("thread_name")
+            .or_else(|| val.get("name"))
+            .or_else(|| val.get("title"))
+            .and_then(|v| v.as_str())
+            .map(compact_whitespace)
+            .filter(|s| !s.is_empty());
+        if let Some(name) = name {
+            names.insert(id.to_string(), name);
+        }
+    }
+    names
+}
+
 fn project_name_from_cwd(cwd: Option<&str>, fallback: &str) -> String {
     cwd.and_then(|p| {
         Path::new(p)
@@ -274,6 +310,7 @@ pub fn scan_local_sessions() -> Result<Vec<Session>> {
     }
     let cfg_full = load_config();
     let saved = cfg_full.sessions;
+    let index_names = load_session_index_names();
 
     let excluded_raw: Vec<String> = cfg_full
         .settings
@@ -355,6 +392,14 @@ pub fn scan_local_sessions() -> Result<Vec<Session>> {
             }
 
             let saved_meta = saved.get(&stem).cloned().unwrap_or_default();
+            let inferred_name = index_names
+                .get(&stem)
+                .cloned()
+                .or_else(|| {
+                    meta.as_ref()
+                        .and_then(|m| m.first_user_message.as_deref())
+                        .and_then(first_user_message_name)
+                });
             let favorite = saved_meta.favorite.unwrap_or(false);
             let project_dir = cwd.clone().unwrap_or_else(|| root.to_string_lossy().to_string());
             let archived = path.starts_with(&archived_root);
@@ -362,7 +407,7 @@ pub fn scan_local_sessions() -> Result<Vec<Session>> {
             total_pushed += 1;
             out.push(Session {
                 session_id: stem,
-                name: saved_meta.name,
+                name: saved_meta.name.or(inferred_name),
                 description: saved_meta.description,
                 auto_summary: saved_meta.auto_summary,
                 favorite,

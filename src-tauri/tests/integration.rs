@@ -389,6 +389,44 @@ fn scanner_merges_saved_metadata() {
 }
 
 #[test]
+fn scanner_uses_codex_session_index_name_when_saved_name_is_missing() {
+    let h = setup_temp_home();
+    let session_id = "abababab-1111-2222-3333-444444444444";
+    let file = codex_rollout_path(&h, "2026-04-01", session_id);
+    write_jsonl(
+        &file,
+        &[r#"{"timestamp":"2026-04-01T00:00:00Z","type":"event_msg","payload":{"type":"user_message","message":"fallback should not win"}}"#],
+    );
+    fs::write(
+        scanner::codex_home().join("session_index.jsonl"),
+        format!(
+            r#"{{"id":"{}","thread_name":"릴리즈 설치 검증","updated_at":"2026-06-19T00:00:00Z"}}"#,
+            session_id
+        ),
+    )
+    .unwrap();
+
+    let sessions = scanner::scan_local_sessions().unwrap();
+    let s = sessions.iter().find(|s| s.session_id == session_id).unwrap();
+    assert_eq!(s.name.as_deref(), Some("릴리즈 설치 검증"));
+}
+
+#[test]
+fn scanner_falls_back_to_first_user_message_as_name() {
+    let h = setup_temp_home();
+    let session_id = "cdcdcdcd-1111-2222-3333-444444444444";
+    let file = codex_rollout_path(&h, "2026-04-01", session_id);
+    write_jsonl(
+        &file,
+        &[r#"{"timestamp":"2026-04-01T00:00:00Z","type":"event_msg","payload":{"type":"user_message","message":"업데이트 버튼을 추가해줘. 설치 과정을 쉽게 만들고 싶어."}}"#],
+    );
+
+    let sessions = scanner::scan_local_sessions().unwrap();
+    let s = sessions.iter().find(|s| s.session_id == session_id).unwrap();
+    assert_eq!(s.name.as_deref(), Some("업데이트 버튼을 추가해줘. 설치 과정을 쉽게"));
+}
+
+#[test]
 fn scanner_skips_malformed_jsonl_lines() {
     let h = setup_temp_home();
     let session_id = "77777777-7777-7777-7777-777777777777";
