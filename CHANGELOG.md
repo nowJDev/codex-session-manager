@@ -4,6 +4,12 @@ All notable changes to this project are documented here.
 
 ## [Unreleased]
 
+## [0.5.3] — 2026-06-19
+
+### Fixed
+- 이전 버전에서 저장된 자동 요약 실패 문구가 목록 설명에 계속 표시되던 문제를 수정.
+- 자동 요약 실패/누락 마커가 남아 있는 세션을 다시 요약 대상으로 분류하도록 수정.
+
 ## [0.5.2] — 2026-06-19
 
 ### Added
