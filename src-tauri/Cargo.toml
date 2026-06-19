@@ -1,13 +1,13 @@
 [package]
-name = "claude-session-manager"
-version = "0.4.8"
-description = "Claude Code session manager (Tauri)"
-authors = ["glowElephant"]
+name = "codex-session-manager"
+version = "0.5.0"
+description = "Codex session manager (Tauri)"
+authors = ["nowJDev", "glowElephant"]
 edition = "2021"
-default-run = "claude-session-manager"
+default-run = "codex-session-manager"
 
 [lib]
-name = "claude_session_manager_lib"
+name = "codex_session_manager_lib"
 crate-type = ["staticlib", "cdylib", "rlib"]
 
 [build-dependencies]
@@ -31,7 +31,7 @@ tokio = { version = "1", features = ["full"] }
 tempfile = "3"
 
 [[bin]]
-name = "claude-session-manager"
+name = "codex-session-manager"
 path = "src/main.rs"
 
 [[bin]]

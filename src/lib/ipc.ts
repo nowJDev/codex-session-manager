@@ -14,6 +14,10 @@ export const ipc = {
     invoke<void>("save_session_meta", { sessionId, patch }),
   deleteSession: (sessionId: string, filePath: string) =>
     invoke<void>("delete_session", { sessionId, filePath }),
+  archiveSession: (sessionId: string) =>
+    invoke<void>("archive_session", { sessionId }),
+  unarchiveSession: (sessionId: string) =>
+    invoke<void>("unarchive_session", { sessionId }),
   saveSettings: (patch: Settings) => invoke<void>("save_settings", { patch }),
   setCloudFolder: (root: string) =>
     invoke<string>("set_cloud_folder", { root }),

@@ -3,14 +3,13 @@ use std::fs;
 use std::path::PathBuf;
 use std::process::Command;
 
-const MODEL: &str = "claude-haiku-4-5";
+const MODEL: &str = "gpt-5-codex";
 
-/// 격리 cwd. 이 폴더에서 `claude -p`를 실행하면 jsonl이
-/// ~/.claude/projects/<encoded-cwd>/ 아래로 격리되어 만들어진다.
+/// 격리 cwd. 이 폴더에서 `codex exec`를 실행하면 별도 rollout이 만들어진다.
 /// scanner는 이 폴더(이름에 ".summary-runs"가 포함된 project_dir)를 skip한다.
 pub fn isolation_cwd() -> PathBuf {
     let base = dirs::home_dir().unwrap_or_else(|| PathBuf::from("."));
-    base.join(".claude-sessions").join(".summary-runs")
+    base.join(".codex-sessions").join(".summary-runs")
 }
 
 pub const ISOLATION_MARKER: &str = "summary-runs";
@@ -38,19 +37,45 @@ fn collect_excerpt(file_path: &str, head_n: usize, tail_n: usize) -> Result<Stri
             Err(_) => continue,
         };
         let ty = val.get("type").and_then(|v| v.as_str()).unwrap_or("");
-        if ty != "user" && ty != "assistant" {
+        let item = match ty {
+            "user" | "assistant" => val
+                .pointer("/message/content")
+                .and_then(extract_text)
+                .map(|text| (ty, text)),
+            "event_msg" => {
+                let payload = val.get("payload").unwrap_or(&serde_json::Value::Null);
+                if payload.get("type").and_then(|v| v.as_str()) == Some("user_message") {
+                    payload
+                        .get("message")
+                        .and_then(extract_text)
+                        .map(|text| ("user", text))
+                } else {
+                    None
+                }
+            }
+            "response_item" => {
+                let payload = val.get("payload").unwrap_or(&serde_json::Value::Null);
+                payload
+                    .get("role")
+                    .and_then(|v| v.as_str())
+                    .filter(|role| *role == "user" || *role == "assistant")
+                    .and_then(|role| {
+                        payload
+                            .get("content")
+                            .and_then(extract_text)
+                            .map(|text| (role, text))
+                    })
+            }
+            _ => None,
+        };
+        let Some((role, text)) = item else { continue };
+        if text.is_empty() {
             continue;
         }
-        if let Some(content) = val.pointer("/message/content") {
-            let text = extract_text(content).unwrap_or_default();
-            if text.is_empty() {
-                continue;
-            }
-            let snippet = text.chars().take(400).collect::<String>();
-            out.push_str(&format!("[{}] {}\n", ty, snippet));
-            if out.len() > 20_000 {
-                break;
-            }
+        let snippet = text.chars().take(400).collect::<String>();
+        out.push_str(&format!("[{}] {}\n", role, snippet));
+        if out.len() > 20_000 {
+            break;
         }
     }
     Ok(out)
@@ -63,7 +88,10 @@ fn extract_text(content: &serde_json::Value) -> Option<String> {
     if let Some(arr) = content.as_array() {
         let mut buf = String::new();
         for item in arr {
-            if item.get("type").and_then(|v| v.as_str()) == Some("text") {
+            if matches!(
+                item.get("type").and_then(|v| v.as_str()),
+                Some("text") | Some("output_text") | Some("input_text")
+            ) {
                 if let Some(t) = item.get("text").and_then(|v| v.as_str()) {
                     buf.push_str(t);
                     buf.push('\n');
@@ -77,24 +105,24 @@ fn extract_text(content: &serde_json::Value) -> Option<String> {
     None
 }
 
-/// claude CLI를 격리 cwd에서 헤드리스(-p)로 호출한다.
+/// codex CLI를 격리 cwd에서 헤드리스(exec)로 호출한다.
 /// 호출 직후 격리 폴더 내 모든 jsonl을 삭제하여 무한루프를 방지한다.
-pub fn run_claude_headless(prompt: &str) -> Result<String> {
+pub fn run_codex_headless(prompt: &str) -> Result<String> {
     let cwd = isolation_cwd();
     fs::create_dir_all(&cwd)?;
 
     // 호출 직전 스냅샷 (이후 새로 생긴 파일만 정리)
     let projects_root = crate::scanner::projects_dir();
 
-    // claude CLI 절대 경로 (Tauri GUI 앱은 PATH가 불완전할 수 있음)
-    let claude = crate::environment::locate_claude().ok_or_else(|| {
-        crate::debuglog::log("summary", "ERROR: claude CLI not found anywhere");
-        anyhow!("claude CLI를 찾을 수 없음. 설치 후 PATH 또는 ~/.local/bin/claude 위치에 있어야 함")
+    // codex CLI 절대 경로 (Tauri GUI 앱은 PATH가 불완전할 수 있음)
+    let codex = crate::environment::locate_codex().ok_or_else(|| {
+        crate::debuglog::log("summary", "ERROR: codex CLI not found anywhere");
+        anyhow!("codex CLI를 찾을 수 없음. 설치 후 PATH 또는 npm global 위치에 있어야 함")
     })?;
-    crate::debuglog::log("summary", &format!("claude path: {}", claude));
+    crate::debuglog::log("summary", &format!("codex path: {}", codex));
 
-    let mut cmd = Command::new(&claude);
-    cmd.arg("-p")
+    let mut cmd = Command::new(&codex);
+    cmd.arg("exec")
         .arg("--model")
         .arg(MODEL)
         .arg(prompt)
@@ -110,7 +138,7 @@ pub fn run_claude_headless(prompt: &str) -> Result<String> {
 
     let output = cmd.output().map_err(|e| {
         crate::debuglog::log("summary", &format!("ERROR spawn failed: {}", e));
-        anyhow!("claude CLI 실행 실패 ({}): {}", claude, e)
+        anyhow!("codex CLI 실행 실패 ({}): {}", codex, e)
     })?;
 
     // 격리 cwd로 만들어진 project 폴더 (이름에 .summary-runs 포함) 내부 jsonl 정리
@@ -139,16 +167,16 @@ pub fn run_claude_headless(prompt: &str) -> Result<String> {
         let stderr = String::from_utf8_lossy(&output.stderr);
         crate::debuglog::log(
             "summary",
-            &format!("ERROR claude exit {}: stderr={}", output.status, stderr),
+            &format!("ERROR codex exit {}: stderr={}", output.status, stderr),
         );
-        return Err(anyhow!("claude exit {}: {}", output.status, stderr));
+        return Err(anyhow!("codex exit {}: {}", output.status, stderr));
     }
     let stdout = String::from_utf8_lossy(&output.stdout).trim().to_string();
     crate::debuglog::log("summary", &format!("OK ({} chars)", stdout.len()));
     Ok(stdout)
 }
 
-/// 여러 세션을 한 번의 claude 호출로 일괄 요약.
+/// 여러 세션을 한 번의 codex 호출로 일괄 요약.
 /// 입력: [(session_id, file_path)]
 /// 반환: HashMap<session_id, (name, desc)>. 응답에 누락된 세션은 맵에서 빠진다.
 pub fn auto_summarize_batch(
@@ -160,7 +188,7 @@ pub fn auto_summarize_batch(
 
     let mut body = String::new();
     body.push_str(
-        "다음은 여러 Claude Code 세션의 발췌다. 각 세션마다 한국어로 NAME과 DESC를 정확한 형식으로 출력하라.\n\n",
+        "다음은 여러 Codex 세션의 발췌다. 각 세션마다 한국어로 NAME과 DESC를 정확한 형식으로 출력하라.\n\n",
     );
     body.push_str("출력 형식 (반드시 모든 세션에 대해 빠짐없이):\n");
     body.push_str("=== 1 ===\n");
@@ -181,7 +209,7 @@ pub fn auto_summarize_batch(
         }
     }
 
-    let out = run_claude_headless(&body)?;
+    let out = run_codex_headless(&body)?;
     let mut result: std::collections::HashMap<String, (String, String)> = Default::default();
 
     // === N === 블록 단위 파싱
@@ -244,7 +272,7 @@ pub fn auto_summarize_session(
     };
 
     let prompt = format!(
-        "다음은 Claude Code 세션의 일부 발췌다. 이 세션이 무엇에 관한 것인지 한국어로 두 줄만 출력하라.{}\n\n\
+        "다음은 Codex 세션의 일부 발췌다. 이 세션이 무엇에 관한 것인지 한국어로 두 줄만 출력하라.{}\n\n\
         형식:\n\
         NAME: <12자 이내 짧은 제목, 따옴표 없이>\n\
         DESC: <100자 이내 한 문장 요약, 따옴표 없이>\n\n\
@@ -252,7 +280,7 @@ pub fn auto_summarize_session(
         regen_hint, excerpt
     );
 
-    let out = run_claude_headless(&prompt)?;
+    let out = run_codex_headless(&prompt)?;
     let mut name = String::new();
     let mut desc = String::new();
     for line in out.lines() {
@@ -272,4 +300,29 @@ pub fn auto_summarize_session(
         name = desc.chars().take(12).collect();
     }
     Ok((name, desc))
+}
+
+#[cfg(test)]
+mod tests {
+    use super::collect_excerpt;
+    use std::fs;
+
+    #[test]
+    fn collect_excerpt_reads_codex_user_and_assistant_records() {
+        let dir = tempfile::tempdir().unwrap();
+        let file = dir.path().join("session.jsonl");
+        fs::write(
+            &file,
+            [
+                r#"{"timestamp":"2026-06-19T00:00:00Z","type":"event_msg","payload":{"type":"user_message","message":"사용자가 요청한 내용"}}"#,
+                r#"{"timestamp":"2026-06-19T00:00:01Z","type":"response_item","payload":{"type":"message","role":"assistant","content":[{"type":"output_text","text":"어시스턴트 응답"}]}}"#,
+            ]
+            .join("\n"),
+        )
+        .unwrap();
+
+        let excerpt = collect_excerpt(file.to_str().unwrap(), 10, 10).unwrap();
+        assert!(excerpt.contains("[user] 사용자가 요청한 내용"));
+        assert!(excerpt.contains("[assistant] 어시스턴트 응답"));
+    }
 }

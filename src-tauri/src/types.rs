@@ -26,8 +26,6 @@ pub struct Settings {
     #[serde(default)]
     pub cloud_path: Option<String>,
     #[serde(default)]
-    pub anthropic_api_key: Option<String>,
-    #[serde(default)]
     pub preferred_terminal: Option<String>,
     #[serde(default)]
     pub resume_flags: Option<String>,
@@ -73,6 +71,8 @@ pub struct Session {
     pub version: Option<String>,
     pub first_user_message: Option<String>,
     pub storage_type: String,
+    #[serde(default)]
+    pub archived: bool,
     #[serde(default)]
     pub favorite: bool,
     #[serde(default, skip_serializing_if = "Option::is_none")]

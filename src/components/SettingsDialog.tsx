@@ -62,7 +62,7 @@ export function SettingsDialog({ open, current, locale, t, onClose, onSaved }: P
     let bypass = false, debug = false, verbose = false;
     const rest: string[] = [];
     for (const tk of tokens) {
-      if (tk === "--dangerously-skip-permissions") bypass = true;
+      if (tk === "--dangerously-bypass-approvals-and-sandbox" || tk === "--dangerously-skip-permissions") bypass = true;
       else if (tk === "--debug") debug = true;
       else if (tk === "--verbose") verbose = true;
       else rest.push(tk);
@@ -72,7 +72,7 @@ export function SettingsDialog({ open, current, locale, t, onClose, onSaved }: P
 
   function composeFlags(): string {
     const parts: string[] = [];
-    if (flagBypass) parts.push("--dangerously-skip-permissions");
+    if (flagBypass) parts.push("--dangerously-bypass-approvals-and-sandbox");
     if (flagDebug) parts.push("--debug");
     if (flagVerbose) parts.push("--verbose");
     const tail = extraFlags.trim();
@@ -243,12 +243,12 @@ export function SettingsDialog({ open, current, locale, t, onClose, onSaved }: P
               </div>
               <div className="space-y-1">
                 <span className="text-xs text-muted-foreground">
-                  Args template — tokens: <code>{`{cwd}`}</code>, <code>{`{id}`}</code>, <code>{`{flags}`}</code>, <code>{`{claude_invoke}`}</code>
+                  Args template — tokens: <code>{`{cwd}`}</code>, <code>{`{id}`}</code>, <code>{`{flags}`}</code>, <code>{`{codex_invoke}`}</code>
                 </span>
                 <Input
                   value={customArgs}
                   onChange={(e) => setCustomArgs(e.target.value)}
-                  placeholder='-e bash -c "cd {cwd} && {claude_invoke}; exec bash"'
+                  placeholder='-e bash -c "cd {cwd} && {codex_invoke}; exec bash"'
                 />
               </div>
             </div>
@@ -257,7 +257,7 @@ export function SettingsDialog({ open, current, locale, t, onClose, onSaved }: P
           <div className="space-y-3">
             <Label>Resume options</Label>
             <p className="text-xs text-muted-foreground -mt-1">
-              세션 실행 시 <code>claude</code>에 전달되는 시작 플래그. 실행 후 변경 불가한 옵션만 노출.
+              세션 실행 시 <code>codex resume</code>에 전달되는 시작 플래그. 실행 후 변경 불가한 옵션만 노출.
             </p>
 
             <label className="flex items-start gap-2 cursor-pointer">
@@ -269,10 +269,10 @@ export function SettingsDialog({ open, current, locale, t, onClose, onSaved }: P
               />
               <div className="flex-1">
                 <div className="text-sm font-medium">
-                  Skip permissions <span className="font-mono text-xs text-muted-foreground">--dangerously-skip-permissions</span>
+                  Bypass approvals and sandbox <span className="font-mono text-xs text-muted-foreground">--dangerously-bypass-approvals-and-sandbox</span>
                 </div>
                 <div className="text-xs text-muted-foreground">
-                  모든 도구 사용 권한 확인을 건너뜀(bypass 모드). 신뢰하는 작업만 켜기.
+                  승인과 샌드박스를 모두 건너뜀. 신뢰하는 작업만 켜기.
                 </div>
               </div>
             </label>
@@ -313,26 +313,25 @@ export function SettingsDialog({ open, current, locale, t, onClose, onSaved }: P
 
             <div className="space-y-1 pt-1">
               <span className="text-xs text-muted-foreground">
-                Additional flags (자유 입력 — <code>--mcp-config</code>, <code>--allowedTools</code> 등 특수 케이스용)
+                Additional flags (자유 입력 — <code>--sandbox</code>, <code>--ask-for-approval</code>, <code>--model</code> 등 특수 케이스용)
               </span>
               <Input
                 value={extraFlags}
                 onChange={(e) => setExtraFlags(e.target.value)}
-                placeholder="--mcp-config /path/to/mcp.json"
+                placeholder="--sandbox workspace-write --ask-for-approval on-request"
               />
             </div>
 
             <div className="rounded bg-muted/30 px-2 py-1.5 font-mono text-[11px] text-muted-foreground">
               <span className="text-foreground/70">미리보기:</span>{" "}
-              claude {composeFlags() || <span className="italic">(플래그 없음)</span>} --resume &lt;id&gt;
+              codex resume {composeFlags() || <span className="italic">(플래그 없음)</span>} &lt;id&gt;
             </div>
           </div>
 
           <div className="space-y-2">
             <Label>추가 세션 경로 (WSL · 외부 디렉토리)</Label>
             <p className="text-xs text-muted-foreground">
-              기본 <code>~/.claude/projects</code> 외에 추가로 스캔할 폴더.
-              Windows에서는 WSL의 <code>~/.claude/projects</code>를 자동으로 찾아 합칩니다.
+              기본 <code>~/.codex/sessions</code>와 <code>~/.codex/archived_sessions</code> 외에 추가로 스캔할 폴더.
             </p>
 
             <label className="flex items-center gap-2 cursor-pointer">
@@ -459,7 +458,7 @@ export function SettingsDialog({ open, current, locale, t, onClose, onSaved }: P
             </div>
             <p className="text-xs text-muted-foreground">
               Google Drive 데스크탑 클라이언트가 설치돼 있으면 [자동 연결] 한 번으로 끝.
-              세션은 <code>{`<드라이브>/Claude Sessions/`}</code>에 저장됩니다.
+              세션은 <code>{`<드라이브>/Codex Sessions/`}</code>에 저장됩니다.
               업로드 후 로컬 jsonl은 자동 삭제(단일 본체 원칙).
             </p>
           </div>
@@ -476,26 +475,26 @@ export function SettingsDialog({ open, current, locale, t, onClose, onSaved }: P
             {report && (
               <div className="rounded-md border border-border/60 bg-muted/30 p-3 text-xs space-y-2">
                 <div>
-                  {report.claudeCliFound ? (
+                  {report.codexCliFound ? (
                     <div className="space-y-0.5">
                       <div className="text-green-500">
-                        ✓ {tx(t, "settings.claudeCliFound", "Claude CLI: {path}").replace(
+                        ✓ {tx(t, "settings.codexCliFound", "Codex CLI: {path}").replace(
                           "{path}",
-                          report.claudeCliPath || "",
+                          report.codexCliPath || "",
                         )}
                       </div>
-                      {report.claudeCliVersion && (
+                      {report.codexCliVersion && (
                         <div className="text-muted-foreground">
-                          {tx(t, "settings.claudeCliVersion", "version {version}").replace(
+                          {tx(t, "settings.codexCliVersion", "version {version}").replace(
                             "{version}",
-                            report.claudeCliVersion,
+                            report.codexCliVersion,
                           )}
                         </div>
                       )}
                     </div>
                   ) : (
                     <div className="text-red-500">
-                      ✗ {tx(t, "settings.claudeCliMissing", "Claude CLI not found on PATH")}
+                      ✗ {tx(t, "settings.codexCliMissing", "Codex CLI not found on PATH")}
                     </div>
                   )}
                 </div>
@@ -532,7 +531,7 @@ export function SettingsDialog({ open, current, locale, t, onClose, onSaved }: P
             <p className="text-xs text-muted-foreground">
               세션 실행/자동 요약 시 무엇이 spawn되는지 자세한 로그를 남깁니다. 문제가 생기면 아래 로그와 함께{" "}
               <a
-                href="https://github.com/glowElephant/claude-session-manager/issues/new"
+                href="https://github.com/nowJDev/codex-session-manager/issues/new"
                 target="_blank"
                 rel="noreferrer"
                 className="underline hover:text-foreground"

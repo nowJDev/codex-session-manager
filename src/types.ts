@@ -14,6 +14,7 @@ export interface Session {
   version: string | null;
   firstUserMessage: string | null;
   storageType: string;
+  archived: boolean;
   favorite: boolean;
 }
 
@@ -29,7 +30,6 @@ export interface SessionMeta {
 export interface Settings {
   locale?: string | null;
   cloudPath?: string | null;
-  anthropicApiKey?: string | null;
   preferredTerminal?: TerminalKind | "auto" | string | null;
   resumeFlags?: string | null;
   customTerminalProgram?: string | null;
@@ -57,9 +57,9 @@ export interface DetectedTerminal {
 
 export interface EnvironmentReport {
   targetOs: "windows" | "macos" | "linux" | string;
-  claudeCliFound: boolean;
-  claudeCliPath: string | null;
-  claudeCliVersion: string | null;
+  codexCliFound: boolean;
+  codexCliPath: string | null;
+  codexCliVersion: string | null;
   terminals: DetectedTerminal[];
 }
 

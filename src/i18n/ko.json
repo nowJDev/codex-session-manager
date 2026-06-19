@@ -1,6 +1,6 @@
 {
   "app": {
-    "title": "Claude 세션 매니저",
+    "title": "Codex 세션 매니저",
     "version": "v{version}"
   },
   "list": {
@@ -18,7 +18,8 @@
     "total": "총 {count}개 세션",
     "synced": "동기화됨",
     "cloudOnly": "클라우드만",
-    "localOnly": "로컬"
+    "localOnly": "로컬",
+    "archived": "보관됨"
   },
   "action": {
     "select": "세션을 선택하세요",
@@ -28,6 +29,8 @@
     "rename": "이름 변경",
     "describe": "설명 편집",
     "delete": "세션 삭제",
+    "archive": "세션 보관",
+    "unarchive": "보관 해제",
     "syncToCloud": "클라우드에 업로드",
     "syncFromCloud": "클라우드에서 다운로드",
     "resync": "로컬→클라우드 동기화",
@@ -65,7 +68,7 @@
     "generating": "요약 생성 중...",
     "generated": "요약 생성 완료",
     "failed": "요약 생성 실패",
-    "noApiKey": "ANTHROPIC_API_KEY가 설정되지 않았습니다. 요약을 생성할 수 없습니다."
+    "noApiKey": "Codex CLI를 찾을 수 없습니다. 요약을 생성할 수 없습니다."
   },
   "time": {
     "justNow": "방금",
@@ -89,16 +92,16 @@
     "diagnostics": "환경 진단",
     "runDiagnostics": "진단 실행",
     "running": "진단 중...",
-    "claudeCliFound": "Claude CLI: {path}",
-    "claudeCliMissing": "Claude CLI를 PATH에서 찾을 수 없습니다",
-    "claudeCliVersion": "버전 {version}",
+    "codexCliFound": "Codex CLI: {path}",
+    "codexCliMissing": "Codex CLI를 PATH에서 찾을 수 없습니다",
+    "codexCliVersion": "버전 {version}",
     "detectedTerminals": "감지된 터미널",
     "noTerminalsFound": "사용 가능한 터미널이 없습니다",
     "save": "저장",
     "cancel": "취소"
   },
   "warning": {
-    "claudeCliMissing": "Claude Code CLI를 PATH에서 찾을 수 없습니다. 세션 이어가기가 동작하지 않습니다.",
-    "claudeCliInstall": "설치 안내"
+    "codexCliMissing": "Codex CLI를 PATH에서 찾을 수 없습니다. 세션 이어가기가 동작하지 않습니다.",
+    "codexCliInstall": "설치 안내"
   }
 }
