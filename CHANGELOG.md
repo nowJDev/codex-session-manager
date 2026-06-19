@@ -4,6 +4,18 @@ All notable changes to this project are documented here.
 
 ## [Unreleased]
 
+## [0.5.2] — 2026-06-19
+
+### Added
+- 새 Codex Session Manager 앱 아이콘을 적용.
+- 설정 화면에 GitHub 최신 릴리즈 확인 버튼과 릴리즈 페이지 열기 버튼을 추가.
+- Windows 릴리즈에 설치 없이 실행할 수 있는 portable zip 자산을 함께 업로드.
+- 수동 이름이 없는 세션은 Codex `session_index.jsonl`의 `thread_name`을 먼저 표시하고, 없으면 첫 사용자 메시지를 짧은 이름으로 표시.
+
+### Fixed
+- Windows npm `codex.cmd`에서 자동 요약 프롬프트를 긴 인자로 넘기지 않고 `codex exec -` stdin으로 전달하도록 수정.
+- 자동 요약 프롬프트 문구를 정상 UTF-8 문장으로 정리.
+
 ### Fixed
 - 클라우드 전용 세션 목록이 레거시 `cloud` 대신 `cloud-only` storage type으로 표시되도록 정리.
 - 목록 상단 local/cloud 카운터가 `cloud-only` 세션을 클라우드로 집계하도록 수정.
