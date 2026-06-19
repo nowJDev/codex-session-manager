@@ -2,6 +2,12 @@
 
 All notable changes to this project are documented here.
 
+## [Unreleased]
+
+### Fixed
+- 클라우드 전용 세션 목록이 레거시 `cloud` 대신 `cloud-only` storage type으로 표시되도록 정리.
+- 목록 상단 local/cloud 카운터가 `cloud-only` 세션을 클라우드로 집계하도록 수정.
+
 ## [0.5.1] — 2026-06-19
 
 ### Fixed
