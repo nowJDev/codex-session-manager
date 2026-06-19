@@ -45,6 +45,13 @@ Backend coverage:
 - `scanner_delete_session_uses_codex_cli_before_file_fallback`.
 - `scanner_marks_archived_sessions`.
 
+Smoke-test result on 2026-06-19:
+
+- Ran `session-cli archive` and `session-cli unarchive` against an isolated `CODEX_HOME` with a fake `CODEX_CLI`.
+- Confirmed fake Codex CLI received `archive <session-id>` and `unarchive <session-id>`.
+- Ran `session-cli delete` and confirmed fake Codex CLI received `delete <session-id>`.
+- Confirmed the target rollout file was removed by the CLI action.
+
 ## Cloud Sync Checks
 
 Cloud sync uses the `Codex Sessions` folder under the selected cloud root and restores rollout files into the Codex date folder layout.
@@ -52,6 +59,7 @@ Cloud sync uses the `Codex Sessions` folder under the selected cloud root and re
 Backend coverage:
 
 - `cloud_checkout_restores_codex_rollout_date_path`.
+- `cloud_only_sessions_are_reported_with_cloud_only_storage_type`.
 
 Manual smoke-test checklist:
 
@@ -63,6 +71,13 @@ Manual smoke-test checklist:
 6. Edit the restored local rollout file.
 7. Check in the cloud session.
 8. Confirm the cloud JSONL is updated and the lock file is released.
+
+Smoke-test result on 2026-06-19:
+
+- Ran `session-cli upload`, `session-cli checkout`, and `session-cli checkin` against an isolated `CODEX_HOME` and temporary `Codex Sessions` cloud folder.
+- Confirmed checkout restored the rollout file into the Codex date-folder layout.
+- Edited the checked-out rollout and confirmed checkin copied the edit back to the cloud JSONL.
+- Confirmed the cloud lock file was released after checkin.
 
 ## Next Version Candidates
 
