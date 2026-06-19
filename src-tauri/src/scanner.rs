@@ -1,35 +1,47 @@
+// Codex 세션 JSONL 파일을 찾아 앱 표시용 메타데이터로 변환한다.
 use crate::config::load_config;
 use crate::types::Session;
 use anyhow::Result;
 use serde_json::Value;
 use std::fs;
 use std::io::{BufRead, BufReader};
-use std::path::PathBuf;
+use std::path::{Path, PathBuf};
 
-pub fn claude_dir() -> PathBuf {
-    let home = if let Ok(p) = std::env::var("CLAUDE_SESSION_HOME") {
+pub fn codex_home() -> PathBuf {
+    if let Ok(p) = std::env::var("CODEX_HOME") {
         PathBuf::from(p)
+    } else if let Ok(p) = std::env::var("CODEX_SESSION_HOME") {
+        PathBuf::from(p).join(".codex")
     } else {
-        dirs::home_dir().unwrap_or_else(|| PathBuf::from("."))
-    };
-    home.join(".claude")
+        dirs::home_dir()
+            .unwrap_or_else(|| PathBuf::from("."))
+            .join(".codex")
+    }
+}
+
+pub fn sessions_dir() -> PathBuf {
+    codex_home().join("sessions")
+}
+
+pub fn archived_sessions_dir() -> PathBuf {
+    codex_home().join("archived_sessions")
 }
 
 pub fn projects_dir() -> PathBuf {
-    claude_dir().join("projects")
+    sessions_dir()
 }
 
-/// 기본 projects_dir + 사용자가 추가한 extra_project_dirs + (Windows에서) WSL 자동 탐지.
+/// 기본 sessions_dir + archived_sessions_dir + 사용자가 추가한 extra_project_dirs.
 /// 존재하지 않는 경로는 자동으로 제외.
 pub fn projects_roots() -> Vec<PathBuf> {
     let mut roots: Vec<PathBuf> = Vec::new();
-    let primary = projects_dir();
-    if primary.exists() {
-        roots.push(primary);
+    for primary in [sessions_dir(), archived_sessions_dir()] {
+        if primary.exists() && !roots.iter().any(|r| r == &primary) {
+            roots.push(primary);
+        }
     }
 
     let cfg = crate::config::load_config();
-
     if let Some(extra) = &cfg.settings.extra_project_dirs {
         for p in extra {
             let pb = PathBuf::from(p);
@@ -39,76 +51,11 @@ pub fn projects_roots() -> Vec<PathBuf> {
         }
     }
 
-    // WSL 자동 탐지 (Windows 전용, 기본 활성)
-    #[cfg(target_os = "windows")]
-    {
-        let wsl_on = cfg.settings.wsl_auto_detect.unwrap_or(true);
-        if wsl_on {
-            for p in detect_wsl_projects_dirs() {
-                if !roots.iter().any(|r| r == &p) {
-                    roots.push(p);
-                }
-            }
-        }
-    }
-
     roots
 }
 
-/// `wsl.exe -l -q` 로 배포판 목록을 얻고, 각 배포판의 `\\wsl.localhost\<distro>\home\*\.claude\projects`
-/// 중 존재하는 경로를 반환.
-#[cfg(target_os = "windows")]
-fn detect_wsl_projects_dirs() -> Vec<PathBuf> {
-    use std::os::windows::process::CommandExt;
-    use std::process::Command;
-    const CREATE_NO_WINDOW: u32 = 0x0800_0000;
-
-    let output = match Command::new("wsl.exe")
-        .args(["-l", "-q"])
-        .creation_flags(CREATE_NO_WINDOW)
-        .output()
-    {
-        Ok(o) => o,
-        Err(_) => return Vec::new(),
-    };
-    if !output.status.success() {
-        return Vec::new();
-    }
-
-    // wsl.exe -l -q 는 UTF-16 LE BOM 출력
-    let raw = &output.stdout;
-    let text = if raw.len() >= 2 && raw[0] == 0xFF && raw[1] == 0xFE {
-        let u16s: Vec<u16> = raw[2..]
-            .chunks_exact(2)
-            .map(|c| u16::from_le_bytes([c[0], c[1]]))
-            .collect();
-        String::from_utf16_lossy(&u16s)
-    } else {
-        String::from_utf8_lossy(raw).into_owned()
-    };
-
-    let mut result = Vec::new();
-    for line in text.lines() {
-        let distro = line.trim().trim_matches('\0');
-        if distro.is_empty() {
-            continue;
-        }
-        let home_root = PathBuf::from(format!(r"\\wsl.localhost\{}\home", distro));
-        if !home_root.exists() {
-            continue;
-        }
-        let Ok(users) = fs::read_dir(&home_root) else { continue };
-        for user_entry in users.flatten() {
-            let projects = user_entry.path().join(".claude").join("projects");
-            if projects.exists() && projects.is_dir() {
-                result.push(projects);
-            }
-        }
-    }
-    result
-}
-
 struct JsonlMeta {
+    session_id: Option<String>,
     first_timestamp: Option<String>,
     last_timestamp: Option<String>,
     cwd: Option<String>,
@@ -117,10 +64,11 @@ struct JsonlMeta {
     total_lines: usize,
 }
 
-fn read_jsonl_meta(path: &PathBuf) -> Result<JsonlMeta> {
+fn read_jsonl_meta(path: &Path) -> Result<JsonlMeta> {
     let file = fs::File::open(path)?;
     let reader = BufReader::new(file);
 
+    let mut session_id = None;
     let mut first_ts = None;
     let mut last_ts = None;
     let mut cwd = None;
@@ -136,31 +84,63 @@ fn read_jsonl_meta(path: &PathBuf) -> Result<JsonlMeta> {
             Ok(v) => v,
             Err(_) => continue,
         };
-        if head_seen < 20 {
-            head_seen += 1;
-            if first_ts.is_none() {
-                first_ts = val.get("timestamp").and_then(|v| v.as_str()).map(String::from);
-            }
-            if cwd.is_none() {
-                cwd = val.get("cwd").and_then(|v| v.as_str()).map(String::from);
-            }
-            if version.is_none() {
-                version = val.get("version").and_then(|v| v.as_str()).map(String::from);
-            }
-            if first_user.is_none()
-                && val.get("type").and_then(|v| v.as_str()) == Some("user")
-            {
-                if let Some(content) = val.pointer("/message/content") {
-                    first_user = extract_text(content).map(|s| truncate(&s, 200));
-                }
-            }
+        if first_ts.is_none() {
+            first_ts = val.get("timestamp").and_then(|v| v.as_str()).map(String::from);
         }
         if let Some(ts) = val.get("timestamp").and_then(|v| v.as_str()) {
             last_ts = Some(ts.to_string());
         }
+        if head_seen >= 200 {
+            continue;
+        }
+        head_seen += 1;
+
+        let item_type = val.get("type").and_then(|v| v.as_str()).unwrap_or("");
+        let payload = val.get("payload").unwrap_or(&Value::Null);
+        match item_type {
+            "session_meta" => {
+                if session_id.is_none() {
+                    session_id = payload.get("id").and_then(|v| v.as_str()).map(String::from);
+                }
+                if cwd.is_none() {
+                    cwd = payload.get("cwd").and_then(|v| v.as_str()).map(String::from);
+                }
+                if version.is_none() {
+                    version = payload
+                        .get("cli_version")
+                        .and_then(|v| v.as_str())
+                        .map(String::from);
+                }
+            }
+            "turn_context" => {
+                if let Some(latest_cwd) = payload.get("cwd").and_then(|v| v.as_str()) {
+                    cwd = Some(latest_cwd.to_string());
+                }
+            }
+            "event_msg" => {
+                if first_user.is_none()
+                    && payload.get("type").and_then(|v| v.as_str()) == Some("user_message")
+                {
+                    if let Some(message) = payload.get("message") {
+                        first_user = extract_text(message).map(|s| truncate(&s, 200));
+                    }
+                }
+            }
+            "response_item" => {
+                if first_user.is_none()
+                    && payload.get("role").and_then(|v| v.as_str()) == Some("user")
+                {
+                    if let Some(content) = payload.get("content") {
+                        first_user = extract_text(content).map(|s| truncate(&s, 200));
+                    }
+                }
+            }
+            _ => {}
+        }
     }
 
     Ok(JsonlMeta {
+        session_id,
         first_timestamp: first_ts,
         last_timestamp: last_ts,
         cwd,
@@ -176,8 +156,15 @@ fn extract_text(content: &Value) -> Option<String> {
     }
     if let Some(arr) = content.as_array() {
         for item in arr {
-            if item.get("type").and_then(|v| v.as_str()) == Some("text") {
-                if let Some(t) = item.get("text").and_then(|v| v.as_str()) {
+            if matches!(
+                item.get("type").and_then(|v| v.as_str()),
+                Some("text") | Some("output_text") | Some("input_text")
+            ) {
+                if let Some(t) = item
+                    .get("text")
+                    .or_else(|| item.get("content"))
+                    .and_then(|v| v.as_str())
+                {
                     return Some(t.to_string());
                 }
             }
@@ -190,19 +177,27 @@ fn truncate(s: &str, n: usize) -> String {
     s.chars().take(n).collect()
 }
 
-fn decode_project_name(dir: &str) -> String {
-    let mut s = dir.replace("--", "/");
-    if let Some(first) = s.chars().next() {
-        if first.is_ascii_uppercase() {
-            s = format!("{}:{}", first, &s[1..]);
-        }
-    }
-    s
+fn project_name_from_cwd(cwd: Option<&str>, fallback: &str) -> String {
+    cwd.and_then(|p| {
+        Path::new(p)
+            .file_name()
+            .and_then(|s| s.to_str())
+            .map(String::from)
+    })
+    .filter(|s| !s.is_empty())
+    .unwrap_or_else(|| fallback.to_string())
 }
 
-/// cwd 경로(예: `C:\Git\foo`)를 Claude Code 프로젝트 폴더명으로 인코딩.
-/// Claude Code 규칙: 영숫자/`-`/`_`/`.` 외 모든 문자(`:`, `\`, `/`, 공백 등)는 `-`로 치환.
-/// 예) `C:\Git\claude-session-manager` -> `C--Git-claude-session-manager`
+fn session_id_from_filename(path: &Path) -> Option<String> {
+    let stem = path.file_stem()?.to_str()?;
+    if stem.len() >= 36 {
+        Some(stem[stem.len() - 36..].to_string())
+    } else {
+        Some(stem.to_string())
+    }
+}
+
+/// cwd 경로를 느슨한 비교용 안전 문자열로 인코딩한다.
 pub fn encode_cwd_to_project_dir(cwd: &str) -> String {
     cwd.chars()
         .map(|c| {
@@ -215,21 +210,39 @@ pub fn encode_cwd_to_project_dir(cwd: &str) -> String {
         .collect()
 }
 
-/// jsonl 본문 앞부분에서 `cwd` 필드를 추출. 어느 줄에든 있을 수 있으므로 최대 20줄 스캔.
+/// jsonl 본문 앞부분에서 최신 `payload.cwd`를 추출한다.
 pub fn read_cwd_from_jsonl(path: &PathBuf) -> Option<String> {
     let file = fs::File::open(path).ok()?;
     let reader = BufReader::new(file);
+    let mut cwd = None;
     for (i, line) in reader.lines().enumerate() {
-        if i >= 20 {
+        if i >= 200 {
             break;
         }
         let Ok(line) = line else { continue };
         let Ok(val) = serde_json::from_str::<Value>(&line) else { continue };
-        if let Some(cwd) = val.get("cwd").and_then(|v| v.as_str()) {
-            return Some(cwd.to_string());
+        if let Some(next_cwd) = val.pointer("/payload/cwd").and_then(|v| v.as_str()) {
+            cwd = Some(next_cwd.to_string());
         }
     }
-    None
+    cwd
+}
+
+fn collect_jsonl_files(root: &Path) -> Vec<PathBuf> {
+    let mut out = Vec::new();
+    let mut stack = vec![root.to_path_buf()];
+    while let Some(dir) = stack.pop() {
+        let Ok(entries) = fs::read_dir(&dir) else { continue };
+        for entry in entries.flatten() {
+            let path = entry.path();
+            if path.is_dir() {
+                stack.push(path);
+            } else if path.extension().and_then(|s| s.to_str()) == Some("jsonl") {
+                out.push(path);
+            }
+        }
+    }
+    out
 }
 
 pub fn scan_local_sessions() -> Result<Vec<Session>> {
@@ -239,7 +252,7 @@ pub fn scan_local_sessions() -> Result<Vec<Session>> {
 
     let log_path = dirs::home_dir()
         .unwrap_or_else(|| PathBuf::from("."))
-        .join(".claude-sessions")
+        .join(".codex-sessions")
         .join("scan-debug.log");
     if let Some(parent) = log_path.parent() {
         let _ = fs::create_dir_all(parent);
@@ -260,8 +273,6 @@ pub fn scan_local_sessions() -> Result<Vec<Session>> {
     let cfg_full = load_config();
     let saved = cfg_full.sessions;
 
-    // 제외 경로 목록 — raw substring + cwd 인코딩 변형 둘 다 시도해서 매치.
-    // 사용자가 절대 경로(C:\Git\foo) 또는 폴더명(foo) 어느 쪽을 적어도 동작.
     let excluded_raw: Vec<String> = cfg_full
         .settings
         .excluded_scan_paths
@@ -275,11 +286,6 @@ pub fn scan_local_sessions() -> Result<Vec<Session>> {
         .map(|p| encode_cwd_to_project_dir(p))
         .filter(|s| !s.is_empty())
         .collect();
-    if let Some(f) = log.as_mut() {
-        if !excluded_raw.is_empty() {
-            let _ = writeln!(f, "excluded_scan_paths = {:?}", excluded_raw);
-        }
-    }
 
     let mut total_found = 0usize;
     let mut total_pushed = 0usize;
@@ -290,67 +296,7 @@ pub fn scan_local_sessions() -> Result<Vec<Session>> {
     let mut seen_session_ids: std::collections::HashSet<String> = std::collections::HashSet::new();
 
     for root in &roots {
-    for entry in fs::read_dir(root)? {
-        let Ok(entry) = entry else {
-            if let Some(f) = log.as_mut() {
-                let _ = writeln!(f, "[ERR] read_dir entry failed in projects_dir");
-            }
-            continue;
-        };
-        let project_path = entry.path();
-        if !project_path.is_dir() {
-            continue;
-        }
-        let project_dir = entry.file_name().to_string_lossy().to_string();
-        // 자동 요약용 격리 cwd에서 만들어진 jsonl은 목록에서 제외 (무한루프 방지)
-        if project_dir.contains(crate::summary::ISOLATION_MARKER) {
-            if let Some(f) = log.as_mut() {
-                let _ = writeln!(f, "[skip-isolation] {}", project_dir);
-            }
-            continue;
-        }
-
-        // 사용자 지정 제외 경로 매치 시 폴더 전체 스킵 (jsonl 파싱 자체를 건너뜀)
-        let excluded_match = excluded_raw.iter().any(|p| project_dir.contains(p))
-            || excluded_encoded.iter().any(|p| project_dir.contains(p));
-        if excluded_match {
-            // 해당 폴더의 jsonl 개수만 카운트해서 로그 (실제 파싱은 안 함)
-            let skipped = fs::read_dir(&project_path)
-                .ok()
-                .map(|d| {
-                    d.flatten()
-                        .filter(|e| {
-                            e.path().extension().and_then(|s| s.to_str()) == Some("jsonl")
-                        })
-                        .count()
-                })
-                .unwrap_or(0);
-            total_excluded += skipped;
-            if let Some(f) = log.as_mut() {
-                let _ = writeln!(f, "[excluded] {} ({} jsonl skipped)", project_dir, skipped);
-            }
-            continue;
-        }
-
-        let files = match fs::read_dir(&project_path) {
-            Ok(f) => f,
-            Err(e) => {
-                if let Some(f) = log.as_mut() {
-                    let _ = writeln!(f, "[ERR] read_dir({}) failed: {}", project_dir, e);
-                }
-                continue;
-            }
-        };
-
-        let mut per_proj_found = 0usize;
-        let mut per_proj_pushed = 0usize;
-        for file in files {
-            let Ok(file) = file else { continue };
-            let path = file.path();
-            if path.extension().and_then(|s| s.to_str()) != Some("jsonl") {
-                continue;
-            }
-            per_proj_found += 1;
+        for path in collect_jsonl_files(root) {
             total_found += 1;
             let stat = match fs::metadata(&path) {
                 Ok(s) => s,
@@ -362,21 +308,13 @@ pub fn scan_local_sessions() -> Result<Vec<Session>> {
                     continue;
                 }
             };
-            let Some(stem) = path.file_stem().and_then(|s| s.to_str()).map(String::from) else {
+            let Some(fallback_session_id) = session_id_from_filename(&path) else {
                 stem_fail += 1;
                 if let Some(f) = log.as_mut() {
                     let _ = writeln!(f, "[SKIP stem] {}", path.display());
                 }
                 continue;
             };
-
-            // 같은 session_id가 여러 루트에 있으면 먼저 본 것(primary 우선)만 사용
-            if !seen_session_ids.insert(stem.clone()) {
-                if let Some(f) = log.as_mut() {
-                    let _ = writeln!(f, "[dup-skip] {} ({})", stem, path.display());
-                }
-                continue;
-            }
 
             let meta = match read_jsonl_meta(&path) {
                 Ok(m) => Some(m),
@@ -388,31 +326,36 @@ pub fn scan_local_sessions() -> Result<Vec<Session>> {
                     None
                 }
             };
+            let stem = meta
+                .as_ref()
+                .and_then(|m| m.session_id.clone())
+                .unwrap_or(fallback_session_id);
+            let cwd = meta.as_ref().and_then(|m| m.cwd.clone());
+            let file_path_text = path.to_string_lossy().to_string();
+            let excluded_match = excluded_raw.iter().any(|p| {
+                file_path_text.contains(p) || cwd.as_deref().is_some_and(|c| c.contains(p))
+            }) || excluded_encoded.iter().any(|p| {
+                file_path_text.contains(p) || cwd.as_deref().is_some_and(|c| c.contains(p))
+            });
+            if excluded_match {
+                total_excluded += 1;
+                if let Some(f) = log.as_mut() {
+                    let _ = writeln!(f, "[excluded] {}", path.display());
+                }
+                continue;
+            }
+
+            if !seen_session_ids.insert(stem.clone()) {
+                if let Some(f) = log.as_mut() {
+                    let _ = writeln!(f, "[dup-skip] {} ({})", stem, path.display());
+                }
+                continue;
+            }
+
             let saved_meta = saved.get(&stem).cloned().unwrap_or_default();
             let favorite = saved_meta.favorite.unwrap_or(false);
+            let project_dir = cwd.clone().unwrap_or_else(|| root.to_string_lossy().to_string());
 
-            // cwd 기반 project_dir 보정.
-            // jsonl 본문의 cwd가 가리키는 인코딩 폴더와 실제 폴더가 다르면
-            // (예: 잘못된 위치로 동기화된 파일) cwd 쪽을 정답으로 본다.
-            // Claude Code resume도 cwd 기준 폴더에서만 세션을 찾으므로 이게 맞다.
-            let effective_project_dir = match meta.as_ref().and_then(|m| m.cwd.as_deref()) {
-                Some(c) => {
-                    let encoded = encode_cwd_to_project_dir(c);
-                    if encoded != project_dir {
-                        if let Some(f) = log.as_mut() {
-                            let _ = writeln!(
-                                f,
-                                "[cwd-fix] folder={} cwd={} -> project_dir={}",
-                                project_dir, c, encoded
-                            );
-                        }
-                    }
-                    encoded
-                }
-                None => project_dir.clone(),
-            };
-
-            per_proj_pushed += 1;
             total_pushed += 1;
             out.push(Session {
                 session_id: stem,
@@ -420,30 +363,21 @@ pub fn scan_local_sessions() -> Result<Vec<Session>> {
                 description: saved_meta.description,
                 auto_summary: saved_meta.auto_summary,
                 favorite,
-                project: decode_project_name(&effective_project_dir),
-                project_dir: effective_project_dir,
+                project: project_name_from_cwd(cwd.as_deref(), "Codex"),
+                project_dir,
                 file_path: path.to_string_lossy().to_string(),
                 size: stat.len(),
                 total_lines: meta.as_ref().map(|m| m.total_lines).unwrap_or(0),
                 first_timestamp: meta.as_ref().and_then(|m| m.first_timestamp.clone()),
                 last_timestamp: meta.as_ref().and_then(|m| m.last_timestamp.clone()),
-                cwd: meta.as_ref().and_then(|m| m.cwd.clone()),
+                cwd,
                 version: meta.as_ref().and_then(|m| m.version.clone()),
                 first_user_message: meta.as_ref().and_then(|m| m.first_user_message.clone()),
                 storage_type: saved_meta.storage_type.unwrap_or_else(|| "local".into()),
                 locked_by: None,
             });
         }
-
-        if let Some(f) = log.as_mut() {
-            let _ = writeln!(
-                f,
-                "[proj] {:>4} found / {:>4} pushed  -- {}",
-                per_proj_found, per_proj_pushed, project_dir
-            );
-        }
     }
-    } // end for root in &roots
 
     if let Some(f) = log.as_mut() {
         let _ = writeln!(f, "---");
@@ -456,15 +390,13 @@ pub fn scan_local_sessions() -> Result<Vec<Session>> {
         let _ = writeln!(f, "out.len()      = {} (returned to frontend)", out.len());
     }
 
-    out.sort_by(|a, b| {
-        match b.favorite.cmp(&a.favorite) {
-            std::cmp::Ordering::Equal => {
-                let ta = a.last_timestamp.as_deref().unwrap_or("");
-                let tb = b.last_timestamp.as_deref().unwrap_or("");
-                tb.cmp(ta)
-            }
-            other => other,
+    out.sort_by(|a, b| match b.favorite.cmp(&a.favorite) {
+        std::cmp::Ordering::Equal => {
+            let ta = a.last_timestamp.as_deref().unwrap_or("");
+            let tb = b.last_timestamp.as_deref().unwrap_or("");
+            tb.cmp(ta)
         }
+        other => other,
     });
 
     Ok(out)
@@ -480,11 +412,15 @@ pub fn get_session_messages(file_path: &str, max_messages: usize) -> Result<Vec<
         }
         let Ok(line) = line_res else { continue };
         let Ok(val) = serde_json::from_str::<Value>(&line) else { continue };
-        if val.get("type").and_then(|v| v.as_str()) != Some("user") {
+        if val.get("type").and_then(|v| v.as_str()) != Some("event_msg") {
             continue;
         }
-        if let Some(content) = val.pointer("/message/content") {
-            if let Some(text) = extract_text(content) {
+        let Some(payload) = val.get("payload") else { continue };
+        if payload.get("type").and_then(|v| v.as_str()) != Some("user_message") {
+            continue;
+        }
+        if let Some(message) = payload.get("message") {
+            if let Some(text) = extract_text(message) {
                 out.push(truncate(&text, 300));
             }
         }

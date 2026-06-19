@@ -4,14 +4,14 @@ use std::fs;
 use std::path::PathBuf;
 
 fn home_dir() -> PathBuf {
-    if let Ok(p) = std::env::var("CLAUDE_SESSION_HOME") {
+    if let Ok(p) = std::env::var("CODEX_SESSION_HOME") {
         return PathBuf::from(p);
     }
     dirs::home_dir().unwrap_or_else(|| PathBuf::from("."))
 }
 
 pub fn config_dir() -> PathBuf {
-    home_dir().join(".claude-sessions")
+    home_dir().join(".codex-sessions")
 }
 
 pub fn config_file() -> PathBuf {

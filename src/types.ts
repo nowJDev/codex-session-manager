@@ -57,9 +57,9 @@ export interface DetectedTerminal {
 
 export interface EnvironmentReport {
   targetOs: "windows" | "macos" | "linux" | string;
-  claudeCliFound: boolean;
-  claudeCliPath: string | null;
-  claudeCliVersion: string | null;
+  codexCliFound: boolean;
+  codexCliPath: string | null;
+  codexCliVersion: string | null;
   terminals: DetectedTerminal[];
 }
 

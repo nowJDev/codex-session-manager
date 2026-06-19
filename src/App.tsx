@@ -23,15 +23,15 @@ function App() {
   const [editMode, setEditMode] = useState<EditMode>(null);
   const [editTarget, setEditTarget] = useState<Session | null>(null);
   const [settingsOpen, setSettingsOpen] = useState(false);
-  const [claudeCliMissing, setClaudeCliMissing] = useState(false);
+  const [codexCliMissing, setCodexCliMissing] = useState(false);
 
   const t = useMemo(() => createT(locale), [locale]);
 
   useEffect(() => {
     ipc.checkEnvironment().then((r) => {
-      setClaudeCliMissing(!r.claudeCliFound);
-      // claude CLI 있을 때만 자동 요약 워커 시작
-      if (r.claudeCliFound) {
+      setCodexCliMissing(!r.codexCliFound);
+      // codex CLI 있을 때만 자동 요약 워커 시작
+      if (r.codexCliFound) {
         ipc.startAutoSummary().catch(() => {});
       }
     }).catch(() => {});
@@ -176,22 +176,22 @@ function App() {
 
   return (
     <div className="flex h-screen flex-col bg-background text-foreground">
-      {claudeCliMissing && (
+      {codexCliMissing && (
         <div className="flex items-center gap-2 border-b border-amber-500/40 bg-amber-500/10 px-5 py-2 text-xs text-amber-300">
           <AlertTriangle className="h-4 w-4 shrink-0" />
           <span className="flex-1">
-            {(t("warning.claudeCliMissing") !== "warning.claudeCliMissing"
-              ? t("warning.claudeCliMissing")
-              : "Claude Code CLI not found on PATH. Resume actions won't work.")}
+            {(t("warning.codexCliMissing") !== "warning.codexCliMissing"
+              ? t("warning.codexCliMissing")
+              : "Codex CLI not found on PATH. Resume actions won't work.")}
           </span>
           <a
-            href="https://docs.anthropic.com/en/docs/claude-code"
+            href="https://github.com/openai/codex"
             target="_blank"
             rel="noreferrer"
             className="underline hover:text-amber-200"
           >
-            {(t("warning.claudeCliInstall") !== "warning.claudeCliInstall"
-              ? t("warning.claudeCliInstall")
+            {(t("warning.codexCliInstall") !== "warning.codexCliInstall"
+              ? t("warning.codexCliInstall")
               : "Install guide")}
           </a>
         </div>

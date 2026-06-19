@@ -1,9 +1,9 @@
-use claude_session_manager_lib::{cloud, config, environment, resume, scanner, summary, terminal, types::SessionMeta};
+use codex_session_manager_lib::{cloud, config, environment, resume, scanner, summary, terminal, types::SessionMeta};
 use std::process::ExitCode;
 
 fn print_help() {
     eprintln!(
-        "session-cli — headless harness for claude-session-manager\n\n\
+        "session-cli — headless harness for codex-session-manager\n\n\
 USAGE:\n  \
   session-cli list                              List all local sessions (JSON)\n  \
   session-cli get-config                        Print current config (JSON)\n  \
@@ -11,7 +11,7 @@ USAGE:\n  \
   session-cli set-desc <session-id> <desc>      Save a description\n  \
   session-cli delete-meta <session-id>          Remove saved metadata\n  \
   session-cli set-favorite <session-id> <0|1>   Toggle favorite flag\n  \
-  session-cli auto-summarize <session-id>       Generate name+desc via claude -p (also saves)\n  \
+  session-cli auto-summarize <session-id>       Generate name+desc via codex exec (also saves)\n  \
   session-cli resume-plan <session-id> [cwd]    Print the resume command (no spawn)\n  \
   session-cli messages <file-path> [n]          Print first N user messages from a JSONL\n  \
   session-cli paths                             Print resolved paths (config, projects)\n  \
@@ -20,7 +20,7 @@ USAGE:\n  \
   session-cli upload <session-id>               Upload session to cloud (deletes local)\n  \
   session-cli checkout <session-id>             Download from cloud to local + acquire lock\n  \
   session-cli checkin <session-id>              Re-upload local + release lock + delete local\n  \
-  session-cli check-env                         Detect claude CLI + available terminals (JSON)\n  \
+  session-cli check-env                         Detect codex CLI + available terminals (JSON)\n  \
   session-cli set-terminal <kind|none>          Set preferred terminal (git-bash|wt|powershell|cmd|terminal|none)\n"
     );
 }
@@ -169,7 +169,7 @@ fn main() -> ExitCode {
             if value != "auto" && terminal::TerminalKind::parse(value).is_none() {
                 return Err(anyhow::anyhow!("unknown terminal kind: {}", value));
             }
-            config::update_settings(claude_session_manager_lib::types::Settings {
+            config::update_settings(codex_session_manager_lib::types::Settings {
                 preferred_terminal: Some(value.clone()),
                 ..Default::default()
             })?;
@@ -226,10 +226,12 @@ fn main() -> ExitCode {
             println!("{}", serde_json::to_string_pretty(&serde_json::json!({
                 "config_dir": config::config_dir(),
                 "config_file": config::config_file(),
-                "claude_dir": scanner::claude_dir(),
-                "projects_dir": scanner::projects_dir(),
+                "codex_home": scanner::codex_home(),
+                "sessions_dir": scanner::sessions_dir(),
+                "archived_sessions_dir": scanner::archived_sessions_dir(),
                 "projects_roots": scanner::projects_roots(),
-                "home_override": std::env::var("CLAUDE_SESSION_HOME").ok(),
+                "home_override": std::env::var("CODEX_SESSION_HOME").ok(),
+                "codex_home_override": std::env::var("CODEX_HOME").ok(),
             }))?);
             Ok(())
         }

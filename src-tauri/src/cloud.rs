@@ -1,12 +1,12 @@
 use crate::config::{load_config, upsert_session_meta};
-use crate::scanner::projects_dir;
+use crate::scanner::sessions_dir;
 use crate::types::{Session, SessionMeta};
 use anyhow::{anyhow, Result};
 use serde::{Deserialize, Serialize};
 use std::fs;
 use std::path::PathBuf;
 
-const CLOUD_FOLDER: &str = "Claude Sessions";
+const CLOUD_FOLDER: &str = "Codex Sessions";
 
 /// Google Drive 데스크탑 클라이언트의 로컬 마운트 폴더를 탐지한다.
 /// 검사 우선순위:
@@ -148,6 +148,7 @@ struct CloudMeta {
     auto_summary: Option<String>,
     project: String,
     project_dir: String,
+    rollout_relative_path: Option<String>,
     uploaded_at: String,
 }
 
@@ -183,6 +184,7 @@ pub fn upload_session(s: &Session) -> Result<()> {
         auto_summary: s.auto_summary.clone(),
         project: s.project.clone(),
         project_dir: s.project_dir.clone(),
+        rollout_relative_path: rollout_relative_path(&PathBuf::from(&s.file_path)),
         uploaded_at: chrono::Utc::now().to_rfc3339(),
     };
     fs::write(
@@ -217,6 +219,24 @@ pub struct LockInfo {
 
 fn lock_path(cloud: &PathBuf, session_id: &str) -> PathBuf {
     cloud.join(format!("{}.lock", session_id))
+}
+
+fn meta_path(cloud: &PathBuf, session_id: &str) -> PathBuf {
+    cloud.join(format!("{}.meta.json", session_id))
+}
+
+fn read_cloud_meta(cloud: &PathBuf, session_id: &str) -> Option<CloudMeta> {
+    let body = fs::read_to_string(meta_path(cloud, session_id)).ok()?;
+    serde_json::from_str(&body).ok()
+}
+
+fn rollout_relative_path(path: &PathBuf) -> Option<String> {
+    let sessions = sessions_dir();
+    let archived = crate::scanner::archived_sessions_dir();
+    path.strip_prefix(&sessions)
+        .or_else(|_| path.strip_prefix(&archived))
+        .ok()
+        .map(|p| p.to_string_lossy().replace('\\', "/"))
 }
 
 fn machine_id() -> String {
@@ -318,17 +338,25 @@ pub fn checkout(session: &Session) -> Result<String> {
     // 락 획득 (다른 PC에서 사용 중이면 실패)
     acquire_lock(&session.session_id)?;
 
-    // jsonl 본문의 cwd를 신뢰해서 폴더를 결정. 메타의 project_dir이 과거에 잘못
-    // 박혔어도 여기서 교정된다. cwd가 없는 비정상 jsonl만 fallback으로 메타 사용.
-    let project_dir = crate::scanner::read_cwd_from_jsonl(&src)
-        .map(|c| crate::scanner::encode_cwd_to_project_dir(&c))
-        .unwrap_or_else(|| session.project_dir.clone());
+    let meta = read_cloud_meta(&cloud, &session.session_id);
+    let local_path = meta
+        .as_ref()
+        .and_then(|m| m.rollout_relative_path.as_deref())
+        .map(|rel| sessions_dir().join(rel.replace('/', std::path::MAIN_SEPARATOR_STR)))
+        .unwrap_or_else(|| {
+            let file_name = src
+                .file_name()
+                .map(|n| n.to_owned())
+                .unwrap_or_else(|| format!("{}.jsonl", session.session_id).into());
+            sessions_dir().join("cloud").join(file_name)
+        });
 
-    let local_dir = projects_dir().join(&project_dir);
+    let local_dir = local_path
+        .parent()
+        .ok_or_else(|| anyhow!("invalid local checkout path"))?;
     fs::create_dir_all(&local_dir)?;
-    let dest = local_dir.join(format!("{}.jsonl", session.session_id));
-    fs::copy(&src, &dest)?;
-    Ok(dest.to_string_lossy().to_string())
+    fs::copy(&src, &local_path)?;
+    Ok(local_path.to_string_lossy().to_string())
 }
 
 pub fn checkin(session: &Session) -> Result<()> {
@@ -344,9 +372,9 @@ pub fn checkin(session: &Session) -> Result<()> {
     {
         file_path_pb
     } else {
-        projects_dir()
-            .join(&session.project_dir)
-            .join(format!("{}.jsonl", session.session_id))
+        read_cloud_meta(&cloud, &session.session_id)
+            .and_then(|m| m.rollout_relative_path.map(|rel| sessions_dir().join(rel.replace('/', std::path::MAIN_SEPARATOR_STR))))
+            .unwrap_or_else(|| sessions_dir().join("cloud").join(format!("{}.jsonl", session.session_id)))
     };
 
     if local_path.exists() {
@@ -355,7 +383,7 @@ pub fn checkin(session: &Session) -> Result<()> {
         // 로컬 보존 — single source of truth 폐기 (활성 세션 데이터 분리 방지)
     }
 
-    let meta_path = cloud.join(format!("{}.meta.json", session.session_id));
+    let meta_path = meta_path(&cloud, &session.session_id);
     if meta_path.exists() {
         let body = fs::read_to_string(&meta_path).unwrap_or_default();
         if let Ok(mut meta) = serde_json::from_str::<CloudMeta>(&body) {

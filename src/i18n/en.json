@@ -1,6 +1,6 @@
 {
   "app": {
-    "title": "Claude Session Manager",
+    "title": "Codex Session Manager",
     "version": "v{version}"
   },
   "list": {
@@ -89,16 +89,16 @@
     "diagnostics": "Environment diagnostics",
     "runDiagnostics": "Run diagnostics",
     "running": "Running...",
-    "claudeCliFound": "Claude CLI: {path}",
-    "claudeCliMissing": "Claude CLI not found on PATH",
-    "claudeCliVersion": "version {version}",
+    "codexCliFound": "Codex CLI: {path}",
+    "codexCliMissing": "Codex CLI not found on PATH",
+    "codexCliVersion": "version {version}",
     "detectedTerminals": "Detected terminals",
     "noTerminalsFound": "No terminals detected",
     "save": "Save",
     "cancel": "Cancel"
   },
   "warning": {
-    "claudeCliMissing": "Claude Code CLI not found on PATH. Resume actions won't work.",
-    "claudeCliInstall": "Install guide"
+    "codexCliMissing": "Codex CLI not found on PATH. Resume actions won't work.",
+    "codexCliInstall": "Install guide"
   }
 }

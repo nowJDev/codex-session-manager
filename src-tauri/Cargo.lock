@@ -465,7 +465,7 @@ dependencies = [
 ]
 
 [[package]]
-name = "claude-session-manager"
+name = "codex-session-manager"
 version = "0.4.8"
 dependencies = [
  "anyhow",

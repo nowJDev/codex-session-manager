@@ -6,7 +6,7 @@ use std::path::PathBuf;
 /// 사용자가 문제 신고할 때 첨부할 수 있게 일관된 위치에 보관.
 pub fn log_path() -> PathBuf {
     let home = dirs::home_dir().unwrap_or_else(|| PathBuf::from("."));
-    home.join(".claude-sessions").join("debug.log")
+    home.join(".codex-sessions").join("debug.log")
 }
 
 /// 한 줄 append (절대 panic 안 함, IO 실패는 무시)

@@ -210,16 +210,16 @@ pub fn build_resume_command(
 ) -> ResumePlan {
     let work_dir = cwd.filter(|p| Path::new(p).exists());
     let flags_str = flags.map(|s| s.trim()).filter(|s| !s.is_empty());
-    let claude_invoke = match flags_str {
-        Some(f) => format!("claude {} --resume {}", f, session_id),
-        None => format!("claude --resume {}", session_id),
+    let codex_invoke = match flags_str {
+        Some(f) => format!("codex resume {} {}", f, session_id),
+        None => format!("codex resume {}", session_id),
     };
     match term.kind {
         TerminalKind::GitBash => {
             let cd = work_dir
                 .map(|p| format!("cd '{}' && ", p.replace('\\', "/")))
                 .unwrap_or_default();
-            let cmd = format!("{}{}; exec bash", cd, claude_invoke);
+            let cmd = format!("{}{}; exec bash", cd, codex_invoke);
             ResumePlan { program: term.program.clone(), args: vec!["-c".into(), cmd] }
         }
         TerminalKind::WindowsTerminal => {
@@ -232,14 +232,14 @@ pub fn build_resume_command(
             args.push("powershell".into());
             args.push("-NoExit".into());
             args.push("-Command".into());
-            args.push(claude_invoke.clone());
+            args.push(codex_invoke.clone());
             ResumePlan { program: term.program.clone(), args }
         }
         TerminalKind::PowerShell => {
             let cd = work_dir
                 .map(|p| format!("Set-Location -LiteralPath '{}'; ", p.replace('\'', "''")))
                 .unwrap_or_default();
-            let cmd = format!("{}{}", cd, claude_invoke);
+            let cmd = format!("{}{}", cd, codex_invoke);
             ResumePlan {
                 program: term.program.clone(),
                 args: vec!["-NoExit".into(), "-Command".into(), cmd],
@@ -249,7 +249,7 @@ pub fn build_resume_command(
             let cd = work_dir
                 .map(|p| format!("cd /d \"{}\" && ", p))
                 .unwrap_or_default();
-            let inner = format!("{}{}", cd, claude_invoke);
+            let inner = format!("{}{}", cd, codex_invoke);
             ResumePlan {
                 program: term.program.clone(),
                 args: vec!["/k".into(), inner],
@@ -261,7 +261,7 @@ pub fn build_resume_command(
                 .unwrap_or_default();
             let script = format!(
                 "tell application \"Terminal\" to do script \"{}{}\"",
-                cd, claude_invoke
+                cd, codex_invoke
             );
             ResumePlan {
                 program: term.program.clone(),
@@ -270,7 +270,7 @@ pub fn build_resume_command(
         }
         TerminalKind::LinuxDefault => {
             let cd = work_dir.map(|p| format!("cd '{}' && ", p)).unwrap_or_default();
-            let cmd = format!("{}{}; exec bash", cd, claude_invoke);
+            let cmd = format!("{}{}; exec bash", cd, codex_invoke);
             ResumePlan {
                 program: term.program.clone(),
                 args: vec!["-e".into(), "bash".into(), "-c".into(), cmd],
@@ -282,14 +282,14 @@ pub fn build_resume_command(
             // 여기서는 fallthrough — resume.rs가 Custom일 때 별도 처리하므로 여긴 도달 안 함
             ResumePlan {
                 program: term.program.clone(),
-                args: vec![claude_invoke],
+                args: vec![codex_invoke],
             }
         }
     }
 }
 
 /// Custom 터미널용 ResumePlan 빌더.
-/// args_template 안의 {cwd} {id} {flags} {claude_invoke} 토큰을 치환.
+/// args_template 안의 {cwd} {id} {flags} {claude_invoke} {codex_invoke} 토큰을 치환.
 /// 인자는 공백으로 분리(따옴표로 묶인 부분 보존).
 pub fn build_custom_resume_command(
     program: &str,
@@ -300,17 +300,18 @@ pub fn build_custom_resume_command(
 ) -> ResumePlan {
     let work_dir = cwd.filter(|p| Path::new(p).exists()).unwrap_or("");
     let flags_str = flags.map(|s| s.trim()).filter(|s| !s.is_empty()).unwrap_or("");
-    let claude_invoke = if flags_str.is_empty() {
-        format!("claude --resume {}", session_id)
+    let codex_invoke = if flags_str.is_empty() {
+        format!("codex resume {}", session_id)
     } else {
-        format!("claude {} --resume {}", flags_str, session_id)
+        format!("codex resume {} {}", flags_str, session_id)
     };
 
     let substituted = args_template
         .replace("{cwd}", work_dir)
         .replace("{id}", session_id)
         .replace("{flags}", flags_str)
-        .replace("{claude_invoke}", &claude_invoke);
+        .replace("{claude_invoke}", &codex_invoke)
+        .replace("{codex_invoke}", &codex_invoke);
 
     let args = split_args(&substituted);
     ResumePlan {

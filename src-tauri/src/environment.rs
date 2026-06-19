@@ -7,9 +7,9 @@ use std::time::Duration;
 #[serde(rename_all = "camelCase")]
 pub struct EnvironmentReport {
     pub target_os: String,
-    pub claude_cli_found: bool,
-    pub claude_cli_path: Option<String>,
-    pub claude_cli_version: Option<String>,
+    pub codex_cli_found: bool,
+    pub codex_cli_path: Option<String>,
+    pub codex_cli_version: Option<String>,
     pub terminals: Vec<DetectedTerminal>,
 }
 
@@ -36,36 +36,35 @@ fn locate_in_path(name: &str) -> Option<String> {
     None
 }
 
-/// claude CLI를 찾는다. PATH 검색이 실패하면(Tauri GUI 앱은 사용자 PATH를
+/// codex CLI를 찾는다. PATH 검색이 실패하면(Tauri GUI 앱은 사용자 PATH를
 /// 못 받는 경우가 있음) 일반적인 설치 위치도 직접 검사한다.
-pub fn locate_claude() -> Option<String> {
+pub fn locate_codex() -> Option<String> {
     // 1순위: 환경변수
-    if let Ok(p) = std::env::var("CLAUDE_CLI") {
+    if let Ok(p) = std::env::var("CODEX_CLI") {
         if std::path::Path::new(&p).exists() {
             return Some(p);
         }
     }
     // 2순위: PATH
-    if let Some(p) = locate_in_path("claude") {
+    if let Some(p) = locate_in_path("codex") {
         return Some(p);
     }
     // 3순위: 알려진 설치 위치들
     if let Some(home) = dirs::home_dir() {
         let mut candidates: Vec<std::path::PathBuf> = Vec::new();
-        // Anthropic 공식 설치 스크립트 위치
-        candidates.push(home.join(".local").join("bin").join("claude.exe"));
-        candidates.push(home.join(".local").join("bin").join("claude"));
+        candidates.push(home.join(".local").join("bin").join("codex.exe"));
+        candidates.push(home.join(".local").join("bin").join("codex"));
         // npm global (사용자)
-        candidates.push(home.join("AppData").join("Roaming").join("npm").join("claude.cmd"));
-        candidates.push(home.join("AppData").join("Roaming").join("npm").join("claude"));
+        candidates.push(home.join("AppData").join("Roaming").join("npm").join("codex.cmd"));
+        candidates.push(home.join("AppData").join("Roaming").join("npm").join("codex"));
         // pnpm
-        candidates.push(home.join("AppData").join("Local").join("pnpm").join("claude.cmd"));
+        candidates.push(home.join("AppData").join("Local").join("pnpm").join("codex.cmd"));
         // yarn global
-        candidates.push(home.join("AppData").join("Local").join("Yarn").join("bin").join("claude.cmd"));
+        candidates.push(home.join("AppData").join("Local").join("Yarn").join("bin").join("codex.cmd"));
 
         // macOS / Linux Homebrew
-        candidates.push(std::path::PathBuf::from("/usr/local/bin/claude"));
-        candidates.push(std::path::PathBuf::from("/opt/homebrew/bin/claude"));
+        candidates.push(std::path::PathBuf::from("/usr/local/bin/codex"));
+        candidates.push(std::path::PathBuf::from("/opt/homebrew/bin/codex"));
 
         for c in candidates {
             if c.exists() {
@@ -111,9 +110,9 @@ fn run_with_timeout(program: &str, args: &[&str], timeout: Duration) -> Option<S
 
 pub fn check_environment() -> EnvironmentReport {
     let target_os = current_target_os();
-    let claude_path = locate_claude();
-    let claude_found = claude_path.is_some();
-    let claude_version = if let Some(p) = &claude_path {
+    let codex_path = locate_codex();
+    let codex_found = codex_path.is_some();
+    let codex_version = if let Some(p) = &codex_path {
         run_with_timeout(p, &["--version"], Duration::from_secs(5))
     } else {
         None
@@ -122,9 +121,9 @@ pub fn check_environment() -> EnvironmentReport {
 
     EnvironmentReport {
         target_os: target_os.to_string(),
-        claude_cli_found: claude_found,
-        claude_cli_path: claude_path,
-        claude_cli_version: claude_version,
+        codex_cli_found: codex_found,
+        codex_cli_path: codex_path,
+        codex_cli_version: codex_version,
         terminals,
     }
 }

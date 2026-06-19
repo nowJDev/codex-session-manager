@@ -66,12 +66,12 @@ pub fn resume_in_new_terminal(session_id: &str, cwd: Option<&str>) -> Result<()>
     crate::debuglog::log(
         "resume",
         &format!(
-            "session={} cwd={:?} target={} claude_version={:?} claude_path={:?}\n  program: {}\n  args: {:?}",
+            "session={} cwd={:?} target={} codex_version={:?} codex_path={:?}\n  program: {}\n  args: {:?}",
             session_id,
             cwd,
             target,
-            env.claude_cli_version,
-            env.claude_cli_path,
+            env.codex_cli_version,
+            env.codex_cli_path,
             plan.program,
             plan.args,
         ),
