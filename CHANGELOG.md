@@ -2,6 +2,26 @@
 
 All notable changes to this project are documented here.
 
+## [0.5.0-codex-port] — 2026-06-19
+
+### Changed
+- Claude Session Manager를 Codex Session Manager로 fork 이식.
+- 세션 스캔 대상을 `~/.codex/sessions/YYYY/MM/DD/*.jsonl`과 `~/.codex/archived_sessions`로 변경.
+- resume 실행 명령을 `codex resume <session-id>`로 변경.
+- 환경 진단을 Codex CLI 탐지와 `codex --version` 기준으로 변경.
+- 앱 설정과 디버그 로그 기본 경로를 `~/.codex-sessions`로 변경.
+- 클라우드 동기화 폴더명을 `Codex Sessions`로 변경하고, 체크아웃 시 Codex 날짜 폴더 구조를 복원하도록 수정.
+- Tauri 앱 이름, 패키지명, 릴리스 이름, README를 Codex 기준으로 정리.
+
+### Fixed
+- Windows npm global 설치에서 `codex` extensionless shim보다 `codex.cmd`를 우선 사용하도록 수정해 버전 감지와 `codex exec` 실행 실패 가능성을 줄임.
+
+### Verified
+- `cargo test -- --test-threads=1`.
+- `pnpm build`.
+- `pnpm tauri build --debug`.
+- 빌드된 `codex-session-manager.exe` GUI smoke test.
+
 ## [0.4.8] — 2026-05-31
 
 ### Fixed

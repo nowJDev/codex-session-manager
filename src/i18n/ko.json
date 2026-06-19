@@ -65,7 +65,7 @@
     "generating": "요약 생성 중...",
     "generated": "요약 생성 완료",
     "failed": "요약 생성 실패",
-    "noApiKey": "ANTHROPIC_API_KEY가 설정되지 않았습니다. 요약을 생성할 수 없습니다."
+    "noApiKey": "Codex CLI를 찾을 수 없습니다. 요약을 생성할 수 없습니다."
   },
   "time": {
     "justNow": "방금",

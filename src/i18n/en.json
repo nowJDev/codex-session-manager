@@ -65,7 +65,7 @@
     "generating": "Generating summary...",
     "generated": "Summary generated",
     "failed": "Failed to generate summary",
-    "noApiKey": "ANTHROPIC_API_KEY not set. Cannot generate summaries."
+    "noApiKey": "Codex CLI not found. Cannot generate summaries."
   },
   "time": {
     "justNow": "just now",

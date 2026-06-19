@@ -37,19 +37,45 @@ fn collect_excerpt(file_path: &str, head_n: usize, tail_n: usize) -> Result<Stri
             Err(_) => continue,
         };
         let ty = val.get("type").and_then(|v| v.as_str()).unwrap_or("");
-        if ty != "user" && ty != "assistant" {
+        let item = match ty {
+            "user" | "assistant" => val
+                .pointer("/message/content")
+                .and_then(extract_text)
+                .map(|text| (ty, text)),
+            "event_msg" => {
+                let payload = val.get("payload").unwrap_or(&serde_json::Value::Null);
+                if payload.get("type").and_then(|v| v.as_str()) == Some("user_message") {
+                    payload
+                        .get("message")
+                        .and_then(extract_text)
+                        .map(|text| ("user", text))
+                } else {
+                    None
+                }
+            }
+            "response_item" => {
+                let payload = val.get("payload").unwrap_or(&serde_json::Value::Null);
+                payload
+                    .get("role")
+                    .and_then(|v| v.as_str())
+                    .filter(|role| *role == "user" || *role == "assistant")
+                    .and_then(|role| {
+                        payload
+                            .get("content")
+                            .and_then(extract_text)
+                            .map(|text| (role, text))
+                    })
+            }
+            _ => None,
+        };
+        let Some((role, text)) = item else { continue };
+        if text.is_empty() {
             continue;
         }
-        if let Some(content) = val.pointer("/message/content") {
-            let text = extract_text(content).unwrap_or_default();
-            if text.is_empty() {
-                continue;
-            }
-            let snippet = text.chars().take(400).collect::<String>();
-            out.push_str(&format!("[{}] {}\n", ty, snippet));
-            if out.len() > 20_000 {
-                break;
-            }
+        let snippet = text.chars().take(400).collect::<String>();
+        out.push_str(&format!("[{}] {}\n", role, snippet));
+        if out.len() > 20_000 {
+            break;
         }
     }
     Ok(out)
@@ -62,7 +88,10 @@ fn extract_text(content: &serde_json::Value) -> Option<String> {
     if let Some(arr) = content.as_array() {
         let mut buf = String::new();
         for item in arr {
-            if item.get("type").and_then(|v| v.as_str()) == Some("text") {
+            if matches!(
+                item.get("type").and_then(|v| v.as_str()),
+                Some("text") | Some("output_text") | Some("input_text")
+            ) {
                 if let Some(t) = item.get("text").and_then(|v| v.as_str()) {
                     buf.push_str(t);
                     buf.push('\n');
@@ -271,4 +300,29 @@ pub fn auto_summarize_session(
         name = desc.chars().take(12).collect();
     }
     Ok((name, desc))
+}
+
+#[cfg(test)]
+mod tests {
+    use super::collect_excerpt;
+    use std::fs;
+
+    #[test]
+    fn collect_excerpt_reads_codex_user_and_assistant_records() {
+        let dir = tempfile::tempdir().unwrap();
+        let file = dir.path().join("session.jsonl");
+        fs::write(
+            &file,
+            [
+                r#"{"timestamp":"2026-06-19T00:00:00Z","type":"event_msg","payload":{"type":"user_message","message":"사용자가 요청한 내용"}}"#,
+                r#"{"timestamp":"2026-06-19T00:00:01Z","type":"response_item","payload":{"type":"message","role":"assistant","content":[{"type":"output_text","text":"어시스턴트 응답"}]}}"#,
+            ]
+            .join("\n"),
+        )
+        .unwrap();
+
+        let excerpt = collect_excerpt(file.to_str().unwrap(), 10, 10).unwrap();
+        assert!(excerpt.contains("[user] 사용자가 요청한 내용"));
+        assert!(excerpt.contains("[assistant] 어시스턴트 응답"));
+    }
 }

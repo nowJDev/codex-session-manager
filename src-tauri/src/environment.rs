@@ -25,8 +25,12 @@ fn current_target_os() -> &'static str {
 
 fn locate_in_path(name: &str) -> Option<String> {
     let path_var = std::env::var_os("PATH")?;
+    #[cfg(target_os = "windows")]
+    let extensions = [".cmd", ".exe", ".bat", ""];
+    #[cfg(not(target_os = "windows"))]
+    let extensions = ["", ".exe", ".cmd", ".bat"];
     for dir in std::env::split_paths(&path_var) {
-        for ext in ["", ".exe", ".cmd", ".bat"] {
+        for ext in extensions {
             let cand = dir.join(format!("{}{}", name, ext));
             if cand.exists() {
                 return Some(cand.to_string_lossy().to_string());

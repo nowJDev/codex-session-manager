@@ -473,3 +473,29 @@ fn environment_check_returns_consistent_target() {
     // codex_cli_found must agree with codex_cli_path being Some/None
     assert_eq!(report.codex_cli_found, report.codex_cli_path.is_some());
 }
+
+#[cfg(target_os = "windows")]
+#[test]
+fn environment_prefers_cmd_shim_over_extensionless_npm_shim() {
+    let _guard = ENV_LOCK.lock().unwrap_or_else(|e| e.into_inner());
+    let dir = tempfile::tempdir().unwrap();
+    let old_path = std::env::var_os("PATH");
+    let old_cli = std::env::var_os("CODEX_CLI");
+    fs::write(dir.path().join("codex"), "extensionless shim").unwrap();
+    fs::write(dir.path().join("codex.cmd"), "@echo off\r\necho codex-cli 9.9.9\r\n").unwrap();
+
+    std::env::remove_var("CODEX_CLI");
+    std::env::set_var("PATH", dir.path());
+    let found = environment::locate_codex().expect("codex should be found");
+    assert!(
+        found.ends_with("codex.cmd"),
+        "Windows should prefer executable cmd shim, got {found}"
+    );
+
+    if let Some(path) = old_path {
+        std::env::set_var("PATH", path);
+    }
+    if let Some(cli) = old_cli {
+        std::env::set_var("CODEX_CLI", cli);
+    }
+}
