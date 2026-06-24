@@ -129,6 +129,11 @@ function compareSessions(a: Session, b: Session, sort: SortState): number {
   }
 }
 
+function shortSessionId(id: string): string {
+  if (id.length <= 13) return id;
+  return `${id.slice(0, 8)}...${id.slice(-4)}`;
+}
+
 function loadWidths(): Record<ColKey, number> {
   try {
     const raw = localStorage.getItem(STORAGE_KEY);
@@ -368,7 +373,7 @@ function SessionTableInner({
               </TableCell>
               <TableCell style={cellStyle("id")} title={s.sessionId}>
                 <span className="block truncate font-mono text-xs text-muted-foreground/80">
-                  {s.sessionId.slice(0, 8)}
+                  {shortSessionId(s.sessionId)}
                 </span>
               </TableCell>
               <TableCell style={cellStyle("desc")} title={desc || undefined}>

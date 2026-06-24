@@ -164,10 +164,10 @@ pub fn detect_all_terminals(target_os: &str) -> Vec<DetectedTerminal> {
     };
     match target_os {
         "windows" => {
-            push(&mut out, TerminalKind::GitBash, locate_git_bash());
+            push(&mut out, TerminalKind::Cmd, locate_cmd());
             push(&mut out, TerminalKind::WindowsTerminal, locate_windows_terminal());
             push(&mut out, TerminalKind::PowerShell, locate_powershell());
-            push(&mut out, TerminalKind::Cmd, locate_cmd());
+            push(&mut out, TerminalKind::GitBash, locate_git_bash());
         }
         "macos" => {
             out.push(DetectedTerminal {
@@ -208,12 +208,50 @@ pub fn build_resume_command(
     cwd: Option<&str>,
     flags: Option<&str>,
 ) -> ResumePlan {
-    let work_dir = cwd.filter(|p| Path::new(p).exists());
+    build_resume_command_with_codex(term, session_id, cwd, flags, "codex")
+}
+
+fn quote_posix_single(s: &str) -> String {
+    format!("'{}'", s.replace('\'', "'\\''"))
+}
+
+fn quote_powershell_single(s: &str) -> String {
+    format!("'{}'", s.replace('\'', "''"))
+}
+
+fn codex_invoke_for_terminal(
+    kind: TerminalKind,
+    codex_program: &str,
+    session_id: &str,
+    flags: Option<&str>,
+) -> String {
     let flags_str = flags.map(|s| s.trim()).filter(|s| !s.is_empty());
-    let codex_invoke = match flags_str {
-        Some(f) => format!("codex resume {} {}", f, session_id),
-        None => format!("codex resume {}", session_id),
+    let codex = if codex_program == "codex" {
+        "codex".to_string()
+    } else {
+        match kind {
+            TerminalKind::PowerShell | TerminalKind::WindowsTerminal => {
+                format!("& {}", quote_powershell_single(codex_program))
+            }
+            TerminalKind::Cmd => format!("\"{}\"", codex_program.replace('"', "\"\"")),
+            _ => quote_posix_single(codex_program),
+        }
     };
+    match flags_str {
+        Some(f) => format!("{} resume {} {}", codex, f, session_id),
+        None => format!("{} resume {}", codex, session_id),
+    }
+}
+
+pub fn build_resume_command_with_codex(
+    term: &DetectedTerminal,
+    session_id: &str,
+    cwd: Option<&str>,
+    flags: Option<&str>,
+    codex_program: &str,
+) -> ResumePlan {
+    let work_dir = cwd.filter(|p| Path::new(p).exists());
+    let codex_invoke = codex_invoke_for_terminal(term.kind, codex_program, session_id, flags);
     match term.kind {
         TerminalKind::GitBash => {
             let cd = work_dir

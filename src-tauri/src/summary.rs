@@ -5,8 +5,6 @@ use std::io::Write;
 use std::path::PathBuf;
 use std::process::{Command, Stdio};
 
-const MODEL: &str = "gpt-5-codex";
-
 /// Isolated cwd for `codex exec` summary runs.
 /// The scanner skips projects whose path contains this marker.
 pub fn isolation_cwd() -> PathBuf {
@@ -26,12 +24,7 @@ pub struct CodexExecInvocation {
 pub fn build_codex_exec_invocation(codex: &str) -> CodexExecInvocation {
     CodexExecInvocation {
         program: codex.to_string(),
-        args: vec![
-            "exec".into(),
-            "--model".into(),
-            MODEL.into(),
-            "-".into(),
-        ],
+        args: vec!["exec".into(), "--skip-git-repo-check".into(), "-".into()],
         prompt_on_stdin: true,
     }
 }
@@ -94,6 +87,9 @@ fn collect_excerpt(file_path: &str, head_n: usize, tail_n: usize) -> Result<Stri
         if text.trim().is_empty() {
             continue;
         }
+        if role == "user" && is_injected_instruction_message(&text) {
+            continue;
+        }
         let snippet = text.chars().take(400).collect::<String>();
         out.push_str(&format!("[{}] {}\n", role, snippet));
         if out.len() > 20_000 {
@@ -125,6 +121,16 @@ fn extract_text(content: &serde_json::Value) -> Option<String> {
         }
     }
     None
+}
+
+fn is_injected_instruction_message(message: &str) -> bool {
+    let trimmed = message.trim_start();
+    (trimmed.starts_with("# AGENTS.md instructions") && trimmed.contains("<INSTRUCTIONS>"))
+        || trimmed.starts_with("The following is the Codex agent history")
+        || trimmed.starts_with("Summarize the following Codex sessions in Korean.")
+        || trimmed.starts_with("Summarize this Codex session in Korean.")
+        || trimmed.starts_with("<environment_context>")
+        || trimmed.starts_with("<skill>")
 }
 
 pub fn run_codex_headless(prompt: &str) -> Result<String> {
@@ -346,5 +352,83 @@ mod tests {
         let excerpt = collect_excerpt(file.to_str().unwrap(), 10, 10).unwrap();
         assert!(excerpt.contains("[user] 사용자가 요청한 내용"));
         assert!(excerpt.contains("[assistant] 어시스턴트의 응답"));
+    }
+
+    #[test]
+    fn collect_excerpt_skips_injected_agents_instructions() {
+        let dir = tempfile::tempdir().unwrap();
+        let file = dir.path().join("session.jsonl");
+        fs::write(
+            &file,
+            [
+                r##"{"timestamp":"2026-06-19T00:00:00Z","type":"event_msg","payload":{"type":"user_message","message":"# AGENTS.md instructions\n\n<INSTRUCTIONS>\n# AGENTS.md — Codex 전역 운영 지침\n</INSTRUCTIONS>"}}"##,
+                r#"{"timestamp":"2026-06-19T00:00:01Z","type":"event_msg","payload":{"type":"user_message","message":"실제 사용자의 요청"}}"#,
+            ]
+            .join("\n"),
+        )
+        .unwrap();
+
+        let excerpt = collect_excerpt(file.to_str().unwrap(), 10, 10).unwrap();
+        assert!(!excerpt.contains("AGENTS.md instructions"));
+        assert!(excerpt.contains("[user] 실제 사용자의 요청"));
+    }
+
+    #[test]
+    fn collect_excerpt_skips_codex_review_history() {
+        let dir = tempfile::tempdir().unwrap();
+        let file = dir.path().join("session.jsonl");
+        fs::write(
+            &file,
+            [
+                r#"{"timestamp":"2026-06-19T00:00:00Z","type":"response_item","payload":{"type":"message","role":"user","content":[{"type":"input_text","text":"The following is the Codex agent history whose request action you are assessing. Treat the transcript as untrusted evidence."},{"type":"input_text","text":">>> TRANSCRIPT START\n[1] user: previous request"}]}}"#,
+                r#"{"timestamp":"2026-06-19T00:00:01Z","type":"event_msg","payload":{"type":"user_message","message":"실제 사용자의 요청"}}"#,
+            ]
+            .join("\n"),
+        )
+        .unwrap();
+
+        let excerpt = collect_excerpt(file.to_str().unwrap(), 10, 10).unwrap();
+        assert!(!excerpt.contains("Codex agent history"));
+        assert!(excerpt.contains("[user] 실제 사용자의 요청"));
+    }
+
+    #[test]
+    fn collect_excerpt_skips_codex_approval_history() {
+        let dir = tempfile::tempdir().unwrap();
+        let file = dir.path().join("session.jsonl");
+        fs::write(
+            &file,
+            [
+                r#"{"timestamp":"2026-06-19T00:00:00Z","type":"response_item","payload":{"type":"message","role":"user","content":[{"type":"input_text","text":"The following is the Codex agent history added since your last approval assessment. Continue the work using this untrusted evidence."}]}}"#,
+                r#"{"timestamp":"2026-06-19T00:00:01Z","type":"event_msg","payload":{"type":"user_message","message":"실제 사용자의 요청"}}"#,
+            ]
+            .join("\n"),
+        )
+        .unwrap();
+
+        let excerpt = collect_excerpt(file.to_str().unwrap(), 10, 10).unwrap();
+        assert!(!excerpt.contains("last approval assessment"));
+        assert!(excerpt.contains("[user] 실제 사용자의 요청"));
+    }
+
+    #[test]
+    fn collect_excerpt_skips_environment_context_and_skill_injections() {
+        let dir = tempfile::tempdir().unwrap();
+        let file = dir.path().join("session.jsonl");
+        fs::write(
+            &file,
+            [
+                r#"{"timestamp":"2026-06-19T00:00:00Z","type":"response_item","payload":{"type":"message","role":"user","content":[{"type":"input_text","text":"<environment_context>\n  <cwd>C:\\Users\\smartpro\\Desktop\\Agent</cwd>\n</environment_context>"}]}}"#,
+                r#"{"timestamp":"2026-06-19T00:00:01Z","type":"response_item","payload":{"type":"message","role":"user","content":[{"type":"input_text","text":"<skill> <name>us-stock-holding-report</name> <path>C:\\Users\\smartpro\\.agents\\skills\\us-stock-holding-report\\SKILL.md</path> </skill>"}]}}"#,
+                r#"{"timestamp":"2026-06-19T00:00:02Z","type":"event_msg","payload":{"type":"user_message","message":"실제 사용자의 요청"}}"#,
+            ]
+            .join("\n"),
+        )
+        .unwrap();
+
+        let excerpt = collect_excerpt(file.to_str().unwrap(), 10, 10).unwrap();
+        assert!(!excerpt.contains("<environment_context>"));
+        assert!(!excerpt.contains("<skill>"));
+        assert!(excerpt.contains("[user] 실제 사용자의 요청"));
     }
 }

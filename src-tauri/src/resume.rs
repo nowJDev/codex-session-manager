@@ -1,7 +1,7 @@
 use crate::config::load_config;
 use crate::terminal::{
-    build_custom_resume_command, build_resume_command, detect_all_terminals, pick_terminal,
-    DetectedTerminal, ResumePlan, TerminalKind,
+    build_custom_resume_command, build_resume_command_with_codex, detect_all_terminals,
+    pick_terminal, DetectedTerminal, ResumePlan, TerminalKind,
 };
 use anyhow::{anyhow, Result};
 use std::process::Command;
@@ -54,7 +54,8 @@ pub fn build_resume_plan(session_id: &str, cwd: Option<&str>, target_os: &str) -
         };
         DetectedTerminal { kind, program, display_name: kind.display_name().into() }
     });
-    build_resume_command(&term, session_id, cwd, flags.as_deref())
+    let codex = crate::environment::locate_codex().unwrap_or_else(|| "codex".into());
+    build_resume_command_with_codex(&term, session_id, cwd, flags.as_deref(), &codex)
 }
 
 pub fn resume_in_new_terminal(session_id: &str, cwd: Option<&str>) -> Result<()> {
@@ -92,7 +93,16 @@ pub fn resume_in_new_terminal(session_id: &str, cwd: Option<&str>) -> Result<()>
         }
     }
 
-    match Command::new(&plan.program).args(&plan.args).spawn() {
+    let mut cmd = Command::new(&plan.program);
+    cmd.args(&plan.args);
+    #[cfg(target_os = "windows")]
+    {
+        use std::os::windows::process::CommandExt;
+        const CREATE_NEW_CONSOLE: u32 = 0x0000_0010;
+        cmd.creation_flags(CREATE_NEW_CONSOLE);
+    }
+
+    match cmd.spawn() {
         Ok(_) => {
             crate::debuglog::log("resume", "spawn OK");
             Ok(())

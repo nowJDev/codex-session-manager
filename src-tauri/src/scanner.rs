@@ -124,7 +124,7 @@ fn read_jsonl_meta(path: &Path) -> Result<JsonlMeta> {
                     && payload.get("type").and_then(|v| v.as_str()) == Some("user_message")
                 {
                     if let Some(message) = payload.get("message") {
-                        first_user = extract_text(message).map(|s| truncate(&s, 200));
+                        first_user = extract_user_message_text(message).map(|s| truncate(&s, 200));
                     }
                 }
             }
@@ -133,7 +133,7 @@ fn read_jsonl_meta(path: &Path) -> Result<JsonlMeta> {
                     && payload.get("role").and_then(|v| v.as_str()) == Some("user")
                 {
                     if let Some(content) = payload.get("content") {
-                        first_user = extract_text(content).map(|s| truncate(&s, 200));
+                        first_user = extract_user_message_text(content).map(|s| truncate(&s, 200));
                     }
                 }
             }
@@ -173,6 +173,25 @@ fn extract_text(content: &Value) -> Option<String> {
         }
     }
     None
+}
+
+fn is_injected_instruction_message(message: &str) -> bool {
+    let trimmed = message.trim_start();
+    (trimmed.starts_with("# AGENTS.md instructions") && trimmed.contains("<INSTRUCTIONS>"))
+        || trimmed.starts_with("The following is the Codex agent history")
+        || trimmed.starts_with("Summarize the following Codex sessions in Korean.")
+        || trimmed.starts_with("Summarize this Codex session in Korean.")
+        || trimmed.starts_with("<environment_context>")
+        || trimmed.starts_with("<skill>")
+}
+
+fn extract_user_message_text(content: &Value) -> Option<String> {
+    let text = extract_text(content)?;
+    if is_injected_instruction_message(&text) {
+        None
+    } else {
+        Some(text)
+    }
 }
 
 fn truncate(s: &str, n: usize) -> String {
@@ -371,6 +390,16 @@ pub fn scan_local_sessions() -> Result<Vec<Session>> {
                 .unwrap_or(fallback_session_id);
             let cwd = meta.as_ref().and_then(|m| m.cwd.clone());
             let file_path_text = path.to_string_lossy().to_string();
+            let internal_summary_run = cwd
+                .as_deref()
+                .is_some_and(|c| c.contains(".summary-runs") || c.contains("summary-runs"));
+            if internal_summary_run {
+                total_excluded += 1;
+                if let Some(f) = log.as_mut() {
+                    let _ = writeln!(f, "[internal-summary-run] {}", path.display());
+                }
+                continue;
+            }
             let excluded_match = excluded_raw.iter().any(|p| {
                 file_path_text.contains(p) || cwd.as_deref().is_some_and(|c| c.contains(p))
             }) || excluded_encoded.iter().any(|p| {
@@ -392,6 +421,29 @@ pub fn scan_local_sessions() -> Result<Vec<Session>> {
             }
 
             let saved_meta = saved.get(&stem).cloned().unwrap_or_default();
+            let has_saved_display = saved_meta
+                .name
+                .as_deref()
+                .is_some_and(|s| !s.trim().is_empty())
+                || saved_meta
+                    .description
+                    .as_deref()
+                    .is_some_and(|s| !s.trim().is_empty())
+                || saved_meta
+                    .auto_summary
+                    .as_deref()
+                    .is_some_and(|s| !s.trim().is_empty());
+            let has_real_user_message = meta
+                .as_ref()
+                .and_then(|m| m.first_user_message.as_deref())
+                .is_some_and(|s| !s.trim().is_empty());
+            if !has_saved_display && !has_real_user_message {
+                total_excluded += 1;
+                if let Some(f) = log.as_mut() {
+                    let _ = writeln!(f, "[no-real-user-message] {}", path.display());
+                }
+                continue;
+            }
             let inferred_name = index_names
                 .get(&stem)
                 .cloned()
@@ -469,7 +521,7 @@ pub fn get_session_messages(file_path: &str, max_messages: usize) -> Result<Vec<
             continue;
         }
         if let Some(message) = payload.get("message") {
-            if let Some(text) = extract_text(message) {
+            if let Some(text) = extract_user_message_text(message) {
                 out.push(truncate(&text, 300));
             }
         }
@@ -489,7 +541,11 @@ fn run_codex_session_action(action: &str, session_id: &str) -> Result<()> {
     let codex = crate::environment::locate_codex()
         .ok_or_else(|| anyhow!("codex CLI를 찾을 수 없음"))?;
     let mut cmd = Command::new(&codex);
-    cmd.arg(action).arg(session_id);
+    cmd.arg(action);
+    if action == "delete" {
+        cmd.arg("--force");
+    }
+    cmd.arg(session_id);
     #[cfg(target_os = "windows")]
     {
         use std::os::windows::process::CommandExt;
