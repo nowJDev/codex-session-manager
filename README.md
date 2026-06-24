@@ -46,8 +46,8 @@ The current release is [Codex Session Manager v0.5.5](https://github.com/nowJDev
 
 | Platform | Asset |
 |---|---|
-| Windows | `Codex.Session.Manager_0.5.5_x64-setup.exe`, `Codex.Session.Manager_0.5.5_x64_en-US.msi`, or `Codex.Session.Manager_v0.5.5_x64-portable.zip` |
-| macOS Apple Silicon | `Codex.Session.Manager_0.5.5_aarch64.dmg` |
+| Windows | `Codex Session Manager_0.5.5_x64-setup.exe`, `Codex Session Manager_0.5.5_x64_en-US.msi`, or `Codex.Session.Manager_v0.5.5_x64-portable.zip` |
+| macOS Apple Silicon | `Codex Session Manager_0.5.5_aarch64.dmg` |
 | Linux | `.deb`, `.rpm`, or `.AppImage` |
 
 설치형 앱의 자동 업데이트는 `v0.5.4` 이후 빌드부터 동작합니다. `v0.5.3` 이하에서 자동 업데이트 기능을 받으려면 한 번은 릴리즈 페이지에서 설치 파일을 직접 받아 설치해야 합니다.
