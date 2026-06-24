@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useMemo, useState } from "react";
 import { listen } from "@tauri-apps/api/event";
-import { AlertTriangle, RefreshCw, Search, Settings as SettingsIcon } from "lucide-react";
+import { AlertTriangle, RefreshCw, Search, Settings as SettingsIcon, Trash2 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { SessionTable } from "@/components/SessionTable";
@@ -24,6 +24,7 @@ function App() {
   const [editTarget, setEditTarget] = useState<Session | null>(null);
   const [settingsOpen, setSettingsOpen] = useState(false);
   const [codexCliMissing, setCodexCliMissing] = useState(false);
+  const [selectedForDeleteIds, setSelectedForDeleteIds] = useState<Set<string>>(() => new Set());
 
   const t = useMemo(() => createT(locale), [locale]);
 
@@ -88,6 +89,19 @@ function App() {
     () => sessions.find((s) => s.sessionId === selectedId) || null,
     [sessions, selectedId],
   );
+  const selectedForDelete = useMemo(
+    () => sessions.filter((s) => selectedForDeleteIds.has(s.sessionId)),
+    [sessions, selectedForDeleteIds],
+  );
+  const selectedForDeleteCount = selectedForDelete.length;
+
+  useEffect(() => {
+    setSelectedForDeleteIds((cur) => {
+      const existing = new Set(sessions.map((s) => s.sessionId));
+      const next = new Set([...cur].filter((id) => existing.has(id)));
+      return next.size === cur.size ? cur : next;
+    });
+  }, [sessions]);
 
   async function handleResume(s: Session) {
     try {
@@ -107,6 +121,33 @@ function App() {
     try {
       await ipc.deleteSession(s.sessionId, s.filePath);
       setSelectedId((cur) => (cur === s.sessionId ? null : cur));
+      setSelectedForDeleteIds((cur) => {
+        if (!cur.has(s.sessionId)) return cur;
+        const next = new Set(cur);
+        next.delete(s.sessionId);
+        return next;
+      });
+      await refresh();
+    } catch (err) {
+      console.error(err);
+      alert(String(err));
+    }
+  }
+
+  async function handleBulkDelete() {
+    if (selectedForDelete.length === 0) return;
+    const ok = confirm(t("prompt.confirmBulkDelete", { count: selectedForDelete.length }));
+    if (!ok) return;
+    try {
+      await ipc.deleteSessions(
+        selectedForDelete.map((s) => ({
+          sessionId: s.sessionId,
+          filePath: s.filePath,
+        })),
+      );
+      const deletedIds = new Set(selectedForDelete.map((s) => s.sessionId));
+      setSelectedId((cur) => (cur && deletedIds.has(cur) ? null : cur));
+      setSelectedForDeleteIds(new Set());
       await refresh();
     } catch (err) {
       console.error(err);
@@ -171,6 +212,32 @@ function App() {
     }
   }
 
+  function handleToggleSelected(s: Session) {
+    setSelectedForDeleteIds((cur) => {
+      const next = new Set(cur);
+      if (next.has(s.sessionId)) {
+        next.delete(s.sessionId);
+      } else {
+        next.add(s.sessionId);
+      }
+      return next;
+    });
+  }
+
+  function handleToggleVisibleSelection(visibleSessions: Session[], selected: boolean) {
+    setSelectedForDeleteIds((cur) => {
+      const next = new Set(cur);
+      for (const session of visibleSessions) {
+        if (selected) {
+          next.add(session.sessionId);
+        } else {
+          next.delete(session.sessionId);
+        }
+      }
+      return next;
+    });
+  }
+
   function openEdit(mode: EditMode, s: Session) {
     setEditMode(mode);
     setEditTarget(s);
@@ -232,6 +299,17 @@ function App() {
           />
         </div>
         <div className="flex items-center gap-1.5">
+          {selectedForDeleteCount > 0 && (
+            <Button
+              variant="destructive"
+              size="sm"
+              onClick={handleBulkDelete}
+              title={t("action.deleteSelected", { count: selectedForDeleteCount })}
+            >
+              <Trash2 className="h-4 w-4" />
+              {t("action.deleteSelected", { count: selectedForDeleteCount })}
+            </Button>
+          )}
           <Button
             variant="ghost"
             size="icon"
@@ -268,6 +346,9 @@ function App() {
             onToggleCloud={handleToggleCloud}
             onGenerateSummary={handleGenerateSummary}
             onToggleFavorite={handleToggleFavorite}
+            selectedSessionIds={selectedForDeleteIds}
+            onToggleSelected={handleToggleSelected}
+            onToggleVisibleSelection={handleToggleVisibleSelection}
           />
         </section>
         <aside className="w-[380px] shrink-0 border-l border-border/60 bg-card/30">

@@ -10,6 +10,9 @@ import {
   HardDrive,
   MoreHorizontal,
   Star,
+  CheckSquare,
+  MinusSquare,
+  Square,
 } from "lucide-react";
 import {
   Table,
@@ -46,9 +49,13 @@ interface Props {
   onToggleCloud: (s: Session) => void;
   onGenerateSummary: (s: Session) => void;
   onToggleFavorite: (s: Session) => void;
+  selectedSessionIds: Set<string>;
+  onToggleSelected: (s: Session) => void;
+  onToggleVisibleSelection: (sessions: Session[], selected: boolean) => void;
 }
 
 type ColKey =
+  | "select"
   | "star"
   | "name"
   | "id"
@@ -60,6 +67,7 @@ type ColKey =
   | "actions";
 
 const DEFAULTS: Record<ColKey, number> = {
+  select: 36,
   star: 36,
   name: 180,
   id: 100,
@@ -72,6 +80,7 @@ const DEFAULTS: Record<ColKey, number> = {
 };
 
 const MIN_WIDTH: Record<ColKey, number> = {
+  select: 36,
   star: 36,
   name: 80,
   id: 60,
@@ -242,6 +251,9 @@ function SessionTableInner({
   onToggleCloud,
   onGenerateSummary,
   onToggleFavorite,
+  selectedSessionIds,
+  onToggleSelected,
+  onToggleVisibleSelection,
 }: Props) {
   const [widths, setWidths] = useState<Record<ColKey, number>>(() => loadWidths());
   const [sort, setSort] = useState<SortState>(() => loadSort());
@@ -274,6 +286,10 @@ function SessionTableInner({
     () => [...sessions].sort((a, b) => compareSessions(a, b, sort)),
     [sessions, sort]
   );
+  const visibleSelectedCount = sortedSessions.filter((s) => selectedSessionIds.has(s.sessionId)).length;
+  const allVisibleSelected = sortedSessions.length > 0 && visibleSelectedCount === sortedSessions.length;
+  const someVisibleSelected = visibleSelectedCount > 0 && !allVisibleSelected;
+  const SelectAllIcon = allVisibleSelected ? CheckSquare : someVisibleSelected ? MinusSquare : Square;
 
   if (sessions.length === 0) {
     return (
@@ -293,6 +309,21 @@ function SessionTableInner({
     <Table>
       <TableHeader>
         <TableRow>
+          <ResizableHead colKey="select" width={widths.select} onResize={handleResize}>
+            <Button
+              variant="ghost"
+              size="icon"
+              className="h-7 w-7"
+              onClick={(e) => {
+                e.stopPropagation();
+                onToggleVisibleSelection(sortedSessions, !allVisibleSelected);
+              }}
+              aria-label={allVisibleSelected ? "Deselect visible sessions" : "Select visible sessions"}
+              title={allVisibleSelected ? "Deselect visible sessions" : "Select visible sessions"}
+            >
+              <SelectAllIcon className="h-4 w-4" />
+            </Button>
+          </ResizableHead>
           <ResizableHead colKey="star" width={widths.star} onResize={handleResize} />
           <ResizableHead colKey="name" width={widths.name} onResize={handleResize}
             sortKey="name" sortState={sort} onSort={handleSort}>
@@ -335,6 +366,7 @@ function SessionTableInner({
       <TableBody>
         {sortedSessions.map((s) => {
           const selected = selectedId === s.sessionId;
+          const checked = selectedSessionIds.has(s.sessionId);
           const desc = sessionDescriptionText(s);
           return (
             <TableRow
@@ -344,6 +376,22 @@ function SessionTableInner({
               onDoubleClick={() => onResume(s)}
               className="cursor-pointer"
             >
+              <TableCell style={cellStyle("select")} onClick={(e) => e.stopPropagation()} className="pr-0">
+                <Button
+                  variant="ghost"
+                  size="icon"
+                  className="h-7 w-7"
+                  onClick={() => onToggleSelected(s)}
+                  aria-label={checked ? "Deselect session" : "Select session"}
+                  title={checked ? "Deselect session" : "Select session"}
+                >
+                  {checked ? (
+                    <CheckSquare className="h-4 w-4 text-primary" />
+                  ) : (
+                    <Square className="h-4 w-4 text-muted-foreground/50" />
+                  )}
+                </Button>
+              </TableCell>
               <TableCell style={cellStyle("star")} onClick={(e) => e.stopPropagation()} className="pr-0">
                 <Button
                   variant="ghost"

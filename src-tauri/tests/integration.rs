@@ -895,7 +895,7 @@ fn build_command_cmd_uses_slash_k() {
 
 #[cfg(target_os = "windows")]
 #[test]
-fn auto_detect_prefers_cmd_over_git_bash_for_batch_like_launch() {
+fn auto_detect_prefers_windows_terminal_over_cmd_and_git_bash() {
     let _guard = ENV_LOCK.lock().unwrap_or_else(|e| e.into_inner());
     let dir = tempfile::tempdir().unwrap();
     let old_path = std::env::var_os("PATH");
@@ -915,7 +915,7 @@ fn auto_detect_prefers_cmd_over_git_bash_for_batch_like_launch() {
     std::env::set_var("WINDOWS_TERMINAL", &wt);
 
     let term = terminal::pick_terminal("windows", None).expect("terminal should be detected");
-    assert_eq!(term.kind, TerminalKind::Cmd);
+    assert_eq!(term.kind, TerminalKind::WindowsTerminal);
 
     if let Some(path) = old_path {
         std::env::set_var("PATH", path);

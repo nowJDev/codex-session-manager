@@ -4,6 +4,15 @@ All notable changes to this project are documented here.
 
 ## [Unreleased]
 
+## [0.5.5] — 2026-06-24
+
+### Added
+- 세션 목록에 체크박스 선택 컬럼을 추가하고, 선택한 여러 세션을 한 번에 삭제할 수 있도록 추가.
+- 선택된 세션 일괄 삭제가 각 세션 파일과 저장된 앱 메타데이터를 함께 정리하도록 백엔드 명령과 회귀 테스트를 추가.
+
+### Fixed
+- Windows 자동 터미널 선택에서 Codex TUI 실행에 더 적합한 Windows Terminal을 cmd보다 우선하도록 수정.
+
 ## [0.5.4] — 2026-06-19
 
 ### Added

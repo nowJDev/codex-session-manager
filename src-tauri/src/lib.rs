@@ -12,7 +12,7 @@ pub mod update;
 use crate::config::{
     delete_session_meta as cfg_delete_meta, load_config, update_settings, upsert_session_meta,
 };
-use crate::types::{Config, Session, SessionMeta, Settings};
+use crate::types::{Config, DeleteSessionTarget, Session, SessionMeta, Settings};
 
 fn to_str<E: std::fmt::Display>(e: E) -> String {
     e.to_string()
@@ -150,6 +150,15 @@ fn save_session_meta(session_id: String, patch: SessionMeta) -> Result<(), Strin
 fn delete_session(session_id: String, file_path: String) -> Result<(), String> {
     scanner::delete_session(&session_id, &file_path).map_err(to_str)?;
     cfg_delete_meta(&session_id).map_err(to_str)
+}
+
+#[tauri::command]
+fn delete_sessions(targets: Vec<DeleteSessionTarget>) -> Result<(), String> {
+    for target in targets {
+        scanner::delete_session(&target.session_id, &target.file_path).map_err(to_str)?;
+        cfg_delete_meta(&target.session_id).map_err(to_str)?;
+    }
+    Ok(())
 }
 
 #[tauri::command]
@@ -313,7 +322,10 @@ async fn generate_summary_cmd(
 
 #[cfg(test)]
 mod tests {
-    use super::is_retryable_auto_summary;
+    use super::{delete_sessions, is_retryable_auto_summary};
+    use crate::config;
+    use crate::types::{DeleteSessionTarget, SessionMeta};
+    use std::fs;
 
     #[test]
     fn auto_summary_failure_markers_are_retryable() {
@@ -330,6 +342,104 @@ mod tests {
             "세션 매니저 릴리즈를 점검했다."
         )));
     }
+
+    #[test]
+    fn delete_sessions_removes_each_session_and_saved_metadata() {
+        let temp_home = tempfile::tempdir().unwrap();
+        let old_home = std::env::var_os("CODEX_SESSION_HOME");
+        let old_codex_home = std::env::var_os("CODEX_HOME");
+        let old_cli = std::env::var_os("CODEX_CLI");
+        std::env::set_var("CODEX_SESSION_HOME", temp_home.path());
+        std::env::set_var("CODEX_HOME", temp_home.path().join(".codex"));
+
+        let first_id = "aaaaaaaa-1111-2222-3333-444444444444";
+        let second_id = "bbbbbbbb-1111-2222-3333-444444444444";
+        let first_file = temp_home.path().join("first.jsonl");
+        let second_file = temp_home.path().join("second.jsonl");
+        fs::write(&first_file, "{}").unwrap();
+        fs::write(&second_file, "{}").unwrap();
+        let fake_codex = temp_home.path().join(if cfg!(target_os = "windows") {
+            "codex.cmd"
+        } else {
+            "codex"
+        });
+        #[cfg(target_os = "windows")]
+        fs::write(
+            &fake_codex,
+            format!(
+                "@echo off\r\nif \"%3\"==\"{}\" del \"{}\"\r\nif \"%3\"==\"{}\" del \"{}\"\r\nexit /b 0\r\n",
+                first_id,
+                first_file.display(),
+                second_id,
+                second_file.display()
+            ),
+        )
+        .unwrap();
+        #[cfg(not(target_os = "windows"))]
+        {
+            use std::os::unix::fs::PermissionsExt;
+            fs::write(
+                &fake_codex,
+                format!(
+                    "#!/bin/sh\nif [ \"$3\" = \"{}\" ]; then rm -f '{}'; fi\nif [ \"$3\" = \"{}\" ]; then rm -f '{}'; fi\nexit 0\n",
+                    first_id,
+                    first_file.display(),
+                    second_id,
+                    second_file.display()
+                ),
+            )
+            .unwrap();
+            let mut perms = fs::metadata(&fake_codex).unwrap().permissions();
+            perms.set_mode(0o755);
+            fs::set_permissions(&fake_codex, perms).unwrap();
+        }
+        std::env::set_var("CODEX_CLI", &fake_codex);
+
+        config::upsert_session_meta(
+            first_id,
+            SessionMeta { name: Some("first".into()), ..Default::default() },
+        )
+        .unwrap();
+        config::upsert_session_meta(
+            second_id,
+            SessionMeta { name: Some("second".into()), ..Default::default() },
+        )
+        .unwrap();
+
+        delete_sessions(vec![
+            DeleteSessionTarget {
+                session_id: first_id.into(),
+                file_path: first_file.to_string_lossy().to_string(),
+            },
+            DeleteSessionTarget {
+                session_id: second_id.into(),
+                file_path: second_file.to_string_lossy().to_string(),
+            },
+        ])
+        .unwrap();
+
+        assert!(!first_file.exists());
+        assert!(!second_file.exists());
+        let cfg = config::load_config();
+        assert!(!cfg.sessions.contains_key(first_id));
+        assert!(!cfg.sessions.contains_key(second_id));
+
+        if let Some(home) = old_home {
+            std::env::set_var("CODEX_SESSION_HOME", home);
+        } else {
+            std::env::remove_var("CODEX_SESSION_HOME");
+        }
+        if let Some(codex_home) = old_codex_home {
+            std::env::set_var("CODEX_HOME", codex_home);
+        } else {
+            std::env::remove_var("CODEX_HOME");
+        }
+        if let Some(cli) = old_cli {
+            std::env::set_var("CODEX_CLI", cli);
+        } else {
+            std::env::remove_var("CODEX_CLI");
+        }
+    }
 }
 
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
@@ -345,6 +455,7 @@ pub fn run() {
             get_config_cmd,
             save_session_meta,
             delete_session,
+            delete_sessions,
             archive_session,
             unarchive_session,
             save_settings,

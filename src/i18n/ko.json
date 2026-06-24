@@ -29,6 +29,7 @@
     "rename": "이름 변경",
     "describe": "설명 편집",
     "delete": "세션 삭제",
+    "deleteSelected": "삭제 {count}",
     "archive": "세션 보관",
     "unarchive": "보관 해제",
     "syncToCloud": "클라우드에 업로드",
@@ -43,6 +44,7 @@
     "enterName": "세션 이름 입력:",
     "enterDescription": "설명 입력:",
     "confirmDelete": "이 세션을 삭제하시겠습니까?",
+    "confirmBulkDelete": "선택한 {count}개 세션을 삭제하시겠습니까?",
     "selectAction": "무엇을 할까요?",
     "selectTerminal": "어디서 실행할까요?",
     "selectStorage": "저장 위치 선택:"

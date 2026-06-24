@@ -29,6 +29,7 @@
     "rename": "Rename session",
     "describe": "Edit description",
     "delete": "Delete session",
+    "deleteSelected": "Delete {count}",
     "archive": "Archive session",
     "unarchive": "Unarchive session",
     "syncToCloud": "Upload to cloud",
@@ -43,6 +44,7 @@
     "enterName": "Enter session name:",
     "enterDescription": "Enter description:",
     "confirmDelete": "Are you sure you want to delete this session?",
+    "confirmBulkDelete": "Delete {count} selected session(s)?",
     "selectAction": "What would you like to do?",
     "selectTerminal": "Where to resume?",
     "selectStorage": "Select storage location:"

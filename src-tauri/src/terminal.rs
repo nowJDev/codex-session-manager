@@ -164,9 +164,9 @@ pub fn detect_all_terminals(target_os: &str) -> Vec<DetectedTerminal> {
     };
     match target_os {
         "windows" => {
-            push(&mut out, TerminalKind::Cmd, locate_cmd());
             push(&mut out, TerminalKind::WindowsTerminal, locate_windows_terminal());
             push(&mut out, TerminalKind::PowerShell, locate_powershell());
+            push(&mut out, TerminalKind::Cmd, locate_cmd());
             push(&mut out, TerminalKind::GitBash, locate_git_bash());
         }
         "macos" => {

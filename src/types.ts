@@ -27,6 +27,11 @@ export interface SessionMeta {
   favorite?: boolean | null;
 }
 
+export interface DeleteSessionTarget {
+  sessionId: string;
+  filePath: string;
+}
+
 export interface Settings {
   locale?: string | null;
   cloudPath?: string | null;
