@@ -58,11 +58,11 @@ type ColKey =
   | "select"
   | "star"
   | "name"
-  | "id"
-  | "desc"
-  | "project"
   | "lastActive"
+  | "desc"
   | "size"
+  | "project"
+  | "id"
   | "type"
   | "actions";
 
@@ -70,24 +70,37 @@ const DEFAULTS: Record<ColKey, number> = {
   select: 36,
   star: 36,
   name: 180,
-  id: 100,
-  desc: 360,
-  project: 220,
   lastActive: 120,
+  desc: 360,
   size: 90,
+  project: 220,
+  id: 100,
   type: 70,
   actions: 44,
 };
+
+const COLUMN_ORDER: ColKey[] = [
+  "select",
+  "star",
+  "name",
+  "lastActive",
+  "desc",
+  "size",
+  "project",
+  "id",
+  "type",
+  "actions",
+];
 
 const MIN_WIDTH: Record<ColKey, number> = {
   select: 36,
   star: 36,
   name: 80,
-  id: 60,
-  desc: 120,
-  project: 100,
   lastActive: 80,
+  desc: 120,
   size: 70,
+  project: 100,
+  id: 60,
   type: 60,
   actions: 44,
 };
@@ -148,10 +161,22 @@ function loadWidths(): Record<ColKey, number> {
     const raw = localStorage.getItem(STORAGE_KEY);
     if (raw) {
       const parsed = JSON.parse(raw);
-      return { ...DEFAULTS, ...parsed };
+      return normalizeWidths({ ...DEFAULTS, ...parsed });
     }
   } catch {}
-  return { ...DEFAULTS };
+  return normalizeWidths(DEFAULTS);
+}
+
+function normalizeWidths(source: Record<ColKey, number>): Record<ColKey, number> {
+  return COLUMN_ORDER.reduce((acc, key) => {
+    const raw = Number.isFinite(source[key]) ? source[key] : DEFAULTS[key];
+    acc[key] = Math.max(MIN_WIDTH[key], raw);
+    return acc;
+  }, {} as Record<ColKey, number>);
+}
+
+function totalWidth(source: Record<ColKey, number>): number {
+  return COLUMN_ORDER.reduce((sum, key) => sum + source[key], 0);
 }
 
 function ResizableHead({
@@ -271,7 +296,7 @@ function SessionTableInner({
   }, [sort]);
 
   const handleResize = useCallback((key: ColKey, w: number) => {
-    setWidths((prev) => ({ ...prev, [key]: w }));
+    setWidths((prev) => ({ ...prev, [key]: Math.max(MIN_WIDTH[key], w) }));
   }, []);
 
   const handleSort = useCallback((key: SortKey) => {
@@ -286,6 +311,7 @@ function SessionTableInner({
     () => [...sessions].sort((a, b) => compareSessions(a, b, sort)),
     [sessions, sort]
   );
+  const tableWidth = useMemo(() => totalWidth(widths), [widths]);
   const visibleSelectedCount = sortedSessions.filter((s) => selectedSessionIds.has(s.sessionId)).length;
   const allVisibleSelected = sortedSessions.length > 0 && visibleSelectedCount === sortedSessions.length;
   const someVisibleSelected = visibleSelectedCount > 0 && !allVisibleSelected;
@@ -306,10 +332,14 @@ function SessionTableInner({
   });
 
   return (
-    <Table>
+    <Table className="table-fixed" style={{ minWidth: tableWidth }}>
       <TableHeader>
         <TableRow>
-          <ResizableHead colKey="select" width={widths.select} onResize={handleResize}>
+          <ResizableHead
+            colKey="select"
+            width={widths.select}
+            onResize={handleResize}
+          >
             <Button
               variant="ghost"
               size="icon"
@@ -324,42 +354,88 @@ function SessionTableInner({
               <SelectAllIcon className="h-4 w-4" />
             </Button>
           </ResizableHead>
-          <ResizableHead colKey="star" width={widths.star} onResize={handleResize} />
-          <ResizableHead colKey="name" width={widths.name} onResize={handleResize}
-            sortKey="name" sortState={sort} onSort={handleSort}>
+          <ResizableHead
+            colKey="star"
+            width={widths.star}
+            onResize={handleResize}
+          />
+          <ResizableHead
+            colKey="name"
+            width={widths.name}
+            onResize={handleResize}
+            sortKey="name"
+            sortState={sort}
+            onSort={handleSort}
+          >
             {t("list.name")}
           </ResizableHead>
-          <ResizableHead colKey="id" width={widths.id} onResize={handleResize}
-            sortKey="id" sortState={sort} onSort={handleSort}>
-            {t("list.id")}
-          </ResizableHead>
-          <ResizableHead colKey="desc" width={widths.desc} onResize={handleResize}
-            sortKey="desc" sortState={sort} onSort={handleSort}>
-            {t("list.description")}
-          </ResizableHead>
-          <ResizableHead colKey="project" width={widths.project} onResize={handleResize}
-            sortKey="project" sortState={sort} onSort={handleSort}>
-            {t("list.project")}
-          </ResizableHead>
-          <ResizableHead colKey="lastActive" width={widths.lastActive} onResize={handleResize}
-            sortKey="lastActive" sortState={sort} onSort={handleSort}>
+          <ResizableHead
+            colKey="lastActive"
+            width={widths.lastActive}
+            onResize={handleResize}
+            sortKey="lastActive"
+            sortState={sort}
+            onSort={handleSort}
+          >
             {t("list.lastActive")}
+          </ResizableHead>
+          <ResizableHead
+            colKey="desc"
+            width={widths.desc}
+            onResize={handleResize}
+            sortKey="desc"
+            sortState={sort}
+            onSort={handleSort}
+          >
+            {t("list.description")}
           </ResizableHead>
           <ResizableHead
             colKey="size"
             width={widths.size}
             onResize={handleResize}
             className="text-right"
-            sortKey="size" sortState={sort} onSort={handleSort}
+            sortKey="size"
+            sortState={sort}
+            onSort={handleSort}
           >
             {t("list.size")}
           </ResizableHead>
-          <ResizableHead colKey="type" width={widths.type} onResize={handleResize}
-            sortKey="type" sortState={sort} onSort={handleSort}>
+          <ResizableHead
+            colKey="project"
+            width={widths.project}
+            onResize={handleResize}
+            sortKey="project"
+            sortState={sort}
+            onSort={handleSort}
+          >
+            {t("list.project")}
+          </ResizableHead>
+          <ResizableHead
+            colKey="id"
+            width={widths.id}
+            onResize={handleResize}
+            sortKey="id"
+            sortState={sort}
+            onSort={handleSort}
+          >
+            {t("list.id")}
+          </ResizableHead>
+          <ResizableHead
+            colKey="type"
+            width={widths.type}
+            onResize={handleResize}
+            sortKey="type"
+            sortState={sort}
+            onSort={handleSort}
+          >
             {t("list.type")}
           </ResizableHead>
           <TableHead
-            style={{ width: widths.actions, minWidth: widths.actions, maxWidth: widths.actions }}
+            style={{
+              width: widths.actions,
+              minWidth: widths.actions,
+              maxWidth: widths.actions,
+            }}
           />
         </TableRow>
       </TableHeader>
@@ -419,19 +495,6 @@ function SessionTableInner({
                   </span>
                 )}
               </TableCell>
-              <TableCell style={cellStyle("id")} title={s.sessionId}>
-                <span className="block truncate font-mono text-xs text-muted-foreground/80">
-                  {shortSessionId(s.sessionId)}
-                </span>
-              </TableCell>
-              <TableCell style={cellStyle("desc")} title={desc || undefined}>
-                <span className="block truncate text-sm text-foreground/80">{desc || "—"}</span>
-              </TableCell>
-              <TableCell style={cellStyle("project")} title={s.project}>
-                <span className="block truncate font-mono text-xs text-muted-foreground">
-                  {s.project}
-                </span>
-              </TableCell>
               <TableCell
                 style={cellStyle("lastActive")}
                 className="text-sm text-muted-foreground"
@@ -441,12 +504,25 @@ function SessionTableInner({
                   {s.lastTimestamp ? formatRelativeTime(s.lastTimestamp, locale) : "—"}
                 </span>
               </TableCell>
+              <TableCell style={cellStyle("desc")} title={desc || undefined}>
+                <span className="block truncate text-sm text-foreground/80">{desc || "—"}</span>
+              </TableCell>
               <TableCell
                 style={cellStyle("size")}
                 className="text-right tabular-nums text-sm text-muted-foreground"
                 title={`${s.size} bytes`}
               >
                 {formatBytes(s.size)}
+              </TableCell>
+              <TableCell style={cellStyle("project")} title={s.project}>
+                <span className="block truncate font-mono text-xs text-muted-foreground">
+                  {s.project}
+                </span>
+              </TableCell>
+              <TableCell style={cellStyle("id")} title={s.sessionId}>
+                <span className="block truncate font-mono text-xs text-muted-foreground/80">
+                  {shortSessionId(s.sessionId)}
+                </span>
               </TableCell>
               <TableCell style={cellStyle("type")}>
                 <div className="inline-flex items-center gap-1.5">

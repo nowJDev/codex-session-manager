@@ -331,7 +331,7 @@ function App() {
       </header>
 
       <main className="flex flex-1 overflow-hidden">
-        <section className="flex-1 overflow-auto">
+        <section className="min-w-0 flex-1 overflow-auto">
           <SessionTable
             sessions={filtered}
             selectedId={selectedId}
