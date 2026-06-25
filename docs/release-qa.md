@@ -4,9 +4,10 @@ This document records release-level checks that are not fully covered by unit or
 
 ## Current Release
 
-- Current installer release: `v0.5.1`.
-- Release page: <https://github.com/nowJDev/codex-session-manager/releases/tag/v0.5.1>.
+- Current installer release: `v0.5.6`.
+- Release page: <https://github.com/nowJDev/codex-session-manager/releases/tag/v0.5.6>.
 - `v0.5.0` remains as the first Codex port tag, but the installer release was superseded by `v0.5.1` because GitHub Actions needed Node 24 for `pnpm 11.8.0`.
+- `v0.5.6` is the latest UI/layout release with the updated README screenshot, reordered session table columns, and horizontal scrolling for narrow windows.
 
 ## Installer Smoke Test
 
