@@ -1,72 +1,58 @@
 # Codex Session Manager
 
-OpenAI Codex CLI 세션을 데스크톱에서 보고, 이름을 붙이고, 검색하고, 터미널에서 이어갈 수 있게 해주는 Tauri 앱입니다.
-
-이 저장소는 [glowElephant/claude-session-manager](https://github.com/glowElephant/claude-session-manager)를 fork해서 Codex용으로 이식한 프로젝트입니다.
-
-Built with **Tauri 2 + Rust + React + TypeScript + Tailwind + shadcn/ui**.
+OpenAI Codex CLI 세션을 데스크톱에서 빠르게 찾고, 이름을 붙이고, 이어서 실행할 수 있게 해주는 Tauri 앱입니다.
 
 [Download latest release](https://github.com/nowJDev/codex-session-manager/releases/tag/v0.5.6) · [Report an issue](https://github.com/nowJDev/codex-session-manager/issues/new)
 
-![dark UI](docs/screenshot.png)
+![Codex Session Manager dark UI](docs/screenshot.png)
 
-## Fork Lineage
+## What It Does
 
-`codex-session-manager` started as a fork of [glowElephant/claude-session-manager](https://github.com/glowElephant/claude-session-manager). The first Codex-oriented release line is `v0.5.x`.
+- `~/.codex/sessions/YYYY/MM/DD/*.jsonl`과 `~/.codex/archived_sessions`에서 Codex 세션을 스캔합니다.
+- 세션에 이름, 설명, 즐겨찾기, 자동 요약을 붙여 다시 찾기 쉽게 만듭니다.
+- 이름, 설명, 프로젝트, 세션 ID, 첫 사용자 메시지로 검색하고 컬럼별로 정렬합니다.
+- 세션을 더블클릭하거나 메뉴에서 `codex resume <session-id>`로 새 터미널에서 이어갑니다.
+- 체크박스로 여러 세션을 선택해 한 번에 삭제할 수 있습니다.
+- Google Drive 같은 로컬 동기화 폴더에 세션 JSONL과 메타데이터를 동기화합니다.
+- 설치형 앱은 GitHub Release의 `latest.json`을 사용해 자동 업데이트를 확인합니다.
 
-`v0.5.0` was kept as the first port tag for history, but its release workflow was superseded by `v0.5.1` after updating GitHub Actions to Node 24 for `pnpm 11.8.0`. Use `v0.5.6` or newer for the new icon, summary retry fix, installer auto-update, portable Windows asset, bulk session deletion, and improved table layout.
+## Latest Release
 
-## Features
+Current release: [Codex Session Manager v0.5.6](https://github.com/nowJDev/codex-session-manager/releases/tag/v0.5.6).
 
-- **Codex 세션 스캔**: `~/.codex/sessions/YYYY/MM/DD/*.jsonl`과 `~/.codex/archived_sessions`를 읽습니다.
-- **Codex JSONL 파싱**: `session_meta`, `turn_context`, `event_msg`, `response_item` 레코드를 관대하게 읽고 모르는 레코드는 무시합니다.
-- **검색과 정렬**: 이름, 설명, 프로젝트, 세션 ID, 첫 사용자 메시지 기준으로 빠르게 찾습니다.
-- **이름/설명/즐겨찾기**: 앱 전용 메타데이터는 `~/.codex-sessions/config.json`에 저장합니다.
-- **다중 선택 삭제**: 체크박스로 여러 세션을 선택한 뒤 한 번에 삭제할 수 있습니다.
-- **빠른 resume**: 더블클릭 또는 메뉴로 `codex resume <session-id>`를 새 터미널에서 실행합니다.
-- **Archive / Unarchive**: 메뉴에서 `codex archive <session-id>`와 `codex unarchive <session-id>`를 실행합니다.
-- **안전한 삭제**: 삭제 액션은 파일 직접 삭제보다 `codex delete <session-id>`를 우선 사용합니다.
-- **Resume 옵션**: `--dangerously-bypass-approvals-and-sandbox`, `--debug`, `--verbose`와 자유 입력 플래그를 지원합니다.
-- **환경 진단**: Codex CLI 위치와 사용 가능한 터미널을 설정 화면에서 확인합니다.
-- **클라우드 동기화**: Google Drive 등 로컬 동기화 폴더 아래 `Codex Sessions` 폴더에 JSONL과 `.meta.json`을 저장합니다.
-- **자동 요약**: 로컬 `codex exec`를 사용해 이름/설명을 생성합니다. 이 기능은 Codex CLI 인증 상태에 의존합니다.
-- **자동 업데이트**: 설치형 앱은 설정 화면에서 새 버전을 확인하고 자동 다운로드/설치를 진행합니다. Portable zip 사용자는 같은 화면에서 릴리즈 페이지를 열어 수동 교체합니다.
-
-## Requirements
-
-- Node.js 24+ for CI and release builds that use `pnpm 11.8.0`.
-- pnpm.
-- Rust toolchain.
-- Tauri 2 platform prerequisites.
-- [OpenAI Codex CLI](https://github.com/openai/codex) on `PATH`.
-
-## Installers
-
-The current release is [Codex Session Manager v0.5.6](https://github.com/nowJDev/codex-session-manager/releases/tag/v0.5.6).
-
-| Platform | Asset |
+| Platform | Download |
 |---|---|
 | Windows | `Codex.Session.Manager_0.5.6_x64-setup.exe`, `Codex.Session.Manager_0.5.6_x64_en-US.msi`, or `Codex.Session.Manager_v0.5.6_x64-portable.zip` |
 | macOS Apple Silicon | `Codex.Session.Manager_0.5.6_aarch64.dmg` |
-| Linux | `.deb`, `.rpm`, or `.AppImage` |
+| Linux | `.deb`, `.rpm`, or `.AppImage` from the release assets |
 
-설치형 앱의 자동 업데이트는 `v0.5.4` 이후 빌드부터 동작합니다. `v0.5.3` 이하에서 자동 업데이트 기능을 받으려면 한 번은 릴리즈 페이지에서 설치 파일을 직접 받아 설치해야 합니다.
+설치형 앱의 자동 업데이트는 `v0.5.4` 이후 빌드부터 동작합니다. `v0.5.3` 이하에서 자동 업데이트 기능을 받으려면 릴리즈 페이지에서 설치 파일을 한 번 직접 받아 설치해야 합니다.
 
-## From Source
+## Requirements
 
-```bash
-git clone https://github.com/nowJDev/codex-session-manager.git
-cd codex-session-manager
-pnpm install
+- [OpenAI Codex CLI](https://github.com/openai/codex)가 `PATH`에 있어야 합니다.
+- 소스에서 빌드하려면 Node.js 24+, pnpm, Rust toolchain, Tauri 2 platform prerequisites가 필요합니다.
 
-# Dev mode
-pnpm tauri dev
+## Core Features
 
-# Production build
-pnpm tauri build
-```
+### Session Management
 
-Installers land in `src-tauri/target/release/bundle/`.
+- Codex JSONL의 `session_meta`, `turn_context`, `event_msg`, `response_item` 레코드를 관대하게 파싱합니다.
+- 앱 전용 메타데이터는 `~/.codex-sessions/config.json`에 저장합니다.
+- Archive / Unarchive 메뉴는 `codex archive <session-id>`와 `codex unarchive <session-id>`를 사용합니다.
+- 삭제 액션은 파일 직접 삭제보다 `codex delete <session-id>`를 우선 사용합니다.
+
+### Resume And Terminal
+
+- Windows Terminal, PowerShell, cmd, Git Bash 등을 감지합니다.
+- 설정에서 선호 터미널과 custom terminal command를 지정할 수 있습니다.
+- `--dangerously-bypass-approvals-and-sandbox`, `--debug`, `--verbose`와 자유 입력 resume flags를 지원합니다.
+
+### Sync And Summary
+
+- Google Drive 등 로컬 동기화 폴더 아래 `Codex Sessions` 폴더를 사용합니다.
+- 로컬 세션 업로드, 클라우드 세션 체크아웃, 재동기화를 지원합니다.
+- 로컬 `codex exec`를 사용해 이름과 설명을 자동 생성합니다. 이 기능은 Codex CLI 인증 상태에 의존합니다.
 
 ## Configuration
 
@@ -100,30 +86,21 @@ Installers land in `src-tauri/target/release/bundle/`.
 | `GIT_BASH` | Windows에서 `git-bash.exe` 경로를 직접 지정합니다. |
 | `WINDOWS_TERMINAL` | Windows에서 `wt.exe` 경로를 직접 지정합니다. |
 
-## Architecture
+## Development
 
-```text
-src-tauri/
-├── src/
-│   ├── scanner.rs          # Codex sessions/archived_sessions 스캔 + JSONL 파싱
-│   ├── config.rs           # ~/.codex-sessions/config.json 읽기/쓰기
-│   ├── cloud.rs            # 클라우드 폴더 업로드/체크아웃/체크인
-│   ├── terminal.rs         # 터미널 감지 + codex resume 명령 생성
-│   ├── environment.rs      # Codex CLI + 터미널 진단
-│   ├── resume.rs           # 터미널 실행
-│   ├── summary.rs          # codex exec 기반 자동 요약
-│   └── types.rs            # Session / Config / Settings 타입
-├── tests/integration.rs
-└── Cargo.toml
+```bash
+git clone https://github.com/nowJDev/codex-session-manager.git
+cd codex-session-manager
+pnpm install
 
-src/
-├── App.tsx
-├── components/
-├── lib/ipc.ts
-└── i18n/{en,ko}.json
+# Dev mode
+pnpm tauri dev
+
+# Production build
+pnpm tauri build
 ```
 
-## Development
+Useful checks:
 
 ```bash
 # Rust tests
@@ -146,7 +123,32 @@ cargo build --bin session-cli
 ./target/debug/session-cli resume-plan <session-id> [cwd]
 ```
 
-## Bug Reports
+## Project Structure
+
+```text
+src-tauri/
+├── src/
+│   ├── scanner.rs          # Codex sessions/archived_sessions 스캔 + JSONL 파싱
+│   ├── config.rs           # ~/.codex-sessions/config.json 읽기/쓰기
+│   ├── cloud.rs            # 클라우드 폴더 업로드/체크아웃/체크인
+│   ├── terminal.rs         # 터미널 감지 + codex resume 명령 생성
+│   ├── environment.rs      # Codex CLI + 터미널 진단
+│   ├── resume.rs           # 터미널 실행
+│   ├── summary.rs          # codex exec 기반 자동 요약
+│   └── types.rs            # Session / Config / Settings 타입
+├── tests/integration.rs
+└── Cargo.toml
+
+src/
+├── App.tsx
+├── components/
+├── lib/ipc.ts
+└── i18n/{en,ko}.json
+```
+
+Installers are written to `src-tauri/target/release/bundle/`.
+
+## Troubleshooting
 
 디버그 로그는 다음 위치에 남습니다.
 
@@ -155,6 +157,12 @@ cargo build --bin session-cli
 
 문제가 생기면 앱의 설정 화면에서 로그 마지막 부분을 복사한 뒤 [GitHub Issues](https://github.com/nowJDev/codex-session-manager/issues/new)에 등록해 주세요.
 
+## Fork Lineage
+
+이 프로젝트는 [glowElephant/claude-session-manager](https://github.com/glowElephant/claude-session-manager)를 fork해서 Codex용으로 이식한 프로젝트입니다. 첫 Codex 릴리스 라인은 `v0.5.x`입니다.
+
+`v0.5.0`은 최초 포트 태그로 남겨 두었고, GitHub Actions의 Node 24 대응 이후 `v0.5.1`부터 공개 릴리스 워크플로가 안정화되었습니다. `v0.5.6` 이상을 사용하면 새 아이콘, 요약 재시도 수정, 설치형 자동 업데이트, portable Windows asset, 다중 선택 삭제, 개선된 테이블 레이아웃을 사용할 수 있습니다.
+
 ## License
 
-MIT — see [LICENSE](./LICENSE).
+MIT. See [LICENSE](./LICENSE).
