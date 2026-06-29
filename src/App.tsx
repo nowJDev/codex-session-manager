@@ -6,12 +6,14 @@ import { Input } from "@/components/ui/input";
 import { SessionTable } from "@/components/SessionTable";
 import { SessionDetail } from "@/components/SessionDetail";
 import { EditDialog } from "@/components/EditDialog";
+import { DeleteConfirmDialog } from "@/components/DeleteConfirmDialog";
 import { SettingsDialog } from "@/components/SettingsDialog";
 import { ipc } from "@/lib/ipc";
 import { createT, detectLocale, type Locale } from "@/i18n";
-import type { AppConfig, Session } from "@/types";
+import type { AppConfig, CodexStatus, Session } from "@/types";
 
 type EditMode = "rename" | "describe" | null;
+type PendingDelete = { sessions: Session[] } | null;
 
 function App() {
   const [sessions, setSessions] = useState<Session[]>([]);
@@ -25,6 +27,10 @@ function App() {
   const [settingsOpen, setSettingsOpen] = useState(false);
   const [codexCliMissing, setCodexCliMissing] = useState(false);
   const [selectedForDeleteIds, setSelectedForDeleteIds] = useState<Set<string>>(() => new Set());
+  const [pendingDelete, setPendingDelete] = useState<PendingDelete>(null);
+  const [deleting, setDeleting] = useState(false);
+  const [codexStatus, setCodexStatus] = useState<CodexStatus | null>(null);
+  const [codexStatusLoading, setCodexStatusLoading] = useState(false);
 
   const t = useMemo(() => createT(locale), [locale]);
 
@@ -47,6 +53,17 @@ function App() {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
+  const refreshCodexStatus = useCallback(async () => {
+    setCodexStatusLoading(true);
+    try {
+      setCodexStatus(await ipc.getCodexStatus());
+    } catch (err) {
+      console.error(err);
+    } finally {
+      setCodexStatusLoading(false);
+    }
+  }, []);
+
   const refresh = useCallback(async () => {
     setLoading(true);
     try {
@@ -64,7 +81,8 @@ function App() {
 
   useEffect(() => {
     refresh();
-  }, [refresh]);
+    refreshCodexStatus();
+  }, [refresh, refreshCodexStatus]);
 
   const filtered = useMemo(() => {
     const q = query.trim().toLowerCase();
@@ -115,44 +133,52 @@ function App() {
     }
   }
 
-  async function handleDelete(s: Session) {
-    const ok = confirm(t("prompt.confirmDelete"));
-    if (!ok) return;
+  function handleDelete(s: Session) {
+    setPendingDelete({ sessions: [s] });
+  }
+
+  function handleBulkDelete() {
+    if (selectedForDelete.length === 0) return;
+    setPendingDelete({ sessions: selectedForDelete });
+  }
+
+  async function confirmDelete() {
+    const targets = pendingDelete?.sessions ?? [];
+    if (targets.length === 0 || deleting) return;
+    setDeleting(true);
     try {
-      await ipc.deleteSession(s.sessionId, s.filePath);
-      setSelectedId((cur) => (cur === s.sessionId ? null : cur));
+      if (targets.length === 1) {
+        const target = targets[0];
+        await ipc.deleteSession(target.sessionId, target.filePath);
+      } else {
+        await ipc.deleteSessions(
+          targets.map((s) => ({
+            sessionId: s.sessionId,
+            filePath: s.filePath,
+          })),
+        );
+      }
+      const deletedIds = new Set(targets.map((s) => s.sessionId));
+      setSelectedId((cur) => (cur && deletedIds.has(cur) ? null : cur));
       setSelectedForDeleteIds((cur) => {
-        if (!cur.has(s.sessionId)) return cur;
+        if (targets.length > 1) return new Set();
         const next = new Set(cur);
-        next.delete(s.sessionId);
+        for (const id of deletedIds) next.delete(id);
         return next;
       });
       await refresh();
+      setPendingDelete(null);
     } catch (err) {
       console.error(err);
       alert(String(err));
+    } finally {
+      setDeleting(false);
     }
   }
 
-  async function handleBulkDelete() {
-    if (selectedForDelete.length === 0) return;
-    const ok = confirm(t("prompt.confirmBulkDelete", { count: selectedForDelete.length }));
-    if (!ok) return;
-    try {
-      await ipc.deleteSessions(
-        selectedForDelete.map((s) => ({
-          sessionId: s.sessionId,
-          filePath: s.filePath,
-        })),
-      );
-      const deletedIds = new Set(selectedForDelete.map((s) => s.sessionId));
-      setSelectedId((cur) => (cur && deletedIds.has(cur) ? null : cur));
-      setSelectedForDeleteIds(new Set());
-      await refresh();
-    } catch (err) {
-      console.error(err);
-      alert(String(err));
-    }
+  function cancelDelete() {
+    if (deleting) return;
+    setPendingDelete(null);
   }
 
   async function handleToggleArchive(s: Session) {
@@ -352,7 +378,15 @@ function App() {
           />
         </section>
         <aside className="w-[380px] shrink-0 border-l border-border/60 bg-card/30">
-          <SessionDetail session={selected} locale={locale} t={t} onResume={handleResume} />
+          <SessionDetail
+            session={selected}
+            locale={locale}
+            t={t}
+            codexStatus={codexStatus}
+            codexStatusLoading={codexStatusLoading}
+            onRefreshCodexStatus={refreshCodexStatus}
+            onResume={handleResume}
+          />
         </aside>
       </main>
 
@@ -381,6 +415,27 @@ function App() {
         t={t}
         onClose={() => setSettingsOpen(false)}
         onSaved={refresh}
+      />
+
+      <DeleteConfirmDialog
+        open={pendingDelete !== null}
+        count={pendingDelete?.sessions.length ?? 0}
+        pending={deleting}
+        title={
+          pendingDelete?.sessions.length === 1
+            ? t("delete.titleSingle")
+            : t("delete.titleBulk", { count: pendingDelete?.sessions.length ?? 0 })
+        }
+        description={
+          pendingDelete?.sessions.length === 1
+            ? t("prompt.confirmDelete")
+            : t("prompt.confirmBulkDelete", { count: pendingDelete?.sessions.length ?? 0 })
+        }
+        confirmLabel={t("delete.confirm")}
+        cancelLabel={t("settings.cancel")}
+        pendingLabel={t("delete.pending")}
+        onConfirm={confirmDelete}
+        onCancel={cancelDelete}
       />
     </div>
   );

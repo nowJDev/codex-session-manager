@@ -339,7 +339,7 @@ export function SettingsDialog({ open, current, locale, t, onClose, onSaved }: P
                 type="checkbox"
                 checked={flagBypass}
                 onChange={(e) => setFlagBypass(e.target.checked)}
-                className="mt-0.5"
+                className="mt-0.5 accent-primary"
               />
               <div className="flex-1">
                 <div className="text-sm font-medium">
@@ -356,7 +356,7 @@ export function SettingsDialog({ open, current, locale, t, onClose, onSaved }: P
                 type="checkbox"
                 checked={flagDebug}
                 onChange={(e) => setFlagDebug(e.target.checked)}
-                className="mt-0.5"
+                className="mt-0.5 accent-primary"
               />
               <div className="flex-1">
                 <div className="text-sm font-medium">
@@ -373,7 +373,7 @@ export function SettingsDialog({ open, current, locale, t, onClose, onSaved }: P
                 type="checkbox"
                 checked={flagVerbose}
                 onChange={(e) => setFlagVerbose(e.target.checked)}
-                className="mt-0.5"
+                className="mt-0.5 accent-primary"
               />
               <div className="flex-1">
                 <div className="text-sm font-medium">
@@ -413,6 +413,7 @@ export function SettingsDialog({ open, current, locale, t, onClose, onSaved }: P
                 type="checkbox"
                 checked={wslAuto}
                 onChange={(e) => setWslAuto(e.target.checked)}
+                className="accent-primary"
               />
               <span className="text-sm">WSL 배포판 자동 탐지</span>
             </label>

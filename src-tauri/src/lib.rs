@@ -1,4 +1,5 @@
 pub mod cloud;
+pub mod codex_status;
 pub mod config;
 pub mod debuglog;
 pub mod environment;
@@ -285,6 +286,11 @@ fn check_environment_cmd() -> environment::EnvironmentReport {
 }
 
 #[tauri::command]
+fn get_codex_status_cmd() -> codex_status::CodexStatus {
+    codex_status::get_codex_status()
+}
+
+#[tauri::command]
 async fn check_update_cmd() -> Result<update::UpdateInfo, String> {
     update::check_latest_release().await.map_err(to_str)
 }
@@ -465,6 +471,7 @@ pub fn run() {
             checkin_session,
             resume_session,
             check_environment_cmd,
+            get_codex_status_cmd,
             check_update_cmd,
             generate_summary_cmd,
             start_auto_summary,

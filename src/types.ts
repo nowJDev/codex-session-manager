@@ -68,6 +68,26 @@ export interface EnvironmentReport {
   terminals: DetectedTerminal[];
 }
 
+export interface CodexLimitStatus {
+  key: string;
+  label: string;
+  available: boolean;
+  value: string | null;
+  detail: string;
+}
+
+export interface CodexStatus {
+  checkedAt: string;
+  cliFound: boolean;
+  cliPath: string | null;
+  cliVersion: string | null;
+  model: string | null;
+  modelReasoningEffort: string | null;
+  statusLine: string[];
+  limits: CodexLimitStatus[];
+  note: string;
+}
+
 export interface UpdateInfo {
   currentVersion: string;
   latestVersion: string;

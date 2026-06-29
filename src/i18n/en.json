@@ -30,6 +30,10 @@
     "describe": "Edit description",
     "delete": "Delete session",
     "deleteSelected": "Delete {count}",
+    "selectAll": "Select all",
+    "deselectAll": "Deselect all",
+    "selectSession": "Select session",
+    "deselectSession": "Deselect session",
     "archive": "Archive session",
     "unarchive": "Unarchive session",
     "syncToCloud": "Upload to cloud",
@@ -105,5 +109,25 @@
   "warning": {
     "codexCliMissing": "Codex CLI not found on PATH. Resume actions won't work.",
     "codexCliInstall": "Install guide"
+  },
+  "status": {
+    "title": "Codex status",
+    "refresh": "Refresh status",
+    "cliFound": "Codex CLI found",
+    "cliMissing": "Codex CLI not found",
+    "unavailable": "Unavailable",
+    "model": "Model",
+    "reasoning": "Reasoning",
+    "usage": "Usage",
+    "openUsage": "Open usage page",
+    "usageNote": "Check remaining usage on the official Codex usage page.",
+    "notExposed": "Not exposed",
+    "loading": "Status will appear after the first check."
+  },
+  "delete": {
+    "titleSingle": "Delete this session?",
+    "titleBulk": "Delete {count} selected sessions?",
+    "confirm": "Confirm",
+    "pending": "Deleting..."
   }
 }

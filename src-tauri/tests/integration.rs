@@ -1,5 +1,5 @@
 use codex_session_manager_lib::{
-    cloud, config, environment, resume, scanner, summary, terminal, update,
+    cloud, codex_status, config, environment, resume, scanner, summary, terminal, update,
     terminal::{DetectedTerminal, TerminalKind},
     types::SessionMeta,
 };
@@ -962,6 +962,40 @@ fn environment_check_returns_consistent_target() {
     assert!(["windows", "macos", "linux"].contains(&report.target_os.as_str()));
     // codex_cli_found must agree with codex_cli_path being Some/None
     assert_eq!(report.codex_cli_found, report.codex_cli_path.is_some());
+}
+
+#[test]
+fn codex_status_reads_config_and_marks_limits_unavailable() {
+    let _h = setup_temp_home();
+    fs::create_dir_all(scanner::codex_home()).unwrap();
+    fs::write(
+        scanner::codex_home().join("config.toml"),
+        r#"model = "gpt-5.5"
+model_reasoning_effort = "high"
+
+[tui]
+status_line = ["model-with-reasoning", "context-used", "five-hour-limit", "weekly-limit"]
+"#,
+    )
+    .unwrap();
+
+    let status = codex_status::get_codex_status();
+
+    assert_eq!(status.model.as_deref(), Some("gpt-5.5"));
+    assert_eq!(status.model_reasoning_effort.as_deref(), Some("high"));
+    assert_eq!(
+        status.status_line,
+        vec![
+            "model-with-reasoning".to_string(),
+            "context-used".to_string(),
+            "five-hour-limit".to_string(),
+            "weekly-limit".to_string(),
+        ]
+    );
+    assert!(status
+        .limits
+        .iter()
+        .any(|limit| limit.key == "fiveHourLimit" && !limit.available));
 }
 
 #[test]

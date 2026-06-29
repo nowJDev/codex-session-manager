@@ -10,9 +10,6 @@ import {
   HardDrive,
   MoreHorizontal,
   Star,
-  CheckSquare,
-  MinusSquare,
-  Square,
 } from "lucide-react";
 import {
   Table,
@@ -67,8 +64,8 @@ type ColKey =
   | "actions";
 
 const DEFAULTS: Record<ColKey, number> = {
-  select: 36,
-  star: 36,
+  select: 48,
+  star: 48,
   name: 180,
   lastActive: 120,
   desc: 360,
@@ -76,7 +73,7 @@ const DEFAULTS: Record<ColKey, number> = {
   project: 220,
   id: 100,
   type: 70,
-  actions: 44,
+  actions: 48,
 };
 
 const COLUMN_ORDER: ColKey[] = [
@@ -93,8 +90,8 @@ const COLUMN_ORDER: ColKey[] = [
 ];
 
 const MIN_WIDTH: Record<ColKey, number> = {
-  select: 36,
-  star: 36,
+  select: 48,
+  star: 48,
   name: 80,
   lastActive: 80,
   desc: 120,
@@ -102,7 +99,7 @@ const MIN_WIDTH: Record<ColKey, number> = {
   project: 100,
   id: 60,
   type: 60,
-  actions: 44,
+  actions: 48,
 };
 
 const STORAGE_KEY = "csm.colWidths.v1";
@@ -185,6 +182,8 @@ function ResizableHead({
   onResize,
   className,
   children,
+  contentClassName,
+  childrenClassName,
   sortKey,
   sortState,
   onSort,
@@ -194,6 +193,8 @@ function ResizableHead({
   onResize: (key: ColKey, w: number) => void;
   className?: string;
   children?: React.ReactNode;
+  contentClassName?: string;
+  childrenClassName?: string;
   /** 이 컬럼이 정렬 가능하면 SortKey, 아니면 undefined */
   sortKey?: SortKey;
   sortState?: SortState;
@@ -240,13 +241,14 @@ function ResizableHead({
       <div
         className={cn(
           "flex items-center gap-1 truncate pr-2",
-          isSortable && "cursor-pointer hover:text-foreground"
+          isSortable && "cursor-pointer hover:text-foreground",
+          contentClassName
         )}
         onClick={isSortable ? () => onSort!(sortKey!) : undefined}
         role={isSortable ? "button" : undefined}
         title={isSortable ? "정렬: 다시 클릭하면 역순" : undefined}
       >
-        <span className="truncate">{children}</span>
+        <span className={cn("truncate", childrenClassName)}>{children}</span>
         {isActiveSort && (
           sortState!.dir === "asc"
             ? <ArrowUp className="h-3 w-3 shrink-0 text-foreground/70" />
@@ -315,7 +317,13 @@ function SessionTableInner({
   const visibleSelectedCount = sortedSessions.filter((s) => selectedSessionIds.has(s.sessionId)).length;
   const allVisibleSelected = sortedSessions.length > 0 && visibleSelectedCount === sortedSessions.length;
   const someVisibleSelected = visibleSelectedCount > 0 && !allVisibleSelected;
-  const SelectAllIcon = allVisibleSelected ? CheckSquare : someVisibleSelected ? MinusSquare : Square;
+  const selectAllRef = useRef<HTMLInputElement | null>(null);
+
+  useEffect(() => {
+    if (selectAllRef.current) {
+      selectAllRef.current.indeterminate = someVisibleSelected;
+    }
+  }, [someVisibleSelected]);
 
   if (sessions.length === 0) {
     return (
@@ -339,25 +347,26 @@ function SessionTableInner({
             colKey="select"
             width={widths.select}
             onResize={handleResize}
+            className="px-0"
+            contentClassName="justify-center overflow-visible pr-0"
+            childrenClassName="flex shrink-0 items-center justify-center overflow-visible"
           >
-            <Button
-              variant="ghost"
-              size="icon"
-              className="h-7 w-7"
-              onClick={(e) => {
-                e.stopPropagation();
-                onToggleVisibleSelection(sortedSessions, !allVisibleSelected);
-              }}
-              aria-label={allVisibleSelected ? "Deselect visible sessions" : "Select visible sessions"}
-              title={allVisibleSelected ? "Deselect visible sessions" : "Select visible sessions"}
-            >
-              <SelectAllIcon className="h-4 w-4" />
-            </Button>
+            <input
+              ref={selectAllRef}
+              type="checkbox"
+              checked={allVisibleSelected}
+              onChange={(e) => onToggleVisibleSelection(sortedSessions, e.currentTarget.checked)}
+              aria-label={allVisibleSelected ? t("action.deselectAll") : t("action.selectAll")}
+              title={allVisibleSelected ? t("action.deselectAll") : t("action.selectAll")}
+              className="h-4 w-4 min-w-4 shrink-0 rounded border-border accent-primary"
+            />
           </ResizableHead>
           <ResizableHead
             colKey="star"
             width={widths.star}
             onResize={handleResize}
+            className="px-0"
+            contentClassName="justify-center pr-0"
           />
           <ResizableHead
             colKey="name"
@@ -436,6 +445,7 @@ function SessionTableInner({
               minWidth: widths.actions,
               maxWidth: widths.actions,
             }}
+            className="px-0"
           />
         </TableRow>
       </TableHeader>
@@ -452,23 +462,21 @@ function SessionTableInner({
               onDoubleClick={() => onResume(s)}
               className="cursor-pointer"
             >
-              <TableCell style={cellStyle("select")} onClick={(e) => e.stopPropagation()} className="pr-0">
-                <Button
-                  variant="ghost"
-                  size="icon"
-                  className="h-7 w-7"
-                  onClick={() => onToggleSelected(s)}
-                  aria-label={checked ? "Deselect session" : "Select session"}
-                  title={checked ? "Deselect session" : "Select session"}
-                >
-                  {checked ? (
-                    <CheckSquare className="h-4 w-4 text-primary" />
-                  ) : (
-                    <Square className="h-4 w-4 text-muted-foreground/50" />
-                  )}
-                </Button>
+              <TableCell
+                style={cellStyle("select")}
+                onClick={(e) => e.stopPropagation()}
+                className="px-0 text-center"
+              >
+                <input
+                  type="checkbox"
+                  checked={checked}
+                  onChange={() => onToggleSelected(s)}
+                  aria-label={checked ? t("action.deselectSession") : t("action.selectSession")}
+                  title={checked ? t("action.deselectSession") : t("action.selectSession")}
+                  className="mx-auto block h-4 w-4 min-w-4 shrink-0 rounded border-border accent-primary"
+                />
               </TableCell>
-              <TableCell style={cellStyle("star")} onClick={(e) => e.stopPropagation()} className="pr-0">
+              <TableCell style={cellStyle("star")} onClick={(e) => e.stopPropagation()} className="px-0 text-center">
                 <Button
                   variant="ghost"
                   size="icon"
@@ -602,6 +610,7 @@ function SessionTableInner({
               <TableCell
                 style={cellStyle("actions")}
                 onClick={(e) => e.stopPropagation()}
+                className="px-0 text-center"
               >
                 <DropdownMenu>
                   <DropdownMenuTrigger asChild>
