@@ -1,6 +1,6 @@
 [package]
 name = "codex-session-manager"
-version = "0.5.6"
+version = "0.5.7"
 description = "Codex session manager (Tauri)"
 authors = ["nowJDev", "glowElephant"]
 edition = "2021"

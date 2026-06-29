@@ -2,7 +2,7 @@
 
 OpenAI Codex CLI 세션을 데스크톱에서 빠르게 찾고, 이름을 붙이고, 이어서 실행할 수 있게 해주는 Tauri 앱입니다.
 
-[Download latest release](https://github.com/nowJDev/codex-session-manager/releases/tag/v0.5.6) · [Report an issue](https://github.com/nowJDev/codex-session-manager/issues/new)
+[Download latest release](https://github.com/nowJDev/codex-session-manager/releases/tag/v0.5.7) · [Report an issue](https://github.com/nowJDev/codex-session-manager/issues/new)
 
 ![Codex Session Manager dark UI](docs/screenshot.png)
 
@@ -18,12 +18,12 @@ OpenAI Codex CLI 세션을 데스크톱에서 빠르게 찾고, 이름을 붙이
 
 ## Latest Release
 
-Current release: [Codex Session Manager v0.5.6](https://github.com/nowJDev/codex-session-manager/releases/tag/v0.5.6).
+Current release: [Codex Session Manager v0.5.7](https://github.com/nowJDev/codex-session-manager/releases/tag/v0.5.7).
 
 | Platform | Download |
 |---|---|
-| Windows | `Codex.Session.Manager_0.5.6_x64-setup.exe`, `Codex.Session.Manager_0.5.6_x64_en-US.msi`, or `Codex.Session.Manager_v0.5.6_x64-portable.zip` |
-| macOS Apple Silicon | `Codex.Session.Manager_0.5.6_aarch64.dmg` |
+| Windows | `Codex.Session.Manager_0.5.7_x64-setup.exe`, `Codex.Session.Manager_0.5.7_x64_en-US.msi`, or `Codex.Session.Manager_v0.5.7_x64-portable.zip` |
+| macOS Apple Silicon | `Codex.Session.Manager_0.5.7_aarch64.dmg` |
 | Linux | `.deb`, `.rpm`, or `.AppImage` from the release assets |
 
 설치형 앱의 자동 업데이트는 `v0.5.4` 이후 빌드부터 동작합니다. `v0.5.3` 이하에서 자동 업데이트 기능을 받으려면 릴리즈 페이지에서 설치 파일을 한 번 직접 받아 설치해야 합니다.
@@ -161,7 +161,7 @@ Installers are written to `src-tauri/target/release/bundle/`.
 
 이 프로젝트는 [glowElephant/claude-session-manager](https://github.com/glowElephant/claude-session-manager)를 fork해서 Codex용으로 이식한 프로젝트입니다. 첫 Codex 릴리스 라인은 `v0.5.x`입니다.
 
-`v0.5.0`은 최초 포트 태그로 남겨 두었고, GitHub Actions의 Node 24 대응 이후 `v0.5.1`부터 공개 릴리스 워크플로가 안정화되었습니다. `v0.5.6` 이상을 사용하면 새 아이콘, 요약 재시도 수정, 설치형 자동 업데이트, portable Windows asset, 다중 선택 삭제, 개선된 테이블 레이아웃을 사용할 수 있습니다.
+`v0.5.0`은 최초 포트 태그로 남겨 두었고, GitHub Actions의 Node 24 대응 이후 `v0.5.1`부터 공개 릴리스 워크플로가 안정화되었습니다. `v0.5.7` 이상을 사용하면 새 아이콘, 요약 재시도 수정, 설치형 자동 업데이트, portable Windows asset, 다중 선택 삭제, 개선된 테이블 레이아웃, Codex 상태 패널과 usage 페이지 이동 버튼을 사용할 수 있습니다.
 
 ## License
 
