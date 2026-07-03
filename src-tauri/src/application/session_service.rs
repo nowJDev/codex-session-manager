@@ -1,5 +1,5 @@
 // 세션 관리 use case를 조율하는 애플리케이션 서비스이다.
-use crate::application::ports::SessionPorts;
+use crate::application::ports::{ResumePlan, SessionPorts};
 use crate::domain::session::{is_retryable_auto_summary, merge_local_and_cloud_sessions};
 use crate::types::{Config, DeleteSessionTarget, Session, SessionMeta, Settings};
 use anyhow::Result;
@@ -31,6 +31,10 @@ impl<P: SessionPorts> SessionService<P> {
 
     pub fn delete_session(&self, session_id: &str, file_path: &str) -> Result<()> {
         self.ports.delete_session(session_id, file_path)?;
+        self.ports.delete_session_meta(session_id)
+    }
+
+    pub fn delete_session_meta(&self, session_id: &str) -> Result<()> {
         self.ports.delete_session_meta(session_id)
     }
 
@@ -71,6 +75,18 @@ impl<P: SessionPorts> SessionService<P> {
 
     pub fn resume_session(&self, session_id: &str, cwd: Option<&str>) -> Result<()> {
         self.ports.resume_session(session_id, cwd)
+    }
+
+    pub fn build_resume_plan(&self, session_id: &str, cwd: Option<&str>) -> Result<ResumePlan> {
+        self.ports.build_resume_plan(session_id, cwd)
+    }
+
+    pub fn get_session_messages(
+        &self,
+        file_path: &str,
+        max_messages: usize,
+    ) -> Result<Vec<String>> {
+        self.ports.get_session_messages(file_path, max_messages)
     }
 
     pub fn pending_auto_summary_batch(&self, batch_size: usize) -> Result<Vec<(String, String)>> {
@@ -125,7 +141,11 @@ impl<P: SessionPorts> SessionService<P> {
         )
     }
 
-    pub fn generate_summary(&self, session_id: &str, file_path: &str) -> Result<String> {
+    pub fn generate_summary_pair(
+        &self,
+        session_id: &str,
+        file_path: &str,
+    ) -> Result<(String, String)> {
         let cfg = self.ports.load_config();
         let previous_summary = cfg
             .sessions
@@ -135,15 +155,23 @@ impl<P: SessionPorts> SessionService<P> {
         let (name, description) = self
             .ports
             .summarize_session(file_path, previous_summary.as_deref())?;
-        self.save_summary(session_id, name, description.clone())?;
-        Ok(description)
+        self.save_summary(session_id, name.clone(), description.clone())?;
+        Ok((name, description))
+    }
+
+    pub fn generate_summary(&self, session_id: &str, file_path: &str) -> Result<String> {
+        self.generate_summary_pair(session_id, file_path)
+            .map(|(_name, description)| description)
     }
 }
 
 #[cfg(test)]
 mod tests {
     use super::SessionService;
-    use crate::application::ports::SessionPorts;
+    use crate::application::ports::{
+        CloudSyncPort, ResumePlan, ResumePort, SessionCommandPort, SessionMetadataPort,
+        SessionScanPort, SummaryPort,
+    };
     use crate::types::{Config, Session, SessionMeta, Settings};
     use anyhow::Result;
     use std::cell::RefCell;
@@ -167,11 +195,21 @@ mod tests {
         state: Rc<RefCell<FakeState>>,
     }
 
-    impl SessionPorts for FakePorts {
+    impl SessionScanPort for FakePorts {
         fn scan_local_sessions(&self) -> Result<Vec<Session>> {
             Ok(self.state.borrow().local.clone())
         }
 
+        fn get_session_messages(
+            &self,
+            _file_path: &str,
+            _max_messages: usize,
+        ) -> Result<Vec<String>> {
+            Ok(vec!["message".into()])
+        }
+    }
+
+    impl SessionCommandPort for FakePorts {
         fn delete_session(&self, session_id: &str, file_path: &str) -> Result<()> {
             self.state
                 .borrow_mut()
@@ -187,7 +225,9 @@ mod tests {
         fn unarchive_session(&self, _session_id: &str) -> Result<()> {
             Ok(())
         }
+    }
 
+    impl SessionMetadataPort for FakePorts {
         fn load_config(&self) -> Config {
             self.state.borrow().config.clone()
         }
@@ -211,7 +251,9 @@ mod tests {
         fn update_settings(&self, _patch: Settings) -> Result<()> {
             Ok(())
         }
+    }
 
+    impl CloudSyncPort for FakePorts {
         fn list_cloud_sessions(&self) -> Result<Vec<Session>> {
             Ok(self.state.borrow().cloud.clone())
         }
@@ -231,11 +273,22 @@ mod tests {
         fn checkin_session(&self, _session: &Session) -> Result<()> {
             Ok(())
         }
+    }
 
+    impl ResumePort for FakePorts {
         fn resume_session(&self, _session_id: &str, _cwd: Option<&str>) -> Result<()> {
             Ok(())
         }
 
+        fn build_resume_plan(&self, session_id: &str, _cwd: Option<&str>) -> Result<ResumePlan> {
+            Ok(ResumePlan {
+                program: "codex".into(),
+                args: vec!["resume".into(), session_id.into()],
+            })
+        }
+    }
+
+    impl SummaryPort for FakePorts {
         fn summarize_batch(
             &self,
             _items: &[(String, String)],

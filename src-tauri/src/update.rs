@@ -4,7 +4,6 @@ use serde::{Deserialize, Serialize};
 
 const LATEST_RELEASE_API: &str =
     "https://api.github.com/repos/nowJDev/codex-session-manager/releases/latest";
-const RELEASES_URL: &str = "https://github.com/nowJDev/codex-session-manager/releases";
 
 #[derive(Debug, Clone, Serialize)]
 #[serde(rename_all = "camelCase")]
@@ -43,8 +42,4 @@ pub async fn check_latest_release() -> Result<UpdateInfo> {
         has_update,
         release_url: release.html_url,
     })
-}
-
-pub fn releases_url() -> &'static str {
-    RELEASES_URL
 }

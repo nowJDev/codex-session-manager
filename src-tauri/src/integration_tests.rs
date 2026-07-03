@@ -1,7 +1,7 @@
-use codex_session_manager_lib::{
+use crate::{
     cloud, codex_status, config, environment, resume, scanner, summary, terminal,
     terminal::{DetectedTerminal, TerminalKind},
-    types::SessionMeta,
+    types::{SessionMeta, Settings},
     update,
 };
 use std::fs;
@@ -216,13 +216,13 @@ fn config_drops_legacy_anthropic_api_key_on_save() {
 #[test]
 fn settings_update_only_overwrites_provided_fields() {
     let _h = setup_temp_home();
-    config::update_settings(codex_session_manager_lib::types::Settings {
+    config::update_settings(Settings {
         locale: Some("ko".into()),
         cloud_path: Some("/tmp/cloud".into()),
         ..Default::default()
     })
     .unwrap();
-    config::update_settings(codex_session_manager_lib::types::Settings {
+    config::update_settings(Settings {
         locale: Some("en".into()),
         ..Default::default()
     })
@@ -237,7 +237,7 @@ fn settings_update_persists_excluded_scan_paths() {
     // 회귀 방지: v0.4.7에서 추가한 excludedScanPaths 필드가 update_settings의 분기에
     // 빠져있어 저장이 안 되던 버그를 재현. v0.4.8에서 수정.
     let _h = setup_temp_home();
-    config::update_settings(codex_session_manager_lib::types::Settings {
+    config::update_settings(Settings {
         excluded_scan_paths: Some(vec!["currency-edge".into(), "other-bot".into()]),
         ..Default::default()
     })
@@ -249,7 +249,7 @@ fn settings_update_persists_excluded_scan_paths() {
     );
 
     // 빈 배열로 클리어도 가능해야 함
-    config::update_settings(codex_session_manager_lib::types::Settings {
+    config::update_settings(Settings {
         excluded_scan_paths: Some(vec![]),
         ..Default::default()
     })
@@ -281,7 +281,7 @@ fn scanner_skips_excluded_scan_paths() {
         ],
     );
 
-    config::update_settings(codex_session_manager_lib::types::Settings {
+    config::update_settings(Settings {
         excluded_scan_paths: Some(vec!["currency-edge".into()]),
         ..Default::default()
     })
@@ -1057,7 +1057,7 @@ fn terminal_kind_parse_aliases() {
 #[test]
 fn settings_persist_preferred_terminal() {
     let _h = setup_temp_home();
-    config::update_settings(codex_session_manager_lib::types::Settings {
+    config::update_settings(Settings {
         preferred_terminal: Some("git-bash".into()),
         ..Default::default()
     })

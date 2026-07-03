@@ -139,15 +139,15 @@ src-tauri/
 │   ├── environment.rs      # Codex CLI + 터미널 진단
 │   ├── resume.rs           # 터미널 실행
 │   ├── summary.rs          # codex exec 기반 자동 요약
+│   ├── integration_tests.rs # private infra를 포함한 백엔드 통합 테스트
 │   └── types.rs            # Session / Config / Settings 타입
 ├── tests/
 │   ├── architecture.rs     # 헥사고날 경계 회귀 테스트
-│   └── integration.rs
 └── Cargo.toml
 
 src/
 ├── App.tsx
-├── application/useSessionManager.ts
+├── application/             # 프론트엔드 application hook과 Tauri side effect 조율
 ├── components/
 ├── lib/ipc.ts
 └── i18n/{en,ko}.json

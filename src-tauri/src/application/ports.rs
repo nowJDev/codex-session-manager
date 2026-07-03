@@ -6,24 +6,38 @@ use std::future::Future;
 use std::path::PathBuf;
 use std::pin::Pin;
 
-pub trait SessionPorts {
+pub trait SessionScanPort {
     fn scan_local_sessions(&self) -> Result<Vec<Session>>;
+    fn get_session_messages(&self, file_path: &str, max_messages: usize) -> Result<Vec<String>>;
+}
+
+pub trait SessionCommandPort {
     fn delete_session(&self, session_id: &str, file_path: &str) -> Result<()>;
     fn archive_session(&self, session_id: &str) -> Result<()>;
     fn unarchive_session(&self, session_id: &str) -> Result<()>;
+}
 
+pub trait SessionMetadataPort {
     fn load_config(&self) -> Config;
     fn save_session_meta(&self, session_id: &str, patch: SessionMeta) -> Result<()>;
     fn delete_session_meta(&self, session_id: &str) -> Result<()>;
     fn update_settings(&self, patch: Settings) -> Result<()>;
+}
 
+pub trait CloudSyncPort {
     fn list_cloud_sessions(&self) -> Result<Vec<Session>>;
     fn set_cloud_folder(&self, root: &str) -> Result<PathBuf>;
     fn upload_to_cloud(&self, session: &Session) -> Result<()>;
     fn checkout_session(&self, session: &Session) -> Result<String>;
     fn checkin_session(&self, session: &Session) -> Result<()>;
+}
 
+pub trait ResumePort {
     fn resume_session(&self, session_id: &str, cwd: Option<&str>) -> Result<()>;
+    fn build_resume_plan(&self, session_id: &str, cwd: Option<&str>) -> Result<ResumePlan>;
+}
+
+pub trait SummaryPort {
     fn summarize_batch(
         &self,
         items: &[(String, String)],
@@ -33,6 +47,30 @@ pub trait SessionPorts {
         file_path: &str,
         previous_summary: Option<&str>,
     ) -> Result<(String, String)>;
+}
+
+pub trait SessionMessagePort: SessionScanPort {}
+
+impl<T> SessionMessagePort for T where T: SessionScanPort {}
+
+pub trait SessionPorts:
+    SessionScanPort
+    + SessionCommandPort
+    + SessionMetadataPort
+    + CloudSyncPort
+    + ResumePort
+    + SummaryPort
+{
+}
+
+impl<T> SessionPorts for T where
+    T: SessionScanPort
+        + SessionCommandPort
+        + SessionMetadataPort
+        + CloudSyncPort
+        + ResumePort
+        + SummaryPort
+{
 }
 
 #[derive(Debug, Clone, serde::Serialize)]
@@ -102,6 +140,26 @@ pub struct UpdateInfo {
     pub release_url: String,
 }
 
+#[derive(Debug, Clone, serde::Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct ResumePlan {
+    pub program: String,
+    pub args: Vec<String>,
+}
+
+#[derive(Debug, Clone, serde::Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct PathsInfo {
+    pub config_dir: String,
+    pub config_file: String,
+    pub codex_home: String,
+    pub sessions_dir: String,
+    pub archived_sessions_dir: String,
+    pub projects_roots: Vec<String>,
+    pub home_override: Option<String>,
+    pub codex_home_override: Option<String>,
+}
+
 pub trait SystemPorts {
     fn debug_log_info(&self) -> DebugLogInfo;
     fn open_debug_log_folder(&self) -> Result<()>;
@@ -110,4 +168,5 @@ pub trait SystemPorts {
     fn check_environment(&self) -> EnvironmentReport;
     fn get_codex_status(&self) -> CodexStatus;
     fn check_update(&self) -> Pin<Box<dyn Future<Output = Result<UpdateInfo>> + Send + '_>>;
+    fn paths_info(&self) -> PathsInfo;
 }

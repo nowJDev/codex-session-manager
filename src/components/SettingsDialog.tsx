@@ -1,9 +1,4 @@
 import { useEffect, useState } from "react";
-import { open as openDialog } from "@tauri-apps/plugin-dialog";
-import { openUrl } from "@tauri-apps/plugin-opener";
-import { relaunch } from "@tauri-apps/plugin-process";
-import { check } from "@tauri-apps/plugin-updater";
-import type { DownloadEvent } from "@tauri-apps/plugin-updater";
 import {
   Dialog,
   DialogContent,
@@ -14,9 +9,11 @@ import {
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
-import { ipc } from "@/lib/ipc";
 import type { Locale } from "@/i18n";
 import type { EnvironmentReport, Settings, TerminalKind, UpdateInfo } from "@/types";
+
+type DebugLogInfo = { path: string; exists: boolean; size: number; tail: string };
+type UpdateCheckResult = { info: UpdateInfo | null; error: string | null };
 
 interface Props {
   open: boolean;
@@ -25,6 +22,15 @@ interface Props {
   t: (k: string, p?: Record<string, string | number>) => string;
   onClose: () => void;
   onSaved: () => void;
+  onPickDirectory: () => Promise<string | null>;
+  onPickCloudFolder: () => Promise<string | null>;
+  onLoadDebugLog: () => Promise<DebugLogInfo>;
+  onOpenDebugLogFolder: () => Promise<void>;
+  onConnectGoogleDrive: () => Promise<string>;
+  onCheckEnvironment: () => Promise<EnvironmentReport>;
+  onCheckForUpdates: (onProgress: (message: string) => void) => Promise<UpdateCheckResult>;
+  onOpenReleases: (url?: string) => Promise<void>;
+  onSaveSettings: (patch: Settings) => Promise<void>;
 }
 
 const ALL_TERMINAL_OPTIONS: Array<{ value: "auto" | TerminalKind; labelKey: string; defaultLabel: string }> = [
@@ -42,13 +48,23 @@ function tx(t: Props["t"], key: string, fallback: string) {
   return v === key ? fallback : v;
 }
 
-function progressText(downloaded: number, total?: number): string {
-  if (!total) return `${(downloaded / 1024 / 1024).toFixed(1)} MB 다운로드 중...`;
-  const pct = Math.min(100, Math.round((downloaded / total) * 100));
-  return `${pct}% 다운로드 중 (${(downloaded / 1024 / 1024).toFixed(1)} / ${(total / 1024 / 1024).toFixed(1)} MB)`;
-}
-
-export function SettingsDialog({ open, current, locale, t, onClose, onSaved }: Props) {
+export function SettingsDialog({
+  open,
+  current,
+  locale,
+  t,
+  onClose,
+  onSaved,
+  onPickDirectory,
+  onPickCloudFolder,
+  onLoadDebugLog,
+  onOpenDebugLogFolder,
+  onConnectGoogleDrive,
+  onCheckEnvironment,
+  onCheckForUpdates,
+  onOpenReleases,
+  onSaveSettings,
+}: Props) {
   const [chosenLocale, setChosenLocale] = useState<string>(locale);
   const [cloudPath, setCloudPath] = useState<string>(current.cloudPath || "");
   const [terminal, setTerminal] = useState<string>(current.preferredTerminal || "auto");
@@ -120,18 +136,18 @@ export function SettingsDialog({ open, current, locale, t, onClose, onSaved }: P
   }, [open, current, locale]);
 
   async function pickFolder() {
-    const result = await openDialog({ directory: true, multiple: false });
-    if (typeof result === "string") {
-      const saved = await ipc.setCloudFolder(result);
+    const saved = await onPickCloudFolder();
+    if (saved) {
       setCloudPath(saved);
     }
+
   }
 
-  const [debugLog, setDebugLog] = useState<{ path: string; exists: boolean; size: number; tail: string } | null>(null);
+  const [debugLog, setDebugLog] = useState<DebugLogInfo | null>(null);
 
   async function loadDebugLog() {
     try {
-      const r = await ipc.getDebugLog();
+      const r = await onLoadDebugLog();
       setDebugLog(r);
     } catch (err) {
       alert(String(err));
@@ -140,7 +156,7 @@ export function SettingsDialog({ open, current, locale, t, onClose, onSaved }: P
 
   async function openLogFolder() {
     try {
-      await ipc.openDebugLogFolder();
+      await onOpenDebugLogFolder();
     } catch (err) {
       alert(String(err));
     }
@@ -158,7 +174,7 @@ export function SettingsDialog({ open, current, locale, t, onClose, onSaved }: P
 
   async function autoConnectGoogleDrive() {
     try {
-      const saved = await ipc.connectGoogleDrive();
+      const saved = await onConnectGoogleDrive();
       setCloudPath(saved);
     } catch (err) {
       alert(String(err));
@@ -168,7 +184,7 @@ export function SettingsDialog({ open, current, locale, t, onClose, onSaved }: P
   async function runDiagnostics() {
     setDiagLoading(true);
     try {
-      const r = await ipc.checkEnvironment();
+      const r = await onCheckEnvironment();
       setReport(r);
     } catch (err) {
       console.error(err);
@@ -183,60 +199,20 @@ export function SettingsDialog({ open, current, locale, t, onClose, onSaved }: P
     setUpdateError(null);
     setUpdateProgress(null);
     try {
-      const releaseInfo = await ipc.checkUpdate().catch(() => null);
-      const update = await check({ timeout: 30000 });
-      if (!update) {
-        if (releaseInfo) setUpdateInfo(releaseInfo);
-        setUpdateProgress("현재 최신 릴리즈를 사용 중입니다.");
-        return;
-      }
-
-      setUpdateInfo({
-        currentVersion: update.currentVersion,
-        latestVersion: update.version,
-        hasUpdate: true,
-        releaseUrl: releaseInfo?.releaseUrl || "https://github.com/nowJDev/codex-session-manager/releases/latest",
-      });
-      setUpdateProgress(`${update.version} 업데이트를 다운로드합니다.`);
-
-      let downloaded = 0;
-      let contentLength: number | undefined;
-      await update.downloadAndInstall((event: DownloadEvent) => {
-        switch (event.event) {
-          case "Started":
-            downloaded = 0;
-            contentLength = event.data.contentLength;
-            setUpdateProgress("다운로드를 시작합니다.");
-            break;
-          case "Progress":
-            downloaded += event.data.chunkLength;
-            setUpdateProgress(progressText(downloaded, contentLength));
-            break;
-          case "Finished":
-            setUpdateProgress("다운로드 완료. 업데이트를 설치합니다.");
-            break;
-        }
-      });
-
-      setUpdateProgress("업데이트 설치 완료. 앱을 재시작합니다.");
-      await relaunch();
-    } catch (err) {
-      const fallback = await ipc.checkUpdate().catch(() => null);
-      if (fallback) setUpdateInfo(fallback);
-      setUpdateError(
-        `${String(err)}\n설치본 자동 업데이트를 사용할 수 없으면 portable은 릴리즈 열기로 업데이트하세요.`
-      );
+      const result = await onCheckForUpdates(setUpdateProgress);
+      if (result.info) setUpdateInfo(result.info);
+      if (result.error) setUpdateError(result.error);
     } finally {
       setUpdateLoading(false);
     }
   }
 
   async function openReleases(url?: string) {
-    await openUrl(url || "https://github.com/nowJDev/codex-session-manager/releases");
+    await onOpenReleases(url);
   }
 
   async function save() {
-    await ipc.saveSettings({
+    await onSaveSettings({
       locale: chosenLocale,
       cloudPath: cloudPath || null,
       preferredTerminal: terminal,
@@ -443,8 +419,8 @@ export function SettingsDialog({ open, current, locale, t, onClose, onSaved }: P
                 variant="outline"
                 size="sm"
                 onClick={async () => {
-                  const result = await openDialog({ directory: true, multiple: false });
-                  if (typeof result === "string" && !extraDirs.includes(result)) {
+                  const result = await onPickDirectory();
+                  if (result && !extraDirs.includes(result)) {
                     setExtraDirs([...extraDirs, result]);
                   }
                 }}

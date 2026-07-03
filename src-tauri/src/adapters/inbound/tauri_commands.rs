@@ -1,7 +1,7 @@
 // Tauri IPC command를 애플리케이션 use case로 위임한다.
+use crate::adapters::inbound::auto_summary_worker;
 use crate::adapters::outbound::session_ports::DefaultSessionPorts;
 use crate::adapters::outbound::system_ports::DefaultSystemPorts;
-use crate::application::auto_summary_service;
 use crate::application::ports::{
     CodexStatus, DebugLogInfo, DriveDetectResult, EnvironmentReport, UpdateInfo,
 };
@@ -26,7 +26,7 @@ fn system_service() -> SystemService<DefaultSystemPorts> {
 #[tauri::command]
 pub fn start_auto_summary(app: tauri::AppHandle) -> Result<bool, String> {
     use tauri::Emitter;
-    Ok(auto_summary_service::start_auto_summary(
+    Ok(auto_summary_worker::start_auto_summary(
         DefaultSessionPorts,
         move |id| {
             let _ = app.emit("auto-summary-progress", id);

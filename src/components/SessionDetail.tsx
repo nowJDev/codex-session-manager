@@ -13,6 +13,7 @@ interface Props {
   codexStatus: CodexStatus | null;
   codexStatusLoading: boolean;
   onRefreshCodexStatus: () => void;
+  onOpenUsagePage: () => void;
   onResume: (s: Session) => void;
 }
 
@@ -23,6 +24,7 @@ export function SessionDetail({
   codexStatus,
   codexStatusLoading,
   onRefreshCodexStatus,
+  onOpenUsagePage,
   onResume,
 }: Props) {
   if (!session) {
@@ -36,6 +38,7 @@ export function SessionDetail({
           loading={codexStatusLoading}
           t={t}
           onRefresh={onRefreshCodexStatus}
+          onOpenUsagePage={onOpenUsagePage}
         />
       </div>
     );
@@ -118,6 +121,7 @@ export function SessionDetail({
         loading={codexStatusLoading}
         t={t}
         onRefresh={onRefreshCodexStatus}
+        onOpenUsagePage={onOpenUsagePage}
       />
     </div>
   );

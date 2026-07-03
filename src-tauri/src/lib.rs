@@ -1,18 +1,21 @@
 // Tauri 앱의 composition root와 공개 모듈 경계를 정의한다.
 pub mod adapters;
 pub mod application;
-pub mod cloud;
-pub mod codex_status;
-pub mod config;
-pub mod debuglog;
+pub(crate) mod cloud;
+pub(crate) mod codex_status;
+pub(crate) mod config;
+pub(crate) mod debuglog;
 pub mod domain;
-pub mod environment;
-pub mod resume;
-pub mod scanner;
-pub mod summary;
-pub mod terminal;
+pub(crate) mod environment;
+pub(crate) mod resume;
+pub(crate) mod scanner;
+pub(crate) mod summary;
+pub(crate) mod terminal;
 pub mod types;
-pub mod update;
+pub(crate) mod update;
+
+#[cfg(test)]
+mod integration_tests;
 
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub fn run() {

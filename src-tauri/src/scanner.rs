@@ -254,26 +254,6 @@ pub fn encode_cwd_to_project_dir(cwd: &str) -> String {
         .collect()
 }
 
-/// jsonl 본문 앞부분에서 최신 `payload.cwd`를 추출한다.
-pub fn read_cwd_from_jsonl(path: &PathBuf) -> Option<String> {
-    let file = fs::File::open(path).ok()?;
-    let reader = BufReader::new(file);
-    let mut cwd = None;
-    for (i, line) in reader.lines().enumerate() {
-        if i >= 200 {
-            break;
-        }
-        let Ok(line) = line else { continue };
-        let Ok(val) = serde_json::from_str::<Value>(&line) else {
-            continue;
-        };
-        if let Some(next_cwd) = val.pointer("/payload/cwd").and_then(|v| v.as_str()) {
-            cwd = Some(next_cwd.to_string());
-        }
-    }
-    cwd
-}
-
 fn collect_jsonl_files(root: &Path) -> Vec<PathBuf> {
     let mut out = Vec::new();
     let mut stack = vec![root.to_path_buf()];

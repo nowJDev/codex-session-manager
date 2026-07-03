@@ -1,6 +1,7 @@
 // 시스템 진단, 업데이트, 디버그 로그 use case를 조율한다.
 use crate::application::ports::{
-    CodexStatus, DebugLogInfo, DriveDetectResult, EnvironmentReport, SystemPorts, UpdateInfo,
+    CodexStatus, DebugLogInfo, DriveDetectResult, EnvironmentReport, PathsInfo, SystemPorts,
+    UpdateInfo,
 };
 use anyhow::Result;
 
@@ -39,5 +40,9 @@ impl<P: SystemPorts> SystemService<P> {
 
     pub async fn check_update(&self) -> Result<UpdateInfo> {
         self.ports.check_update().await
+    }
+
+    pub fn paths_info(&self) -> PathsInfo {
+        self.ports.paths_info()
     }
 }

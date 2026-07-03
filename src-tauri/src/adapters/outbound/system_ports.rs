@@ -1,7 +1,7 @@
 // 시스템 진단과 OS 상호작용을 애플리케이션 outbound port 구현으로 감싼다.
 use crate::application::ports::{
     CodexLimitStatus, CodexStatus, DebugLogInfo, DetectedTerminalInfo, DriveDetectResult,
-    EnvironmentReport, SystemPorts, UpdateInfo,
+    EnvironmentReport, PathsInfo, SystemPorts, UpdateInfo,
 };
 use anyhow::{anyhow, Result};
 use std::future::Future;
@@ -122,6 +122,24 @@ impl SystemPorts for DefaultSystemPorts {
                 release_url: update.release_url,
             })
         })
+    }
+
+    fn paths_info(&self) -> PathsInfo {
+        PathsInfo {
+            config_dir: crate::config::config_dir().to_string_lossy().to_string(),
+            config_file: crate::config::config_file().to_string_lossy().to_string(),
+            codex_home: crate::scanner::codex_home().to_string_lossy().to_string(),
+            sessions_dir: crate::scanner::sessions_dir().to_string_lossy().to_string(),
+            archived_sessions_dir: crate::scanner::archived_sessions_dir()
+                .to_string_lossy()
+                .to_string(),
+            projects_roots: crate::scanner::projects_roots()
+                .into_iter()
+                .map(|path| path.to_string_lossy().to_string())
+                .collect(),
+            home_override: std::env::var("CODEX_SESSION_HOME").ok(),
+            codex_home_override: std::env::var("CODEX_HOME").ok(),
+        }
     }
 }
 

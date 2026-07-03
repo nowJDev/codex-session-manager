@@ -1,51 +1,47 @@
-// 자동 요약 백그라운드 작업을 애플리케이션 use case로 실행한다.
+// 자동 요약 배치 처리 use case를 제공한다.
 use crate::application::ports::SessionPorts;
 use crate::application::session_service::SessionService;
-use std::sync::atomic::{AtomicBool, Ordering};
 
-static AUTO_SUMMARY_RUNNING: AtomicBool = AtomicBool::new(false);
+pub const AUTO_SUMMARY_BATCH_SIZE: usize = 5;
 
-pub fn start_auto_summary<P, F>(ports: P, notify_progress: F) -> bool
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum AutoSummaryBatchResult {
+    Idle,
+    Processed(Vec<String>),
+}
+
+pub fn process_auto_summary_batch<P>(
+    service: &SessionService<P>,
+    batch_size: usize,
+) -> AutoSummaryBatchResult
 where
-    P: SessionPorts + Copy + Send + 'static,
-    F: Fn(&str) + Send + 'static,
+    P: SessionPorts,
 {
-    if AUTO_SUMMARY_RUNNING.swap(true, Ordering::SeqCst) {
-        return false;
+    let pending = match service.pending_auto_summary_batch(batch_size) {
+        Ok(sessions) => sessions,
+        Err(_) => return AutoSummaryBatchResult::Idle,
+    };
+    if pending.is_empty() {
+        return AutoSummaryBatchResult::Idle;
     }
-    const BATCH_SIZE: usize = 5;
-    std::thread::spawn(move || {
-        loop {
-            let service = SessionService::new(ports);
-            let pending = match service.pending_auto_summary_batch(BATCH_SIZE) {
-                Ok(sessions) => sessions,
-                Err(_) => break,
-            };
-            if pending.is_empty() {
-                break;
-            }
 
-            match service.summarize_batch(&pending) {
-                Ok(result) => {
-                    for (id, _path) in &pending {
-                        if let Some((name, desc)) = result.get(id) {
-                            let _ = service.save_summary(id, name.clone(), desc.clone());
-                            notify_progress(id);
-                        } else {
-                            let _ = service.mark_summary_missing(id);
-                        }
-                    }
-                }
-                Err(e) => {
-                    eprintln!("[auto-summary batch] 실패: {}", e);
-                    if let Some((id, _)) = pending.first() {
-                        let _ = service.mark_summary_failed(id, &e.to_string());
-                    }
+    let mut updated = Vec::new();
+    match service.summarize_batch(&pending) {
+        Ok(result) => {
+            for (id, _path) in &pending {
+                if let Some((name, desc)) = result.get(id) {
+                    let _ = service.save_summary(id, name.clone(), desc.clone());
+                    updated.push(id.clone());
+                } else {
+                    let _ = service.mark_summary_missing(id);
                 }
             }
-            std::thread::sleep(std::time::Duration::from_secs(1));
         }
-        AUTO_SUMMARY_RUNNING.store(false, Ordering::SeqCst);
-    });
-    true
+        Err(e) => {
+            if let Some((id, _)) = pending.first() {
+                let _ = service.mark_summary_failed(id, &e.to_string());
+            }
+        }
+    }
+    AutoSummaryBatchResult::Processed(updated)
 }

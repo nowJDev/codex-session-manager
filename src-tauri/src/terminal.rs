@@ -222,6 +222,7 @@ pub fn pick_terminal(target_os: &str, preferred: Option<&str>) -> Option<Detecte
     detected.into_iter().next()
 }
 
+#[cfg(test)]
 pub fn build_resume_command(
     term: &DetectedTerminal,
     session_id: &str,

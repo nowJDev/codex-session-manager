@@ -1,16 +1,14 @@
 // 현재 Codex 실행 환경 상태를 오른쪽 패널 하단에 표시한다.
-import { openUrl } from "@tauri-apps/plugin-opener";
 import { AlertCircle, CheckCircle2, Clock3, ExternalLink, RefreshCw } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import type { CodexStatus } from "@/types";
-
-const CODEX_WEB_URL = "https://chatgpt.com/codex/settings/usage";
 
 interface Props {
   status: CodexStatus | null;
   loading: boolean;
   t: (k: string, p?: Record<string, string | number>) => string;
   onRefresh: () => void;
+  onOpenUsagePage: () => void;
 }
 
 function tx(t: Props["t"], key: string, fallback: string) {
@@ -34,12 +32,8 @@ function Field({ label, value }: { label: string; value: React.ReactNode }) {
   );
 }
 
-export function CodexStatusPanel({ status, loading, t, onRefresh }: Props) {
+export function CodexStatusPanel({ status, loading, t, onRefresh, onOpenUsagePage }: Props) {
   const hasCli = !!status?.cliFound;
-
-  async function openUsagePage() {
-    await openUrl(CODEX_WEB_URL);
-  }
 
   return (
     <div className="shrink-0 border-t border-border/60 bg-background/70 p-4">
@@ -92,7 +86,7 @@ export function CodexStatusPanel({ status, loading, t, onRefresh }: Props) {
         <div className="text-[10px] uppercase tracking-wide text-muted-foreground">
           {tx(t, "status.usage", "Usage")}
         </div>
-        <Button size="sm" className="w-full justify-center shadow-sm shadow-primary/15" onClick={openUsagePage}>
+        <Button size="sm" className="w-full justify-center shadow-sm shadow-primary/15" onClick={onOpenUsagePage}>
           <ExternalLink className="h-4 w-4" />
           {tx(t, "status.openUsage", "Open usage page")}
         </Button>

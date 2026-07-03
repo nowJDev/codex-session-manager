@@ -37,6 +37,7 @@ function App() {
     cloudCount,
     refresh,
     refreshCodexStatus,
+    settingsActions,
     handleResume,
     handleDelete,
     handleBulkDelete,
@@ -152,6 +153,7 @@ function App() {
             codexStatus={codexStatus}
             codexStatusLoading={codexStatusLoading}
             onRefreshCodexStatus={refreshCodexStatus}
+            onOpenUsagePage={settingsActions.openUsagePage}
             onResume={handleResume}
           />
         </aside>
@@ -179,6 +181,15 @@ function App() {
         t={t}
         onClose={() => setSettingsOpen(false)}
         onSaved={refresh}
+        onPickDirectory={settingsActions.pickDirectory}
+        onPickCloudFolder={settingsActions.pickCloudFolder}
+        onLoadDebugLog={settingsActions.loadDebugLog}
+        onOpenDebugLogFolder={settingsActions.openDebugLogFolder}
+        onConnectGoogleDrive={settingsActions.connectGoogleDrive}
+        onCheckEnvironment={settingsActions.checkEnvironment}
+        onCheckForUpdates={settingsActions.checkForUpdates}
+        onOpenReleases={settingsActions.openReleases}
+        onSaveSettings={settingsActions.saveSettings}
       />
 
       <DeleteConfirmDialog

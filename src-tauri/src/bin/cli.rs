@@ -1,5 +1,11 @@
+// CLI 하네스 요청을 애플리케이션 서비스로 위임한다.
+use anyhow::{anyhow, Result};
 use codex_session_manager_lib::{
-    cloud, config, environment, resume, scanner, summary, terminal, types::SessionMeta,
+    adapters::outbound::session_ports::DefaultSessionPorts,
+    adapters::outbound::system_ports::DefaultSystemPorts,
+    application::session_service::SessionService,
+    application::system_service::SystemService,
+    types::{Session, SessionMeta, Settings},
 };
 use std::process::ExitCode;
 
@@ -30,32 +36,75 @@ USAGE:\n  \
     );
 }
 
+fn session_service() -> SessionService<DefaultSessionPorts> {
+    SessionService::new(DefaultSessionPorts)
+}
+
+fn system_service() -> SystemService<DefaultSystemPorts> {
+    SystemService::new(DefaultSystemPorts)
+}
+
+fn required_arg(args: &[String], index: usize, name: &str) -> Result<String> {
+    args.get(index)
+        .cloned()
+        .ok_or_else(|| anyhow!("{name} required"))
+}
+
+fn find_session(
+    service: &SessionService<DefaultSessionPorts>,
+    session_id: &str,
+) -> Result<Session> {
+    service
+        .list_sessions()?
+        .into_iter()
+        .find(|session| session.session_id == session_id)
+        .ok_or_else(|| anyhow!("session not found: {}", session_id))
+}
+
+fn current_target_os() -> &'static str {
+    if cfg!(target_os = "windows") {
+        "windows"
+    } else if cfg!(target_os = "macos") {
+        "macos"
+    } else {
+        "linux"
+    }
+}
+
+fn validate_terminal(value: &str) -> Result<()> {
+    match value {
+        "auto" | "git-bash" | "gitbash" | "bash" | "wt" | "windows-terminal" | "powershell"
+        | "pwsh" | "cmd" | "terminal" | "mac-terminal" | "linux-default" | "custom" => Ok(()),
+        _ => Err(anyhow!("unknown terminal kind: {}", value)),
+    }
+}
+
 fn main() -> ExitCode {
     let args: Vec<String> = std::env::args().skip(1).collect();
     let cmd = args.first().map(|s| s.as_str()).unwrap_or("help");
 
-    let result: anyhow::Result<()> = (|| match cmd {
+    let result: Result<()> = (|| match cmd {
         "list" => {
-            let sessions = scanner::scan_local_sessions()?;
-            println!("{}", serde_json::to_string_pretty(&sessions)?);
+            let service = session_service();
+            println!(
+                "{}",
+                serde_json::to_string_pretty(&service.list_sessions()?)?
+            );
             Ok(())
         }
         "get-config" => {
-            let cfg = config::load_config();
-            println!("{}", serde_json::to_string_pretty(&cfg)?);
+            let service = session_service();
+            println!("{}", serde_json::to_string_pretty(&service.get_config())?);
             Ok(())
         }
         "set-name" => {
-            let id = args
-                .get(1)
-                .ok_or_else(|| anyhow::anyhow!("session-id required"))?;
-            let name = args
-                .get(2)
-                .ok_or_else(|| anyhow::anyhow!("name required"))?;
-            config::upsert_session_meta(
-                id,
+            let service = session_service();
+            let id = required_arg(&args, 1, "session-id")?;
+            let name = required_arg(&args, 2, "name")?;
+            service.save_session_meta(
+                &id,
                 SessionMeta {
-                    name: Some(name.clone()),
+                    name: Some(name),
                     ..Default::default()
                 },
             )?;
@@ -63,16 +112,13 @@ fn main() -> ExitCode {
             Ok(())
         }
         "set-desc" => {
-            let id = args
-                .get(1)
-                .ok_or_else(|| anyhow::anyhow!("session-id required"))?;
-            let desc = args
-                .get(2)
-                .ok_or_else(|| anyhow::anyhow!("desc required"))?;
-            config::upsert_session_meta(
-                id,
+            let service = session_service();
+            let id = required_arg(&args, 1, "session-id")?;
+            let desc = required_arg(&args, 2, "desc")?;
+            service.save_session_meta(
+                &id,
                 SessionMeta {
-                    description: Some(desc.clone()),
+                    description: Some(desc),
                     ..Default::default()
                 },
             )?;
@@ -80,80 +126,42 @@ fn main() -> ExitCode {
             Ok(())
         }
         "delete-meta" => {
-            let id = args
-                .get(1)
-                .ok_or_else(|| anyhow::anyhow!("session-id required"))?;
-            config::delete_session_meta(id)?;
+            let service = session_service();
+            let id = required_arg(&args, 1, "session-id")?;
+            service.delete_session_meta(&id)?;
             println!("ok");
             Ok(())
         }
         "delete" => {
-            let id = args
-                .get(1)
-                .ok_or_else(|| anyhow::anyhow!("session-id required"))?;
-            let sessions = scanner::scan_local_sessions()?;
-            let s = sessions
-                .iter()
-                .find(|s| s.session_id == *id)
-                .ok_or_else(|| anyhow::anyhow!("session not found: {}", id))?;
-            scanner::delete_session(id, &s.file_path)?;
-            config::delete_session_meta(id)?;
+            let service = session_service();
+            let id = required_arg(&args, 1, "session-id")?;
+            let session = find_session(&service, &id)?;
+            service.delete_session(&id, &session.file_path)?;
             println!("deleted: {}", id);
             Ok(())
         }
         "auto-summarize-batch" => {
-            // 빈 description 세션 5개 골라서 배치 호출
+            let service = session_service();
             let n: usize = args.get(1).map(|s| s.parse().unwrap_or(5)).unwrap_or(5);
-            let sessions = scanner::scan_local_sessions()?;
-            let pending: Vec<(String, String)> = sessions
-                .into_iter()
-                .filter(|s| {
-                    s.description.as_deref().unwrap_or("").is_empty()
-                        && s.auto_summary.as_deref().unwrap_or("").is_empty()
-                })
-                .take(n)
-                .map(|s| (s.session_id, s.file_path))
-                .collect();
+            let pending = service.pending_auto_summary_batch(n)?;
             eprintln!("배치 대상 {}개", pending.len());
             for (id, _) in &pending {
-                eprintln!("  - {}", &id[..8]);
+                eprintln!("  - {}", id.chars().take(8).collect::<String>());
             }
-            let result = summary::auto_summarize_batch(&pending)?;
+            let result = service.summarize_batch(&pending)?;
             for (id, _) in &pending {
                 if let Some((name, desc)) = result.get(id) {
-                    config::upsert_session_meta(
-                        id,
-                        SessionMeta {
-                            name: Some(name.clone()),
-                            auto_summary: Some(desc.clone()),
-                            ..Default::default()
-                        },
-                    )?;
+                    service.save_summary(id, name.clone(), desc.clone())?;
                 }
             }
             println!("{}", serde_json::to_string_pretty(&result)?);
             Ok(())
         }
         "auto-summarize" => {
-            let id = args
-                .get(1)
-                .ok_or_else(|| anyhow::anyhow!("session-id required"))?;
-            // file_path 찾기
-            let sessions = scanner::scan_local_sessions()?;
-            let s = sessions
-                .iter()
-                .find(|s| s.session_id == *id)
-                .ok_or_else(|| anyhow::anyhow!("session not found: {}", id))?;
-            let prev = s.description.clone().or(s.auto_summary.clone());
-            let (name, desc) = summary::auto_summarize_session(&s.file_path, prev.as_deref())?;
-            config::upsert_session_meta(
-                id,
-                SessionMeta {
-                    name: Some(name.clone()),
-                    auto_summary: Some(desc.clone()),
-                    ..Default::default()
-                },
-            )?;
+            let service = session_service();
+            let id = required_arg(&args, 1, "session-id")?;
+            let session = find_session(&service, &id)?;
+            let (name, desc) = service.generate_summary_pair(&id, &session.file_path)?;
             println!(
                 "{}",
                 serde_json::to_string_pretty(&serde_json::json!({
@@ -164,13 +172,12 @@ fn main() -> ExitCode {
             Ok(())
         }
         "set-favorite" => {
-            let id = args
-                .get(1)
-                .ok_or_else(|| anyhow::anyhow!("session-id required"))?;
+            let service = session_service();
+            let id = required_arg(&args, 1, "session-id")?;
             let flag = args.get(2).map(|s| s.as_str()).unwrap_or("1");
             let val = matches!(flag, "1" | "true" | "yes" | "on");
-            config::upsert_session_meta(
-                id,
+            service.save_session_meta(
+                &id,
                 SessionMeta {
                     favorite: Some(val),
                     ..Default::default()
@@ -180,138 +187,102 @@ fn main() -> ExitCode {
             Ok(())
         }
         "archive" => {
-            let id = args
-                .get(1)
-                .ok_or_else(|| anyhow::anyhow!("session-id required"))?;
-            scanner::archive_session(id)?;
+            let service = session_service();
+            let id = required_arg(&args, 1, "session-id")?;
+            service.archive_session(&id)?;
             println!("archived: {}", id);
             Ok(())
         }
         "unarchive" => {
-            let id = args
-                .get(1)
-                .ok_or_else(|| anyhow::anyhow!("session-id required"))?;
-            scanner::unarchive_session(id)?;
+            let service = session_service();
+            let id = required_arg(&args, 1, "session-id")?;
+            service.unarchive_session(&id)?;
             println!("unarchived: {}", id);
             Ok(())
         }
         "resume-plan" => {
-            let id = args
-                .get(1)
-                .ok_or_else(|| anyhow::anyhow!("session-id required"))?;
+            let service = session_service();
+            let id = required_arg(&args, 1, "session-id")?;
             let cwd = args.get(2).map(|s| s.as_str());
-            let target = if cfg!(target_os = "windows") {
-                "windows"
-            } else if cfg!(target_os = "macos") {
-                "macos"
-            } else {
-                "linux"
-            };
-            let plan = resume::build_resume_plan(id, cwd, target);
+            let plan = service.build_resume_plan(&id, cwd)?;
             println!(
                 "{}",
                 serde_json::to_string_pretty(&serde_json::json!({
                     "program": plan.program,
                     "args": plan.args,
-                    "target": target,
+                    "target": current_target_os(),
                 }))?
             );
             Ok(())
         }
         "messages" => {
-            let file = args
-                .get(1)
-                .ok_or_else(|| anyhow::anyhow!("file-path required"))?;
+            let service = session_service();
+            let file = required_arg(&args, 1, "file-path")?;
             let n: usize = args.get(2).map(|s| s.parse().unwrap_or(5)).unwrap_or(5);
-            let msgs = scanner::get_session_messages(file, n)?;
+            let msgs = service.get_session_messages(&file, n)?;
             println!("{}", serde_json::to_string_pretty(&msgs)?);
             Ok(())
         }
         "check-env" => {
-            let report = environment::check_environment();
-            println!("{}", serde_json::to_string_pretty(&report)?);
+            let service = system_service();
+            println!(
+                "{}",
+                serde_json::to_string_pretty(&service.check_environment())?
+            );
             Ok(())
         }
         "set-terminal" => {
-            let value = args.get(1).ok_or_else(|| {
-                anyhow::anyhow!("kind required (auto|git-bash|wt|powershell|cmd|terminal)")
-            })?;
-            if value != "auto" && terminal::TerminalKind::parse(value).is_none() {
-                return Err(anyhow::anyhow!("unknown terminal kind: {}", value));
-            }
-            config::update_settings(codex_session_manager_lib::types::Settings {
-                preferred_terminal: Some(value.clone()),
+            let service = session_service();
+            let value = required_arg(&args, 1, "kind")?;
+            validate_terminal(&value)?;
+            service.save_settings(Settings {
+                preferred_terminal: Some(value),
                 ..Default::default()
             })?;
             println!("ok");
             Ok(())
         }
         "detect-gdrive" => {
-            let r = cloud::detect_google_drive_result();
-            println!("{}", serde_json::to_string_pretty(&r)?);
+            let service = system_service();
+            println!(
+                "{}",
+                serde_json::to_string_pretty(&service.detect_google_drive())?
+            );
             Ok(())
         }
         "connect-gdrive" => {
-            let p = cloud::detect_google_drive()
-                .ok_or_else(|| anyhow::anyhow!("Google Drive 폴더를 찾지 못함"))?;
-            let folder = cloud::set_cloud_root(&p.to_string_lossy())?;
-            println!("connected: {}", folder.display());
+            let service = system_service();
+            let folder = service.connect_google_drive()?;
+            println!("connected: {}", folder);
             Ok(())
         }
         "upload" => {
-            let id = args
-                .get(1)
-                .ok_or_else(|| anyhow::anyhow!("session-id required"))?;
-            let sessions = scanner::scan_local_sessions()?;
-            let s = sessions
-                .iter()
-                .find(|s| s.session_id == *id)
-                .ok_or_else(|| anyhow::anyhow!("session not found: {}", id))?;
-            cloud::upload_session(s)?;
+            let service = session_service();
+            let id = required_arg(&args, 1, "session-id")?;
+            let session = find_session(&service, &id)?;
+            service.upload_to_cloud(&session)?;
             println!("uploaded: {}", id);
             Ok(())
         }
         "checkout" => {
-            let id = args
-                .get(1)
-                .ok_or_else(|| anyhow::anyhow!("session-id required"))?;
-            let sessions = cloud::list_cloud_sessions()?;
-            let s = sessions
-                .iter()
-                .find(|s| s.session_id == *id)
-                .ok_or_else(|| anyhow::anyhow!("cloud session not found: {}", id))?;
-            let path = cloud::checkout(s)?;
+            let service = session_service();
+            let id = required_arg(&args, 1, "session-id")?;
+            let session = find_session(&service, &id)?;
+            let path = service.checkout_session(&session)?;
             println!("checked out to: {}", path);
             Ok(())
         }
         "checkin" => {
-            let id = args
-                .get(1)
-                .ok_or_else(|| anyhow::anyhow!("session-id required"))?;
-            // 로컬 또는 클라우드 메타에서 정보 가져오기
-            let cloud_list = cloud::list_cloud_sessions()?;
-            let s = cloud_list
-                .iter()
-                .find(|s| s.session_id == *id)
-                .ok_or_else(|| anyhow::anyhow!("cloud session not found: {}", id))?;
-            cloud::checkin(s)?;
+            let service = session_service();
+            let id = required_arg(&args, 1, "session-id")?;
+            let session = find_session(&service, &id)?;
+            service.checkin_session(&session)?;
             println!("checked in: {}", id);
             Ok(())
         }
         "paths" => {
-            println!(
-                "{}",
-                serde_json::to_string_pretty(&serde_json::json!({
-                    "config_dir": config::config_dir(),
-                    "config_file": config::config_file(),
-                    "codex_home": scanner::codex_home(),
-                    "sessions_dir": scanner::sessions_dir(),
-                    "archived_sessions_dir": scanner::archived_sessions_dir(),
-                    "projects_roots": scanner::projects_roots(),
-                    "home_override": std::env::var("CODEX_SESSION_HOME").ok(),
-                    "codex_home_override": std::env::var("CODEX_HOME").ok(),
-                }))?
-            );
+            let service = system_service();
+            println!("{}", serde_json::to_string_pretty(&service.paths_info())?);
             Ok(())
         }
         _ => {
@@ -319,7 +290,7 @@ fn main() -> ExitCode {
             if cmd == "help" {
                 Ok(())
             } else {
-                Err(anyhow::anyhow!("__HELP_EXIT__"))
+                Err(anyhow!("__HELP_EXIT__"))
             }
         }
     })();
