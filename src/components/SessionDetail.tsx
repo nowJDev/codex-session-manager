@@ -46,7 +46,7 @@ export function SessionDetail({
   return (
     <div className="flex h-full flex-col">
       <div className="min-h-0 flex-1 overflow-y-auto p-6">
-        <div className="flex flex-col gap-4">
+        <div className="flex min-w-0 flex-col gap-4">
           <div>
             <div className="mb-1 flex items-center gap-2 text-xs uppercase tracking-wide text-muted-foreground">
               {session.archived ? (
@@ -66,11 +66,11 @@ export function SessionDetail({
                 </>
               )}
             </div>
-            <h2 className="text-xl font-semibold">
+            <h2 className="break-words text-xl font-semibold">
               {session.name || <span className="font-mono text-muted-foreground">{session.sessionId.slice(0, 12)}</span>}
             </h2>
             {session.name && (
-              <p className="mt-0.5 font-mono text-xs text-muted-foreground/70">{session.sessionId}</p>
+              <p className="mt-0.5 break-all font-mono text-xs text-muted-foreground/70">{session.sessionId}</p>
             )}
           </div>
 
@@ -79,7 +79,7 @@ export function SessionDetail({
             {t("action.resumeNew")}
           </Button>
 
-          <div className="space-y-3 rounded-lg border border-border/60 bg-card/60 p-4 text-sm">
+          <div className="min-w-0 space-y-3 rounded-lg border border-border/60 bg-card/60 p-4 text-sm">
             {session.description && (
               <Field label={t("list.description")} value={session.description} />
             )}
@@ -102,11 +102,11 @@ export function SessionDetail({
           </div>
 
           {session.firstUserMessage && (
-            <div className="rounded-lg border border-border/60 bg-card/60 p-4">
+            <div className="min-w-0 rounded-lg border border-border/60 bg-card/60 p-4">
               <div className="mb-2 text-xs uppercase tracking-wide text-muted-foreground">
                 {t("detail.firstMessage") !== "detail.firstMessage" ? t("detail.firstMessage") : "First message"}
               </div>
-              <p className="whitespace-pre-wrap text-sm text-foreground/90">
+              <p className="whitespace-pre-wrap break-words text-sm text-foreground/90 [overflow-wrap:anywhere]">
                 {session.firstUserMessage}
               </p>
             </div>
@@ -125,9 +125,11 @@ export function SessionDetail({
 
 function Field({ label, value, mono }: { label: string; value: string; mono?: boolean }) {
   return (
-    <div className="flex flex-col gap-0.5">
+    <div className="flex min-w-0 flex-col gap-0.5">
       <span className="text-[11px] uppercase tracking-wide text-muted-foreground">{label}</span>
-      <span className={mono ? "font-mono text-xs break-all" : "text-sm"}>{value}</span>
+      <span className={mono ? "break-all font-mono text-xs" : "break-words text-sm [overflow-wrap:anywhere]"}>
+        {value}
+      </span>
     </div>
   );
 }
