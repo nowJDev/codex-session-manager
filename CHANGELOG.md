@@ -4,6 +4,17 @@ All notable changes to this project are documented here.
 
 ## [Unreleased]
 
+## [0.5.8] — 2026-07-03
+
+### Changed
+- 백엔드 Tauri 명령을 `domain` / `application` / `adapters` 계층으로 분리해 헥사고날 구조에 맞게 재배치.
+- 세션 스캔, 클라우드 동기화, 자동 요약, 환경 진단, 업데이트 확인 흐름을 애플리케이션 서비스와 포트 경유로 조율하도록 변경.
+- 프론트엔드 세션 관리 상태와 IPC workflow를 `useSessionManager` 애플리케이션 훅으로 분리해 `App.tsx`의 조립 책임을 줄임.
+- 세션 상세 패널의 긴 첫 메시지, 경로, ID 텍스트가 카드 밖으로 넘치지 않도록 줄바꿈 처리를 보강.
+
+### Added
+- 헥사고날 경계가 다시 흐려지지 않도록 인바운드 어댑터, 도메인 transcript 규칙, 프론트엔드 App 조립 경계를 검증하는 아키텍처 테스트를 추가.
+
 ## [0.5.7] — 2026-06-29
 
 ### Added
