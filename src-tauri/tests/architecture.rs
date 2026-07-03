@@ -149,6 +149,39 @@ fn application_services_do_not_own_background_runtime_workers() {
 }
 
 #[test]
+fn blocking_session_delete_commands_are_offloaded_from_ipc_thread() {
+    let source = read("src-tauri/src/adapters/inbound/tauri_commands.rs");
+    assert!(
+        source.contains("pub async fn delete_session("),
+        "delete_session should be async so blocking filesystem/CLI work does not freeze the window"
+    );
+    assert!(
+        source.contains("pub async fn delete_sessions("),
+        "delete_sessions should be async so bulk deletion does not freeze the window"
+    );
+
+    let delete_session_body = source
+        .split("pub async fn delete_session(")
+        .nth(1)
+        .and_then(|tail| tail.split("#[tauri::command]").next())
+        .unwrap_or("");
+    assert!(
+        delete_session_body.contains("tokio::task::spawn_blocking"),
+        "delete_session should run blocking deletion work on a blocking thread"
+    );
+
+    let delete_sessions_body = source
+        .split("pub async fn delete_sessions(")
+        .nth(1)
+        .and_then(|tail| tail.split("#[tauri::command]").next())
+        .unwrap_or("");
+    assert!(
+        delete_sessions_body.contains("tokio::task::spawn_blocking"),
+        "delete_sessions should run blocking bulk deletion work on a blocking thread"
+    );
+}
+
+#[test]
 fn infrastructure_modules_are_not_public_runtime_api() {
     let source = read("src-tauri/src/lib.rs");
     for forbidden in [

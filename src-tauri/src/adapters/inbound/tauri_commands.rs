@@ -52,15 +52,19 @@ pub fn save_session_meta(session_id: String, patch: SessionMeta) -> Result<(), S
 }
 
 #[tauri::command]
-pub fn delete_session(session_id: String, file_path: String) -> Result<(), String> {
-    session_service()
-        .delete_session(&session_id, &file_path)
+pub async fn delete_session(session_id: String, file_path: String) -> Result<(), String> {
+    tokio::task::spawn_blocking(move || session_service().delete_session(&session_id, &file_path))
+        .await
+        .map_err(to_str)?
         .map_err(to_str)
 }
 
 #[tauri::command]
-pub fn delete_sessions(targets: Vec<DeleteSessionTarget>) -> Result<(), String> {
-    session_service().delete_sessions(targets).map_err(to_str)
+pub async fn delete_sessions(targets: Vec<DeleteSessionTarget>) -> Result<(), String> {
+    tokio::task::spawn_blocking(move || session_service().delete_sessions(targets))
+        .await
+        .map_err(to_str)?
+        .map_err(to_str)
 }
 
 #[tauri::command]
