@@ -771,15 +771,15 @@ fn cloud_checkout_restores_codex_rollout_date_path() {
         .into_iter()
         .find(|s| s.session_id == session_id)
         .unwrap();
-    cloud::upload_session(&session).unwrap();
+    cloud::upload_session(&cloud_folder, &session).unwrap();
     scanner::delete_session_file(file.to_str().unwrap()).unwrap();
 
-    let cloud_session = cloud::list_cloud_sessions()
+    let cloud_session = cloud::list_cloud_sessions(Some(cloud_folder.clone()))
         .unwrap()
         .into_iter()
         .find(|s| s.session_id == session_id)
         .unwrap();
-    let checked_out = cloud::checkout(&cloud_session).unwrap();
+    let checked_out = cloud::checkout(&cloud_folder, &cloud_session).unwrap();
     let expected = scanner::sessions_dir()
         .join("2026")
         .join("04")
@@ -803,16 +803,16 @@ fn cloud_only_sessions_are_reported_with_cloud_only_storage_type() {
         ],
     );
 
-    cloud::set_cloud_root(cloud_root.path().to_str().unwrap()).unwrap();
+    let cloud_folder = cloud::set_cloud_root(cloud_root.path().to_str().unwrap()).unwrap();
     let session = scanner::scan_local_sessions()
         .unwrap()
         .into_iter()
         .find(|s| s.session_id == session_id)
         .unwrap();
-    cloud::upload_session(&session).unwrap();
+    cloud::upload_session(&cloud_folder, &session).unwrap();
     scanner::delete_session_file(file.to_str().unwrap()).unwrap();
 
-    let cloud_session = cloud::list_cloud_sessions()
+    let cloud_session = cloud::list_cloud_sessions(Some(cloud_folder))
         .unwrap()
         .into_iter()
         .find(|s| s.session_id == session_id)
@@ -834,13 +834,13 @@ fn cloud_upload_overwrites_existing_cloud_copy_for_resync() {
         ],
     );
 
-    cloud::set_cloud_root(cloud_root.path().to_str().unwrap()).unwrap();
+    let cloud_folder = cloud::set_cloud_root(cloud_root.path().to_str().unwrap()).unwrap();
     let session = scanner::scan_local_sessions()
         .unwrap()
         .into_iter()
         .find(|s| s.session_id == session_id)
         .unwrap();
-    cloud::upload_session(&session).unwrap();
+    cloud::upload_session(&cloud_folder, &session).unwrap();
 
     write_jsonl(
         &file,
@@ -849,11 +849,9 @@ fn cloud_upload_overwrites_existing_cloud_copy_for_resync() {
             r#"{"timestamp":"2026-04-05T10:00:02Z","type":"event_msg","payload":{"type":"user_message","message":"latest local copy"}}"#,
         ],
     );
-    cloud::upload_session(&session).unwrap();
+    cloud::upload_session(&cloud_folder, &session).unwrap();
 
-    let cloud_file = cloud::cloud_path()
-        .unwrap()
-        .join(format!("{session_id}.jsonl"));
+    let cloud_file = cloud_folder.join(format!("{session_id}.jsonl"));
     let body = fs::read_to_string(cloud_file).unwrap();
     assert!(body.contains("latest local copy"));
     assert!(!body.contains("initial cloud copy"));

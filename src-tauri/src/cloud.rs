@@ -1,6 +1,5 @@
-use crate::config::{load_config, upsert_session_meta};
 use crate::scanner::sessions_dir;
-use crate::types::{Session, SessionMeta};
+use crate::types::Session;
 use anyhow::{anyhow, Result};
 use serde::{Deserialize, Serialize};
 use std::fs;
@@ -155,10 +154,6 @@ struct CloudMeta {
     uploaded_at: String,
 }
 
-pub fn cloud_path() -> Option<PathBuf> {
-    load_config().settings.cloud_path.map(PathBuf::from)
-}
-
 pub fn set_cloud_root(root: &str) -> Result<PathBuf> {
     let root = PathBuf::from(root);
     if !root.exists() {
@@ -166,15 +161,10 @@ pub fn set_cloud_root(root: &str) -> Result<PathBuf> {
     }
     let folder = root.join(CLOUD_FOLDER);
     fs::create_dir_all(&folder)?;
-    crate::config::update_settings(crate::types::Settings {
-        cloud_path: Some(folder.to_string_lossy().to_string()),
-        ..Default::default()
-    })?;
     Ok(folder)
 }
 
-pub fn upload_session(s: &Session) -> Result<()> {
-    let cloud = cloud_path().ok_or_else(|| anyhow!("cloud not configured"))?;
+pub fn upload_session(cloud: &PathBuf, s: &Session) -> Result<()> {
     fs::create_dir_all(&cloud)?;
 
     let dest = cloud.join(format!("{}.jsonl", s.session_id));
@@ -199,13 +189,6 @@ pub fn upload_session(s: &Session) -> Result<()> {
     // 새 jsonl이 생기면서 데이터가 분리되는 문제가 생긴다. 사용자가 명시적으로
     // "Sync to cloud"를 다시 누를 때 클라우드를 로컬 최신본으로 덮어쓰면 됨.
 
-    upsert_session_meta(
-        &s.session_id,
-        SessionMeta {
-            storage_type: Some("cloud".into()),
-            ..Default::default()
-        },
-    )?;
     Ok(())
 }
 
@@ -248,8 +231,7 @@ fn machine_id() -> String {
         .unwrap_or_else(|_| "unknown".to_string())
 }
 
-pub fn read_lock(session_id: &str) -> Option<LockInfo> {
-    let cloud = cloud_path()?;
+pub fn read_lock(cloud: &PathBuf, session_id: &str) -> Option<LockInfo> {
     let path = lock_path(&cloud, session_id);
     if !path.exists() {
         return None;
@@ -258,12 +240,11 @@ pub fn read_lock(session_id: &str) -> Option<LockInfo> {
     serde_json::from_str(&body).ok()
 }
 
-pub fn acquire_lock(session_id: &str) -> Result<()> {
-    let cloud = cloud_path().ok_or_else(|| anyhow!("cloud not configured"))?;
+pub fn acquire_lock(cloud: &PathBuf, session_id: &str) -> Result<()> {
     fs::create_dir_all(&cloud)?;
     let path = lock_path(&cloud, session_id);
     let me = machine_id();
-    if let Some(existing) = read_lock(session_id) {
+    if let Some(existing) = read_lock(cloud, session_id) {
         if existing.hostname != me {
             return Err(anyhow!(
                 "이 세션은 다른 PC '{}'에서 사용 중 (락 시각: {})",
@@ -281,10 +262,7 @@ pub fn acquire_lock(session_id: &str) -> Result<()> {
     Ok(())
 }
 
-pub fn release_lock(session_id: &str) -> Result<()> {
-    let Some(cloud) = cloud_path() else {
-        return Ok(());
-    };
+pub fn release_lock(cloud: &PathBuf, session_id: &str) -> Result<()> {
     let path = lock_path(&cloud, session_id);
     if path.exists() {
         let _ = fs::remove_file(&path);
@@ -292,8 +270,8 @@ pub fn release_lock(session_id: &str) -> Result<()> {
     Ok(())
 }
 
-pub fn list_cloud_sessions() -> Result<Vec<Session>> {
-    let Some(cloud) = cloud_path() else {
+pub fn list_cloud_sessions(cloud: Option<PathBuf>) -> Result<Vec<Session>> {
+    let Some(cloud) = cloud else {
         return Ok(vec![]);
     };
     if !cloud.exists() {
@@ -317,7 +295,7 @@ pub fn list_cloud_sessions() -> Result<Vec<Session>> {
         };
         let jsonl = cloud.join(format!("{}.jsonl", meta.session_id));
         let stat = fs::metadata(&jsonl).ok();
-        let lock = read_lock(&meta.session_id);
+        let lock = read_lock(&cloud, &meta.session_id);
         let locked_by = lock.map(|l| l.hostname);
         out.push(Session {
             session_id: meta.session_id.clone(),
@@ -343,14 +321,13 @@ pub fn list_cloud_sessions() -> Result<Vec<Session>> {
     Ok(out)
 }
 
-pub fn checkout(session: &Session) -> Result<String> {
-    let cloud = cloud_path().ok_or_else(|| anyhow!("cloud not configured"))?;
+pub fn checkout(cloud: &PathBuf, session: &Session) -> Result<String> {
     let src = cloud.join(format!("{}.jsonl", session.session_id));
     if !src.exists() {
         return Err(anyhow!("session not found in cloud"));
     }
     // 락 획득 (다른 PC에서 사용 중이면 실패)
-    acquire_lock(&session.session_id)?;
+    acquire_lock(cloud, &session.session_id)?;
 
     let meta = read_cloud_meta(&cloud, &session.session_id);
     let local_path = meta
@@ -373,11 +350,10 @@ pub fn checkout(session: &Session) -> Result<String> {
     Ok(local_path.to_string_lossy().to_string())
 }
 
-pub fn checkin(session: &Session) -> Result<()> {
-    let Some(cloud) = cloud_path() else {
+pub fn checkin(cloud: Option<PathBuf>, session: &Session) -> Result<()> {
+    let Some(cloud) = cloud else {
         return Ok(());
     };
-
     // 로컬 jsonl 위치 — file_path가 실제 로컬 파일이면 그걸 우선 사용.
     // (클라우드 폴더 안의 경로일 수도 있으니 그건 제외.) 못 찾으면 project_dir 기반으로 폴백.
     let cloud_root = cloud.to_string_lossy().to_string();
@@ -422,6 +398,6 @@ pub fn checkin(session: &Session) -> Result<()> {
     }
 
     // 락 해제
-    let _ = release_lock(&session.session_id);
+    let _ = release_lock(&cloud, &session.session_id);
     Ok(())
 }

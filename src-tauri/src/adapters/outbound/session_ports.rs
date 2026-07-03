@@ -11,6 +11,13 @@ use std::path::PathBuf;
 #[derive(Debug, Clone, Copy, Default)]
 pub struct DefaultSessionPorts;
 
+fn cloud_path() -> Option<PathBuf> {
+    crate::config::load_config()
+        .settings
+        .cloud_path
+        .map(PathBuf::from)
+}
+
 impl SessionScanPort for DefaultSessionPorts {
     fn scan_local_sessions(&self) -> Result<Vec<Session>> {
         crate::scanner::scan_local_sessions()
@@ -57,7 +64,7 @@ impl SessionMetadataPort for DefaultSessionPorts {
 
 impl CloudSyncPort for DefaultSessionPorts {
     fn list_cloud_sessions(&self) -> Result<Vec<Session>> {
-        crate::cloud::list_cloud_sessions()
+        crate::cloud::list_cloud_sessions(cloud_path())
     }
 
     fn set_cloud_folder(&self, root: &str) -> Result<PathBuf> {
@@ -65,15 +72,17 @@ impl CloudSyncPort for DefaultSessionPorts {
     }
 
     fn upload_to_cloud(&self, session: &Session) -> Result<()> {
-        crate::cloud::upload_session(session)
+        let cloud = cloud_path().ok_or_else(|| anyhow::anyhow!("cloud not configured"))?;
+        crate::cloud::upload_session(&cloud, session)
     }
 
     fn checkout_session(&self, session: &Session) -> Result<String> {
-        crate::cloud::checkout(session)
+        let cloud = cloud_path().ok_or_else(|| anyhow::anyhow!("cloud not configured"))?;
+        crate::cloud::checkout(&cloud, session)
     }
 
     fn checkin_session(&self, session: &Session) -> Result<()> {
-        crate::cloud::checkin(session)
+        crate::cloud::checkin(cloud_path(), session)
     }
 }
 

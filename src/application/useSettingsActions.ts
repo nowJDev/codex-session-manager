@@ -1,10 +1,6 @@
 // 설정 화면의 외부 연동 작업을 애플리케이션 계층에서 실행한다.
-import { open as openDialog } from "@tauri-apps/plugin-dialog";
-import { openUrl } from "@tauri-apps/plugin-opener";
-import { relaunch } from "@tauri-apps/plugin-process";
-import { check } from "@tauri-apps/plugin-updater";
-import type { DownloadEvent } from "@tauri-apps/plugin-updater";
-import { ipc } from "@/lib/ipc";
+import { tauriGateway } from "@/adapters/tauriGateway";
+import type { InstallerDownloadEvent } from "@/adapters/tauriGateway";
 import type { EnvironmentReport, Settings, UpdateInfo } from "@/types";
 
 const RELEASES_URL = "https://github.com/nowJDev/codex-session-manager/releases";
@@ -30,21 +26,20 @@ function progressText(downloaded: number, total?: number): string {
 
 export function useSettingsActions() {
   async function pickDirectory(): Promise<string | null> {
-    const result = await openDialog({ directory: true, multiple: false });
-    return typeof result === "string" ? result : null;
+    return tauriGateway.pickDirectory();
   }
 
   async function pickCloudFolder(): Promise<string | null> {
     const result = await pickDirectory();
-    return result ? ipc.setCloudFolder(result) : null;
+    return result ? tauriGateway.setCloudFolder(result) : null;
   }
 
   async function checkForUpdates(
     onProgress: (message: string) => void,
   ): Promise<UpdateCheckResult> {
     try {
-      const releaseInfo = await ipc.checkUpdate().catch(() => null);
-      const update = await check({ timeout: 30000 });
+      const releaseInfo = await tauriGateway.checkUpdate().catch(() => null);
+      const update = await tauriGateway.checkInstallerUpdate();
       if (!update) {
         onProgress("현재 최신 릴리즈를 사용 중입니다.");
         return { info: releaseInfo, error: null };
@@ -62,7 +57,7 @@ export function useSettingsActions() {
 
       let downloaded = 0;
       let contentLength: number | undefined;
-      await update.downloadAndInstall((event: DownloadEvent) => {
+      await update.downloadAndInstall((event: InstallerDownloadEvent) => {
         switch (event.event) {
           case "Started":
             downloaded = 0;
@@ -80,10 +75,10 @@ export function useSettingsActions() {
       });
 
       onProgress("업데이트 설치 완료. 앱을 재시작합니다.");
-      await relaunch();
+      await tauriGateway.relaunchApp();
       return { info, error: null };
     } catch (err) {
-      const fallback = await ipc.checkUpdate().catch(() => null);
+      const fallback = await tauriGateway.checkUpdate().catch(() => null);
       return {
         info: fallback,
         error: `${String(err)}\n설치본 자동 업데이트를 사용할 수 없으면 portable은 릴리즈 열기로 업데이트하세요.`,
@@ -94,13 +89,13 @@ export function useSettingsActions() {
   return {
     pickDirectory,
     pickCloudFolder,
-    loadDebugLog: () => ipc.getDebugLog() as Promise<DebugLogInfo>,
-    openDebugLogFolder: () => ipc.openDebugLogFolder(),
-    connectGoogleDrive: () => ipc.connectGoogleDrive(),
-    checkEnvironment: () => ipc.checkEnvironment() as Promise<EnvironmentReport>,
+    loadDebugLog: () => tauriGateway.getDebugLog() as Promise<DebugLogInfo>,
+    openDebugLogFolder: () => tauriGateway.openDebugLogFolder(),
+    connectGoogleDrive: () => tauriGateway.connectGoogleDrive(),
+    checkEnvironment: () => tauriGateway.checkEnvironment() as Promise<EnvironmentReport>,
     checkForUpdates,
-    openReleases: (url?: string) => openUrl(url || RELEASES_URL),
-    openUsagePage: () => openUrl(CODEX_WEB_URL),
-    saveSettings: (patch: Settings) => ipc.saveSettings(patch),
+    openReleases: (url?: string) => tauriGateway.openExternalUrl(url || RELEASES_URL),
+    openUsagePage: () => tauriGateway.openExternalUrl(CODEX_WEB_URL),
+    saveSettings: (patch: Settings) => tauriGateway.saveSettings(patch),
   };
 }

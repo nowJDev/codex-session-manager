@@ -64,8 +64,12 @@ impl SystemPorts for DefaultSystemPorts {
         let path = crate::cloud::detect_google_drive().ok_or_else(|| {
             anyhow!("Google Drive 폴더를 찾지 못했어요. 데스크탑 클라이언트가 설치돼 있나요?")
         })?;
-        crate::cloud::set_cloud_root(&path.to_string_lossy())
-            .map(|p| p.to_string_lossy().to_string())
+        let folder = crate::cloud::set_cloud_root(&path.to_string_lossy())?;
+        crate::config::update_settings(crate::types::Settings {
+            cloud_path: Some(folder.to_string_lossy().to_string()),
+            ..Default::default()
+        })?;
+        Ok(folder.to_string_lossy().to_string())
     }
 
     fn check_environment(&self) -> EnvironmentReport {

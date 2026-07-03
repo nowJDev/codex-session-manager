@@ -28,6 +28,19 @@ import {
   DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu";
 import { sessionDescriptionText } from "@/lib/sessionDisplay";
+import {
+  compareSessions,
+  loadColumnWidths,
+  loadSortPreference,
+  MIN_COLUMN_WIDTH,
+  saveColumnWidths,
+  saveSortPreference,
+  shortSessionId,
+  totalColumnWidth,
+  type ColKey,
+  type SortKey,
+  type SortState,
+} from "@/lib/sessionTableState";
 import { cn, formatBytes, formatRelativeTime } from "@/lib/utils";
 import type { Session } from "@/types";
 import type { Locale } from "@/i18n";
@@ -49,131 +62,6 @@ interface Props {
   selectedSessionIds: Set<string>;
   onToggleSelected: (s: Session) => void;
   onToggleVisibleSelection: (sessions: Session[], selected: boolean) => void;
-}
-
-type ColKey =
-  | "select"
-  | "star"
-  | "name"
-  | "lastActive"
-  | "desc"
-  | "size"
-  | "project"
-  | "id"
-  | "type"
-  | "actions";
-
-const DEFAULTS: Record<ColKey, number> = {
-  select: 48,
-  star: 48,
-  name: 180,
-  lastActive: 120,
-  desc: 360,
-  size: 90,
-  project: 220,
-  id: 100,
-  type: 70,
-  actions: 48,
-};
-
-const COLUMN_ORDER: ColKey[] = [
-  "select",
-  "star",
-  "name",
-  "lastActive",
-  "desc",
-  "size",
-  "project",
-  "id",
-  "type",
-  "actions",
-];
-
-const MIN_WIDTH: Record<ColKey, number> = {
-  select: 48,
-  star: 48,
-  name: 80,
-  lastActive: 80,
-  desc: 120,
-  size: 70,
-  project: 100,
-  id: 60,
-  type: 60,
-  actions: 48,
-};
-
-const STORAGE_KEY = "csm.colWidths.v1";
-const SORT_KEY = "csm.sort.v1";
-
-type SortKey = "name" | "id" | "desc" | "project" | "lastActive" | "size" | "type";
-type SortDir = "asc" | "desc";
-type SortState = { key: SortKey; dir: SortDir };
-
-const DEFAULT_SORT: SortState = { key: "lastActive", dir: "desc" };
-
-function loadSort(): SortState {
-  try {
-    const raw = localStorage.getItem(SORT_KEY);
-    if (raw) {
-      const parsed = JSON.parse(raw);
-      if (parsed && typeof parsed.key === "string" && (parsed.dir === "asc" || parsed.dir === "desc")) {
-        return parsed as SortState;
-      }
-    }
-  } catch {}
-  return { ...DEFAULT_SORT };
-}
-
-function compareSessions(a: Session, b: Session, sort: SortState): number {
-  // 즐겨찾기는 항상 최상단 (사용자 정렬 무시)
-  if (a.favorite !== b.favorite) return a.favorite ? -1 : 1;
-  const sign = sort.dir === "asc" ? 1 : -1;
-  const cmp = (x: string | null | undefined, y: string | null | undefined) =>
-    (x ?? "").localeCompare(y ?? "");
-  switch (sort.key) {
-    case "name":
-      return sign * cmp(a.name, b.name);
-    case "id":
-      return sign * a.sessionId.localeCompare(b.sessionId);
-    case "desc":
-      return sign * cmp(sessionDescriptionText(a), sessionDescriptionText(b));
-    case "project":
-      return sign * cmp(a.project, b.project);
-    case "lastActive":
-      return sign * cmp(a.lastTimestamp, b.lastTimestamp);
-    case "size":
-      return sign * (a.size - b.size);
-    case "type":
-      return sign * a.storageType.localeCompare(b.storageType);
-  }
-}
-
-function shortSessionId(id: string): string {
-  if (id.length <= 13) return id;
-  return `${id.slice(0, 8)}...${id.slice(-4)}`;
-}
-
-function loadWidths(): Record<ColKey, number> {
-  try {
-    const raw = localStorage.getItem(STORAGE_KEY);
-    if (raw) {
-      const parsed = JSON.parse(raw);
-      return normalizeWidths({ ...DEFAULTS, ...parsed });
-    }
-  } catch {}
-  return normalizeWidths(DEFAULTS);
-}
-
-function normalizeWidths(source: Record<ColKey, number>): Record<ColKey, number> {
-  return COLUMN_ORDER.reduce((acc, key) => {
-    const raw = Number.isFinite(source[key]) ? source[key] : DEFAULTS[key];
-    acc[key] = Math.max(MIN_WIDTH[key], raw);
-    return acc;
-  }, {} as Record<ColKey, number>);
-}
-
-function totalWidth(source: Record<ColKey, number>): number {
-  return COLUMN_ORDER.reduce((sum, key) => sum + source[key], 0);
 }
 
 function ResizableHead({
@@ -216,7 +104,7 @@ function ResizableHead({
       const move = (ev: PointerEvent) => {
         if (!dragging.current) return;
         const delta = ev.clientX - startX.current;
-        const next = Math.max(MIN_WIDTH[colKey], startW.current + delta);
+        const next = Math.max(MIN_COLUMN_WIDTH[colKey], startW.current + delta);
         onResize(colKey, next);
       };
       const up = () => {
@@ -282,23 +170,19 @@ function SessionTableInner({
   onToggleSelected,
   onToggleVisibleSelection,
 }: Props) {
-  const [widths, setWidths] = useState<Record<ColKey, number>>(() => loadWidths());
-  const [sort, setSort] = useState<SortState>(() => loadSort());
+  const [widths, setWidths] = useState<Record<ColKey, number>>(() => loadColumnWidths());
+  const [sort, setSort] = useState<SortState>(() => loadSortPreference());
 
   useEffect(() => {
-    try {
-      localStorage.setItem(STORAGE_KEY, JSON.stringify(widths));
-    } catch {}
+    saveColumnWidths(widths);
   }, [widths]);
 
   useEffect(() => {
-    try {
-      localStorage.setItem(SORT_KEY, JSON.stringify(sort));
-    } catch {}
+    saveSortPreference(sort);
   }, [sort]);
 
   const handleResize = useCallback((key: ColKey, w: number) => {
-    setWidths((prev) => ({ ...prev, [key]: Math.max(MIN_WIDTH[key], w) }));
+    setWidths((prev) => ({ ...prev, [key]: Math.max(MIN_COLUMN_WIDTH[key], w) }));
   }, []);
 
   const handleSort = useCallback((key: SortKey) => {
@@ -313,7 +197,7 @@ function SessionTableInner({
     () => [...sessions].sort((a, b) => compareSessions(a, b, sort)),
     [sessions, sort]
   );
-  const tableWidth = useMemo(() => totalWidth(widths), [widths]);
+  const tableWidth = useMemo(() => totalColumnWidth(widths), [widths]);
   const visibleSelectedCount = sortedSessions.filter((s) => selectedSessionIds.has(s.sessionId)).length;
   const allVisibleSelected = sortedSessions.length > 0 && visibleSelectedCount === sortedSessions.length;
   const someVisibleSelected = visibleSelectedCount > 0 && !allVisibleSelected;

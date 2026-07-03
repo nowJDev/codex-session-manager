@@ -109,6 +109,23 @@ fn frontend_components_do_not_call_ipc_or_tauri_plugins_directly() {
 }
 
 #[test]
+fn frontend_components_do_not_access_browser_storage_directly() {
+    let components_dir = repo_root().join("src").join("components");
+    for entry in fs::read_dir(components_dir).expect("components dir") {
+        let path = entry.expect("component entry").path();
+        if path.extension().and_then(|s| s.to_str()) != Some("tsx") {
+            continue;
+        }
+        let source = fs::read_to_string(&path).expect("component source");
+        assert!(
+            !source.contains("localStorage"),
+            "{} should delegate browser storage access to a frontend adapter/helper",
+            path.display()
+        );
+    }
+}
+
+#[test]
 fn frontend_session_application_is_split_by_workflow() {
     for required in [
         "src/application/useSessionData.ts",
@@ -134,6 +151,28 @@ fn frontend_session_application_is_split_by_workflow() {
             !source.contains(forbidden),
             "useSessionManager should compose workflow hooks instead of owning command handlers: {forbidden}"
         );
+    }
+}
+
+#[test]
+fn frontend_application_hooks_do_not_import_tauri_runtime_directly() {
+    let application_dir = repo_root().join("src").join("application");
+    for entry in fs::read_dir(application_dir).expect("application dir") {
+        let path = entry.expect("application entry").path();
+        let Some(ext) = path.extension().and_then(|s| s.to_str()) else {
+            continue;
+        };
+        if ext != "ts" && ext != "tsx" {
+            continue;
+        }
+        let source = fs::read_to_string(&path).expect("application source");
+        for forbidden in ["@tauri-apps", "@/lib/ipc"] {
+            assert!(
+                !source.contains(forbidden),
+                "{} should depend on a frontend gateway instead of concrete Tauri runtime imports: {forbidden}",
+                path.display()
+            );
+        }
     }
 }
 
@@ -179,6 +218,21 @@ fn blocking_session_delete_commands_are_offloaded_from_ipc_thread() {
         delete_sessions_body.contains("tokio::task::spawn_blocking"),
         "delete_sessions should run blocking bulk deletion work on a blocking thread"
     );
+}
+
+#[test]
+fn cloud_adapter_does_not_persist_application_metadata_directly() {
+    let source = read("src-tauri/src/cloud.rs");
+    for forbidden in [
+        "use crate::config::{load_config, upsert_session_meta}",
+        "upsert_session_meta(",
+        "crate::config::update_settings",
+    ] {
+        assert!(
+            !source.contains(forbidden),
+            "cloud adapter should only perform cloud file operations; application service should persist settings/meta: {forbidden}"
+        );
+    }
 }
 
 #[test]

@@ -25,9 +25,58 @@ pub fn classify_storage_state(local_exists: bool, cloud_exists: bool) -> Option<
     }
 }
 
+pub fn is_internal_summary_run(cwd: Option<&str>) -> bool {
+    cwd.is_some_and(|c| c.contains(".summary-runs") || c.contains("summary-runs"))
+}
+
+pub fn encode_scan_match_text(value: &str) -> String {
+    value
+        .chars()
+        .map(|c| {
+            if c.is_ascii_alphanumeric() || c == '-' || c == '_' || c == '.' {
+                c
+            } else {
+                '-'
+            }
+        })
+        .collect()
+}
+
+pub fn scan_exclusion_matches(
+    file_path: &str,
+    cwd: Option<&str>,
+    excluded_raw: &[String],
+    excluded_encoded: &[String],
+) -> bool {
+    excluded_raw
+        .iter()
+        .any(|p| file_path.contains(p) || cwd.is_some_and(|c| c.contains(p)))
+        || excluded_encoded
+            .iter()
+            .any(|p| file_path.contains(p) || cwd.is_some_and(|c| c.contains(p)))
+}
+
+pub fn should_include_scanned_session(
+    name: Option<&str>,
+    description: Option<&str>,
+    auto_summary: Option<&str>,
+    first_user_message: Option<&str>,
+) -> bool {
+    let has_saved_display = [name, description, auto_summary]
+        .into_iter()
+        .flatten()
+        .any(|s| !s.trim().is_empty());
+    let has_real_user_message = first_user_message.is_some_and(|s| !s.trim().is_empty());
+    has_saved_display || has_real_user_message
+}
+
 #[cfg(test)]
 mod tests {
-    use super::{classify_storage_state, is_retryable_auto_summary, StorageState};
+    use super::{
+        classify_storage_state, encode_scan_match_text, is_internal_summary_run,
+        is_retryable_auto_summary, scan_exclusion_matches, should_include_scanned_session,
+        StorageState,
+    };
 
     #[test]
     fn auto_summary_failure_markers_are_retryable() {
@@ -60,5 +109,75 @@ mod tests {
             Some(StorageState::CloudOnly)
         );
         assert_eq!(classify_storage_state(false, false), None);
+    }
+
+    #[test]
+    fn scanner_policy_detects_internal_summary_runs() {
+        assert!(is_internal_summary_run(Some(
+            "C:/Users/me/.codex-sessions/.summary-runs"
+        )));
+        assert!(is_internal_summary_run(Some("C:/tmp/summary-runs/batch")));
+        assert!(!is_internal_summary_run(Some("C:/Git/product")));
+        assert!(!is_internal_summary_run(None));
+    }
+
+    #[test]
+    fn scanner_policy_matches_raw_and_encoded_exclusions() {
+        let raw = vec!["currency-edge".to_string(), "C:\\Git\\other".to_string()];
+        let encoded: Vec<String> = raw.iter().map(|p| encode_scan_match_text(p)).collect();
+
+        assert!(scan_exclusion_matches(
+            "C:/Users/me/.codex/sessions/C--Git-currency-edge/rollout.jsonl",
+            Some("C:/Git/currency-edge"),
+            &raw,
+            &encoded,
+        ));
+        assert!(scan_exclusion_matches(
+            "C:/Users/me/.codex/sessions/C--Git-other/rollout.jsonl",
+            None,
+            &raw,
+            &encoded,
+        ));
+        assert!(!scan_exclusion_matches(
+            "C:/Users/me/.codex/sessions/C--Git-keep/rollout.jsonl",
+            Some("C:/Git/keep"),
+            &raw,
+            &encoded,
+        ));
+    }
+
+    #[test]
+    fn scanner_policy_requires_saved_display_or_real_user_message() {
+        assert!(should_include_scanned_session(
+            Some("name"),
+            None,
+            None,
+            None
+        ));
+        assert!(should_include_scanned_session(
+            None,
+            Some("desc"),
+            None,
+            None
+        ));
+        assert!(should_include_scanned_session(
+            None,
+            None,
+            Some("summary"),
+            None
+        ));
+        assert!(should_include_scanned_session(
+            None,
+            None,
+            None,
+            Some("real question")
+        ));
+        assert!(!should_include_scanned_session(None, None, None, None));
+        assert!(!should_include_scanned_session(
+            Some(" "),
+            None,
+            None,
+            Some(" ")
+        ));
     }
 }

@@ -1,5 +1,9 @@
 // Codex 세션 JSONL 파일을 찾아 앱 표시용 메타데이터로 변환한다.
 use crate::config::load_config;
+use crate::domain::session::{
+    encode_scan_match_text, is_internal_summary_run, scan_exclusion_matches,
+    should_include_scanned_session,
+};
 use crate::domain::transcript::{
     compact_whitespace, extract_user_message_text, first_user_message_name, truncate,
     TranscriptContent, TranscriptPart, TranscriptPartKind,
@@ -241,19 +245,6 @@ fn session_id_from_filename(path: &Path) -> Option<String> {
     }
 }
 
-/// cwd 경로를 느슨한 비교용 안전 문자열로 인코딩한다.
-pub fn encode_cwd_to_project_dir(cwd: &str) -> String {
-    cwd.chars()
-        .map(|c| {
-            if c.is_ascii_alphanumeric() || c == '-' || c == '_' || c == '.' {
-                c
-            } else {
-                '-'
-            }
-        })
-        .collect()
-}
-
 fn collect_jsonl_files(root: &Path) -> Vec<PathBuf> {
     let mut out = Vec::new();
     let mut stack = vec![root.to_path_buf()];
@@ -313,7 +304,7 @@ pub fn scan_local_sessions() -> Result<Vec<Session>> {
         .collect();
     let excluded_encoded: Vec<String> = excluded_raw
         .iter()
-        .map(|p| encode_cwd_to_project_dir(p))
+        .map(|p| encode_scan_match_text(p))
         .filter(|s| !s.is_empty())
         .collect();
 
@@ -362,22 +353,19 @@ pub fn scan_local_sessions() -> Result<Vec<Session>> {
                 .unwrap_or(fallback_session_id);
             let cwd = meta.as_ref().and_then(|m| m.cwd.clone());
             let file_path_text = path.to_string_lossy().to_string();
-            let internal_summary_run = cwd
-                .as_deref()
-                .is_some_and(|c| c.contains(".summary-runs") || c.contains("summary-runs"));
-            if internal_summary_run {
+            if is_internal_summary_run(cwd.as_deref()) {
                 total_excluded += 1;
                 if let Some(f) = log.as_mut() {
                     let _ = writeln!(f, "[internal-summary-run] {}", path.display());
                 }
                 continue;
             }
-            let excluded_match = excluded_raw.iter().any(|p| {
-                file_path_text.contains(p) || cwd.as_deref().is_some_and(|c| c.contains(p))
-            }) || excluded_encoded.iter().any(|p| {
-                file_path_text.contains(p) || cwd.as_deref().is_some_and(|c| c.contains(p))
-            });
-            if excluded_match {
+            if scan_exclusion_matches(
+                &file_path_text,
+                cwd.as_deref(),
+                &excluded_raw,
+                &excluded_encoded,
+            ) {
                 total_excluded += 1;
                 if let Some(f) = log.as_mut() {
                     let _ = writeln!(f, "[excluded] {}", path.display());
@@ -393,23 +381,12 @@ pub fn scan_local_sessions() -> Result<Vec<Session>> {
             }
 
             let saved_meta = saved.get(&stem).cloned().unwrap_or_default();
-            let has_saved_display = saved_meta
-                .name
-                .as_deref()
-                .is_some_and(|s| !s.trim().is_empty())
-                || saved_meta
-                    .description
-                    .as_deref()
-                    .is_some_and(|s| !s.trim().is_empty())
-                || saved_meta
-                    .auto_summary
-                    .as_deref()
-                    .is_some_and(|s| !s.trim().is_empty());
-            let has_real_user_message = meta
-                .as_ref()
-                .and_then(|m| m.first_user_message.as_deref())
-                .is_some_and(|s| !s.trim().is_empty());
-            if !has_saved_display && !has_real_user_message {
+            if !should_include_scanned_session(
+                saved_meta.name.as_deref(),
+                saved_meta.description.as_deref(),
+                saved_meta.auto_summary.as_deref(),
+                meta.as_ref().and_then(|m| m.first_user_message.as_deref()),
+            ) {
                 total_excluded += 1;
                 if let Some(f) = log.as_mut() {
                     let _ = writeln!(f, "[no-real-user-message] {}", path.display());

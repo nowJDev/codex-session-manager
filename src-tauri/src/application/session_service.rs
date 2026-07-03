@@ -59,11 +59,23 @@ impl<P: SessionPorts> SessionService<P> {
     }
 
     pub fn set_cloud_folder(&self, root: &str) -> Result<PathBuf> {
-        self.ports.set_cloud_folder(root)
+        let folder = self.ports.set_cloud_folder(root)?;
+        self.ports.update_settings(Settings {
+            cloud_path: Some(folder.to_string_lossy().to_string()),
+            ..Default::default()
+        })?;
+        Ok(folder)
     }
 
     pub fn upload_to_cloud(&self, session: &Session) -> Result<()> {
-        self.ports.upload_to_cloud(session)
+        self.ports.upload_to_cloud(session)?;
+        self.ports.save_session_meta(
+            &session.session_id,
+            SessionMeta {
+                storage_type: Some("cloud".into()),
+                ..Default::default()
+            },
+        )
     }
 
     pub fn checkout_session(&self, session: &Session) -> Result<String> {
@@ -221,6 +233,9 @@ mod tests {
         saved_meta: Vec<(String, SessionMeta)>,
         deleted_meta: Vec<String>,
         deleted_sessions: Vec<(String, String)>,
+        updated_settings: Vec<Settings>,
+        cloud_folders: Vec<String>,
+        uploaded_sessions: Vec<String>,
         summaries: HashMap<String, (String, String)>,
     }
 
@@ -284,7 +299,8 @@ mod tests {
             Ok(())
         }
 
-        fn update_settings(&self, _patch: Settings) -> Result<()> {
+        fn update_settings(&self, patch: Settings) -> Result<()> {
+            self.state.borrow_mut().updated_settings.push(patch);
             Ok(())
         }
     }
@@ -294,11 +310,16 @@ mod tests {
             Ok(self.state.borrow().cloud.clone())
         }
 
-        fn set_cloud_folder(&self, _root: &str) -> Result<PathBuf> {
+        fn set_cloud_folder(&self, root: &str) -> Result<PathBuf> {
+            self.state.borrow_mut().cloud_folders.push(root.to_string());
             Ok(PathBuf::from("cloud"))
         }
 
-        fn upload_to_cloud(&self, _session: &Session) -> Result<()> {
+        fn upload_to_cloud(&self, session: &Session) -> Result<()> {
+            self.state
+                .borrow_mut()
+                .uploaded_sessions
+                .push(session.session_id.clone());
             Ok(())
         }
 
@@ -408,6 +429,40 @@ mod tests {
             vec![("s1".to_string(), "session.jsonl".to_string())]
         );
         assert_eq!(state.deleted_meta, vec!["s1".to_string()]);
+    }
+
+    #[test]
+    fn set_cloud_folder_prepares_folder_and_persists_setting_through_ports() {
+        let ports = FakePorts::default();
+        let state = ports.state.clone();
+
+        let folder = SessionService::new(ports)
+            .set_cloud_folder("drive")
+            .unwrap();
+
+        let state = state.borrow();
+        assert_eq!(folder, PathBuf::from("cloud"));
+        assert_eq!(state.cloud_folders, vec!["drive".to_string()]);
+        assert_eq!(state.updated_settings.len(), 1);
+        assert_eq!(
+            state.updated_settings[0].cloud_path.as_deref(),
+            Some("cloud")
+        );
+    }
+
+    #[test]
+    fn upload_to_cloud_persists_storage_metadata_through_ports() {
+        let ports = FakePorts::default();
+        let state = ports.state.clone();
+        let s = session("s1", "session.jsonl");
+
+        SessionService::new(ports).upload_to_cloud(&s).unwrap();
+
+        let state = state.borrow();
+        assert_eq!(state.uploaded_sessions, vec!["s1".to_string()]);
+        assert_eq!(state.saved_meta.len(), 1);
+        assert_eq!(state.saved_meta[0].0, "s1");
+        assert_eq!(state.saved_meta[0].1.storage_type.as_deref(), Some("cloud"));
     }
 
     #[test]

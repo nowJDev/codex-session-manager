@@ -1,8 +1,7 @@
 // 세션 화면의 원천 데이터 조회와 외부 이벤트 구독을 관리한다.
 import { useCallback, useEffect, useState } from "react";
-import { listen } from "@tauri-apps/api/event";
+import { tauriGateway } from "@/adapters/tauriGateway";
 import { detectLocale, type Locale } from "@/i18n";
-import { ipc } from "@/lib/ipc";
 import type { AppConfig, CodexStatus, Session } from "@/types";
 
 export function useSessionData() {
@@ -17,7 +16,7 @@ export function useSessionData() {
   const refreshCodexStatus = useCallback(async () => {
     setCodexStatusLoading(true);
     try {
-      setCodexStatus(await ipc.getCodexStatus());
+      setCodexStatus(await tauriGateway.getCodexStatus());
     } catch (err) {
       console.error(err);
     } finally {
@@ -28,7 +27,10 @@ export function useSessionData() {
   const refresh = useCallback(async () => {
     setLoading(true);
     try {
-      const [list, cfg] = await Promise.all([ipc.listSessions(), ipc.getConfig()]);
+      const [list, cfg] = await Promise.all([
+        tauriGateway.listSessions(),
+        tauriGateway.getConfig(),
+      ]);
       setSessions(list);
       setConfig(cfg);
       const savedLocale = cfg.settings.locale;
@@ -41,14 +43,14 @@ export function useSessionData() {
   }, []);
 
   useEffect(() => {
-    ipc.checkEnvironment().then((r) => {
+    tauriGateway.checkEnvironment().then((r) => {
       setCodexCliMissing(!r.codexCliFound);
       if (r.codexCliFound) {
-        ipc.startAutoSummary().catch(() => {});
+        tauriGateway.startAutoSummary().catch(() => {});
       }
     }).catch(() => {});
 
-    const unlisten = listen<string>("auto-summary-progress", () => {
+    const unlisten = tauriGateway.listenAutoSummaryProgress(() => {
       refresh();
     });
     return () => {

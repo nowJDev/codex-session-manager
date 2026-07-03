@@ -1,6 +1,6 @@
 // 세션에 대한 사용자 명령 workflow를 관리한다.
 import { useState, type Dispatch, type SetStateAction } from "react";
-import { ipc } from "@/lib/ipc";
+import { tauriGateway } from "@/adapters/tauriGateway";
 import type { Session } from "@/types";
 
 type EditMode = "rename" | "describe" | null;
@@ -29,9 +29,9 @@ export function useSessionCommands({
   async function handleResume(s: Session) {
     try {
       if (s.storageType === "cloud") {
-        await ipc.checkoutSession(s);
+        await tauriGateway.checkoutSession(s);
       }
-      await ipc.resumeSession(s.sessionId, s.cwd);
+      await tauriGateway.resumeSession(s.sessionId, s.cwd);
     } catch (err) {
       console.error(err);
       alert(String(err));
@@ -54,9 +54,9 @@ export function useSessionCommands({
     try {
       if (targets.length === 1) {
         const target = targets[0];
-        await ipc.deleteSession(target.sessionId, target.filePath);
+        await tauriGateway.deleteSession(target.sessionId, target.filePath);
       } else {
-        await ipc.deleteSessions(
+        await tauriGateway.deleteSessions(
           targets.map((s) => ({
             sessionId: s.sessionId,
             filePath: s.filePath,
@@ -89,9 +89,9 @@ export function useSessionCommands({
   async function handleToggleArchive(s: Session) {
     try {
       if (s.archived) {
-        await ipc.unarchiveSession(s.sessionId);
+        await tauriGateway.unarchiveSession(s.sessionId);
       } else {
-        await ipc.archiveSession(s.sessionId);
+        await tauriGateway.archiveSession(s.sessionId);
       }
       setSelectedId(null);
       await refresh();
@@ -105,9 +105,9 @@ export function useSessionCommands({
     try {
       const st = s.storageType;
       if (st === "cloud-only" || st === "cloud") {
-        await ipc.checkoutSession(s);
+        await tauriGateway.checkoutSession(s);
       } else {
-        await ipc.uploadToCloud(s);
+        await tauriGateway.uploadToCloud(s);
       }
       await refresh();
     } catch (err) {
@@ -118,7 +118,7 @@ export function useSessionCommands({
 
   async function handleGenerateSummary(s: Session) {
     try {
-      await ipc.generateSummary(s.sessionId, s.filePath);
+      await tauriGateway.generateSummary(s.sessionId, s.filePath);
       await refresh();
     } catch (err) {
       alert(String(err));
@@ -130,7 +130,7 @@ export function useSessionCommands({
       prev.map((x) => (x.sessionId === s.sessionId ? { ...x, favorite: !x.favorite } : x))
     );
     try {
-      await ipc.saveSessionMeta(s.sessionId, { favorite: !s.favorite });
+      await tauriGateway.saveSessionMeta(s.sessionId, { favorite: !s.favorite });
       await refresh();
     } catch (err) {
       alert(String(err));
@@ -145,7 +145,7 @@ export function useSessionCommands({
   async function submitEdit(value: string) {
     if (!editTarget || !editMode) return;
     const patch = editMode === "rename" ? { name: value || null } : { description: value || null };
-    await ipc.saveSessionMeta(editTarget.sessionId, patch);
+    await tauriGateway.saveSessionMeta(editTarget.sessionId, patch);
     setEditMode(null);
     setEditTarget(null);
     await refresh();
