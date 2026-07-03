@@ -4,10 +4,10 @@ This document records release-level checks that are not fully covered by unit or
 
 ## Current Release
 
-- Current installer release: `v0.5.8`.
-- Release page: <https://github.com/nowJDev/codex-session-manager/releases/tag/v0.5.8>.
+- Current installer release: `v0.5.9`.
+- Release page: <https://github.com/nowJDev/codex-session-manager/releases/tag/v0.5.9>.
 - `v0.5.0` remains as the first Codex port tag, but the installer release was superseded by `v0.5.1` because GitHub Actions needed Node 24 for `pnpm 11.8.0`.
-- `v0.5.8` is the latest architecture release with hexagonal backend boundaries, a frontend application hook for session workflows, architecture boundary tests, and detail-panel overflow fixes.
+- `v0.5.9` is the latest architecture release with stricter hexagonal backend boundaries, domain session DTO decoupling, a real session message port, architecture boundary tests, and detail-panel overflow fixes.
 
 ## Installer Smoke Test
 
