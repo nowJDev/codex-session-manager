@@ -13,8 +13,9 @@ This document records release-level checks that are not fully covered by unit or
 
 Windows release assets to test:
 
-- `Codex.Session.Manager_0.5.1_x64-setup.exe`.
-- `Codex.Session.Manager_0.5.1_x64_en-US.msi`.
+- `Codex.Session.Manager_<version>_x64-setup.exe`.
+- `Codex.Session.Manager_v<version>_x64-portable.zip`.
+- `latest.json` and the installer `.sig` are updater support assets.
 
 Smoke-test checklist:
 

@@ -11,23 +11,7 @@ permissions:
 
 jobs:
   build:
-    strategy:
-      fail-fast: false
-      matrix:
-        include:
-          - platform: windows-latest
-            target: ""
-            args: ""
-          - platform: macos-latest
-            target: aarch64-apple-darwin
-            args: "--target aarch64-apple-darwin"
-          # macOS x86_64 (Intel) 빌드는 macos-latest runner에서 bundle_dmg.sh가 일관적으로
-          # 실패하므로 제거. Intel Mac 사용자는 Rosetta로 arm64 dmg를 실행하거나 source에서 빌드.
-          - platform: ubuntu-22.04
-            target: ""
-            args: ""
-
-    runs-on: ${{ matrix.platform }}
+    runs-on: windows-latest
 
     steps:
       - name: Checkout
@@ -46,30 +30,17 @@ jobs:
 
       - name: Install Rust
         uses: dtolnay/rust-toolchain@stable
-        with:
-          targets: ${{ matrix.target }}
 
       - name: Cache cargo registry + build
         uses: Swatinem/rust-cache@v2
         with:
           workspaces: src-tauri -> target
-          key: ${{ matrix.platform }}-${{ matrix.target }}
-
-      - name: Install Linux dependencies
-        if: matrix.platform == 'ubuntu-22.04'
-        run: |
-          sudo apt-get update
-          sudo apt-get install -y \
-            libwebkit2gtk-4.1-dev \
-            libappindicator3-dev \
-            librsvg2-dev \
-            patchelf \
-            libgtk-3-dev
+          key: windows-latest
 
       - name: Install JS dependencies
         run: pnpm install --frozen-lockfile
 
-      - name: Build and upload Tauri bundle
+      - name: Build and upload Windows installer
         uses: tauri-apps/tauri-action@v0
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
@@ -81,10 +52,9 @@ jobs:
           releaseBody: "See [CHANGELOG.md](./CHANGELOG.md) for details. Installers attached below."
           releaseDraft: true
           prerelease: false
-          args: ${{ matrix.args }}
+          args: "--bundles nsis"
 
       - name: Upload Windows portable zip
-        if: matrix.platform == 'windows-latest'
         shell: pwsh
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}

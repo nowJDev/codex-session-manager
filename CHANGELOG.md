@@ -4,6 +4,9 @@ All notable changes to this project are documented here.
 
 ## [Unreleased]
 
+### Changed
+- Release workflow가 Windows 설치 exe와 portable zip 중심으로 산출물을 줄이도록 변경.
+
 ## [0.5.8] — 2026-07-03
 
 ### Changed
