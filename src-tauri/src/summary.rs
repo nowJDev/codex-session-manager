@@ -1,4 +1,8 @@
 // Codex 세션 내용을 읽어 이름과 요약을 생성한다.
+use crate::domain::transcript::{
+    extract_joined_text, is_injected_instruction_message, TranscriptContent, TranscriptPart,
+    TranscriptPartKind,
+};
 use anyhow::{anyhow, Result};
 use std::fs;
 use std::io::Write;
@@ -29,6 +33,30 @@ pub fn build_codex_exec_invocation(codex: &str) -> CodexExecInvocation {
     }
 }
 
+fn transcript_part_kind(item: &serde_json::Value) -> Option<TranscriptPartKind> {
+    match item.get("type").and_then(|v| v.as_str()) {
+        Some("text") => Some(TranscriptPartKind::Text),
+        Some("output_text") => Some(TranscriptPartKind::OutputText),
+        Some("input_text") => Some(TranscriptPartKind::InputText),
+        _ => None,
+    }
+}
+
+fn transcript_content_from_json(value: &serde_json::Value) -> Option<TranscriptContent> {
+    if let Some(text) = value.as_str() {
+        return Some(TranscriptContent::Text(text.to_string()));
+    }
+    let parts = value.as_array()?.iter().filter_map(|item| {
+        let kind = transcript_part_kind(item)?;
+        let text = item.get("text").and_then(|v| v.as_str())?;
+        Some(TranscriptPart {
+            kind,
+            text: text.to_string(),
+        })
+    });
+    Some(TranscriptContent::Parts(parts.collect()))
+}
+
 fn collect_excerpt(file_path: &str, head_n: usize, tail_n: usize) -> Result<String> {
     use std::io::{BufRead, BufReader};
     let file = fs::File::open(file_path)?;
@@ -55,14 +83,16 @@ fn collect_excerpt(file_path: &str, head_n: usize, tail_n: usize) -> Result<Stri
         let item = match ty {
             "user" | "assistant" => val
                 .pointer("/message/content")
-                .and_then(extract_text)
+                .and_then(transcript_content_from_json)
+                .and_then(|content| extract_joined_text(&content))
                 .map(|text| (ty, text)),
             "event_msg" => {
                 let payload = val.get("payload").unwrap_or(&serde_json::Value::Null);
                 if payload.get("type").and_then(|v| v.as_str()) == Some("user_message") {
                     payload
                         .get("message")
-                        .and_then(extract_text)
+                        .and_then(transcript_content_from_json)
+                        .and_then(|content| extract_joined_text(&content))
                         .map(|text| ("user", text))
                 } else {
                     None
@@ -77,7 +107,8 @@ fn collect_excerpt(file_path: &str, head_n: usize, tail_n: usize) -> Result<Stri
                     .and_then(|role| {
                         payload
                             .get("content")
-                            .and_then(extract_text)
+                            .and_then(transcript_content_from_json)
+                            .and_then(|content| extract_joined_text(&content))
                             .map(|text| (role, text))
                     })
             }
@@ -99,40 +130,6 @@ fn collect_excerpt(file_path: &str, head_n: usize, tail_n: usize) -> Result<Stri
     Ok(out)
 }
 
-fn extract_text(content: &serde_json::Value) -> Option<String> {
-    if let Some(s) = content.as_str() {
-        return Some(s.to_string());
-    }
-    if let Some(arr) = content.as_array() {
-        let mut buf = String::new();
-        for item in arr {
-            if matches!(
-                item.get("type").and_then(|v| v.as_str()),
-                Some("text") | Some("output_text") | Some("input_text")
-            ) {
-                if let Some(t) = item.get("text").and_then(|v| v.as_str()) {
-                    buf.push_str(t);
-                    buf.push('\n');
-                }
-            }
-        }
-        if !buf.is_empty() {
-            return Some(buf);
-        }
-    }
-    None
-}
-
-fn is_injected_instruction_message(message: &str) -> bool {
-    let trimmed = message.trim_start();
-    (trimmed.starts_with("# AGENTS.md instructions") && trimmed.contains("<INSTRUCTIONS>"))
-        || trimmed.starts_with("The following is the Codex agent history")
-        || trimmed.starts_with("Summarize the following Codex sessions in Korean.")
-        || trimmed.starts_with("Summarize this Codex session in Korean.")
-        || trimmed.starts_with("<environment_context>")
-        || trimmed.starts_with("<skill>")
-}
-
 pub fn run_codex_headless(prompt: &str) -> Result<String> {
     let cwd = isolation_cwd();
     fs::create_dir_all(&cwd)?;
@@ -145,7 +142,10 @@ pub fn run_codex_headless(prompt: &str) -> Result<String> {
     let invocation = build_codex_exec_invocation(&codex);
     crate::debuglog::log(
         "summary",
-        &format!("codex path: {}; args: {:?}", invocation.program, invocation.args),
+        &format!(
+            "codex path: {}; args: {:?}",
+            invocation.program, invocation.args
+        ),
     );
 
     let mut cmd = Command::new(&invocation.program);
@@ -194,7 +194,9 @@ fn cleanup_summary_rollouts(projects_root: &std::path::Path) {
     if !projects_root.exists() {
         return;
     }
-    let Ok(entries) = fs::read_dir(projects_root) else { return };
+    let Ok(entries) = fs::read_dir(projects_root) else {
+        return;
+    };
     for entry in entries.flatten() {
         let name = entry.file_name().to_string_lossy().to_string();
         if !name.contains(ISOLATION_MARKER) {
@@ -249,22 +251,23 @@ pub fn auto_summarize_batch(
     let mut current_name = String::new();
     let mut current_desc = String::new();
 
-    let commit = |idx: Option<usize>,
-                  name: &str,
-                  desc: &str,
-                  result: &mut std::collections::HashMap<String, (String, String)>| {
-        if let Some(i) = idx {
-            if i >= 1 && i <= items.len() && (!name.is_empty() || !desc.is_empty()) {
-                let id = items[i - 1].0.clone();
-                let n = if name.is_empty() {
-                    desc.chars().take(12).collect()
-                } else {
-                    name.to_string()
-                };
-                result.insert(id, (n, desc.to_string()));
+    let commit =
+        |idx: Option<usize>,
+         name: &str,
+         desc: &str,
+         result: &mut std::collections::HashMap<String, (String, String)>| {
+            if let Some(i) = idx {
+                if i >= 1 && i <= items.len() && (!name.is_empty() || !desc.is_empty()) {
+                    let id = items[i - 1].0.clone();
+                    let n = if name.is_empty() {
+                        desc.chars().take(12).collect()
+                    } else {
+                        name.to_string()
+                    };
+                    result.insert(id, (n, desc.to_string()));
+                }
             }
-        }
-    };
+        };
 
     for line in out.lines() {
         let line = line.trim();

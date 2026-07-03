@@ -59,12 +59,33 @@ pub fn locate_codex() -> Option<String> {
         candidates.push(home.join(".local").join("bin").join("codex.exe"));
         candidates.push(home.join(".local").join("bin").join("codex"));
         // npm global (사용자)
-        candidates.push(home.join("AppData").join("Roaming").join("npm").join("codex.cmd"));
-        candidates.push(home.join("AppData").join("Roaming").join("npm").join("codex"));
+        candidates.push(
+            home.join("AppData")
+                .join("Roaming")
+                .join("npm")
+                .join("codex.cmd"),
+        );
+        candidates.push(
+            home.join("AppData")
+                .join("Roaming")
+                .join("npm")
+                .join("codex"),
+        );
         // pnpm
-        candidates.push(home.join("AppData").join("Local").join("pnpm").join("codex.cmd"));
+        candidates.push(
+            home.join("AppData")
+                .join("Local")
+                .join("pnpm")
+                .join("codex.cmd"),
+        );
         // yarn global
-        candidates.push(home.join("AppData").join("Local").join("Yarn").join("bin").join("codex.cmd"));
+        candidates.push(
+            home.join("AppData")
+                .join("Local")
+                .join("Yarn")
+                .join("bin")
+                .join("codex.cmd"),
+        );
 
         // macOS / Linux Homebrew
         candidates.push(std::path::PathBuf::from("/usr/local/bin/codex"));

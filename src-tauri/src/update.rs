@@ -22,20 +22,7 @@ struct GitHubRelease {
 }
 
 pub fn is_newer_version(current: &str, latest: &str) -> bool {
-    parse_version(latest) > parse_version(current)
-}
-
-fn parse_version(version: &str) -> [u64; 3] {
-    let clean = version.trim().trim_start_matches('v').trim_start_matches('V');
-    let mut parts = [0_u64; 3];
-    for (idx, piece) in clean.split('.').take(3).enumerate() {
-        let digits = piece
-            .chars()
-            .take_while(|c| c.is_ascii_digit())
-            .collect::<String>();
-        parts[idx] = digits.parse().unwrap_or(0);
-    }
-    parts
+    crate::domain::update::is_newer_version(current, latest)
 }
 
 pub async fn check_latest_release() -> Result<UpdateInfo> {

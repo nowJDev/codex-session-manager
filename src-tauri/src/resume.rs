@@ -52,7 +52,11 @@ pub fn build_resume_plan(session_id: &str, cwd: Option<&str>, target_os: &str) -
             TerminalKind::MacTerminal => "osascript".to_string(),
             _ => "x-terminal-emulator".to_string(),
         };
-        DetectedTerminal { kind, program, display_name: kind.display_name().into() }
+        DetectedTerminal {
+            kind,
+            program,
+            display_name: kind.display_name().into(),
+        }
     });
     let codex = crate::environment::locate_codex().unwrap_or_else(|| "codex".into());
     build_resume_command_with_codex(&term, session_id, cwd, flags.as_deref(), &codex)
@@ -84,7 +88,10 @@ pub fn resume_in_new_terminal(session_id: &str, cwd: Option<&str>) -> Result<()>
             for term in &["x-terminal-emulator", "gnome-terminal", "konsole", "xterm"] {
                 let args: Vec<&str> = plan.args.iter().map(|s| s.as_str()).collect();
                 if Command::new(term).args(&args).spawn().is_ok() {
-                    crate::debuglog::log("resume", &format!("spawned fallback linux terminal: {}", term));
+                    crate::debuglog::log(
+                        "resume",
+                        &format!("spawned fallback linux terminal: {}", term),
+                    );
                     return Ok(());
                 }
             }

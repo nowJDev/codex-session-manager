@@ -1,7 +1,8 @@
 use codex_session_manager_lib::{
-    cloud, codex_status, config, environment, resume, scanner, summary, terminal, update,
+    cloud, codex_status, config, environment, resume, scanner, summary, terminal,
     terminal::{DetectedTerminal, TerminalKind},
     types::SessionMeta,
+    update,
 };
 use std::fs;
 use std::sync::Mutex;
@@ -19,7 +20,10 @@ fn setup_temp_home() -> TempHome {
     std::env::set_var("CODEX_SESSION_HOME", dir.path());
     std::env::set_var("CODEX_HOME", dir.path().join(".codex"));
     std::env::remove_var("CLAUDE_SESSION_HOME");
-    TempHome { _dir: dir, _guard: guard }
+    TempHome {
+        _dir: dir,
+        _guard: guard,
+    }
 }
 
 fn write_jsonl(path: &std::path::Path, lines: &[&str]) {
@@ -37,7 +41,11 @@ fn codex_rollout_path(home: &TempHome, date: &str, session_id: &str) -> std::pat
         .join(format!("rollout-{}T10-00-00-{}.jsonl", date, session_id))
 }
 
-fn archived_codex_rollout_path(home: &TempHome, date: &str, session_id: &str) -> std::path::PathBuf {
+fn archived_codex_rollout_path(
+    home: &TempHome,
+    date: &str,
+    session_id: &str,
+) -> std::path::PathBuf {
     let _ = home;
     let parts: Vec<&str> = date.split('-').collect();
     scanner::archived_sessions_dir()
@@ -48,7 +56,11 @@ fn archived_codex_rollout_path(home: &TempHome, date: &str, session_id: &str) ->
 }
 
 #[cfg(target_os = "windows")]
-fn write_fake_codex(dir: &std::path::Path, log_path: &std::path::Path, target_path: Option<&std::path::Path>) -> std::path::PathBuf {
+fn write_fake_codex(
+    dir: &std::path::Path,
+    log_path: &std::path::Path,
+    target_path: Option<&std::path::Path>,
+) -> std::path::PathBuf {
     let cli = dir.join("codex.cmd");
     let target = target_path
         .map(|p| p.to_string_lossy().to_string())
@@ -77,7 +89,11 @@ fn write_fake_codex_summary(dir: &std::path::Path) -> std::path::PathBuf {
 }
 
 #[cfg(not(target_os = "windows"))]
-fn write_fake_codex(dir: &std::path::Path, log_path: &std::path::Path, target_path: Option<&std::path::Path>) -> std::path::PathBuf {
+fn write_fake_codex(
+    dir: &std::path::Path,
+    log_path: &std::path::Path,
+    target_path: Option<&std::path::Path>,
+) -> std::path::PathBuf {
     use std::os::unix::fs::PermissionsExt;
     let cli = dir.join("codex");
     let target = target_path
@@ -151,7 +167,10 @@ fn config_partial_update_preserves_other_fields() {
     .unwrap();
     config::upsert_session_meta(
         "s1",
-        SessionMeta { description: Some("desc2".into()), ..Default::default() },
+        SessionMeta {
+            description: Some("desc2".into()),
+            ..Default::default()
+        },
     )
     .unwrap();
 
@@ -166,7 +185,10 @@ fn config_delete_removes_entry() {
     let _h = setup_temp_home();
     config::upsert_session_meta(
         "to-del",
-        SessionMeta { name: Some("x".into()), ..Default::default() },
+        SessionMeta {
+            name: Some("x".into()),
+            ..Default::default()
+        },
     )
     .unwrap();
     config::delete_session_meta("to-del").unwrap();
@@ -365,16 +387,23 @@ fn scanner_marks_archived_sessions() {
     let archived_id = "25252525-2525-2525-2525-252525252525";
     write_jsonl(
         &codex_rollout_path(&h, "2026-04-01", active_id),
-        &[r#"{"timestamp":"2026-04-01T10:00:00Z","type":"event_msg","payload":{"type":"user_message","message":"active"}}"#],
+        &[
+            r#"{"timestamp":"2026-04-01T10:00:00Z","type":"event_msg","payload":{"type":"user_message","message":"active"}}"#,
+        ],
     );
     write_jsonl(
         &archived_codex_rollout_path(&h, "2026-04-02", archived_id),
-        &[r#"{"timestamp":"2026-04-02T10:00:00Z","type":"event_msg","payload":{"type":"user_message","message":"archived"}}"#],
+        &[
+            r#"{"timestamp":"2026-04-02T10:00:00Z","type":"event_msg","payload":{"type":"user_message","message":"archived"}}"#,
+        ],
     );
 
     let sessions = scanner::scan_local_sessions().unwrap();
     let active = sessions.iter().find(|s| s.session_id == active_id).unwrap();
-    let archived = sessions.iter().find(|s| s.session_id == archived_id).unwrap();
+    let archived = sessions
+        .iter()
+        .find(|s| s.session_id == archived_id)
+        .unwrap();
     assert!(!active.archived);
     assert!(archived.archived);
 }
@@ -398,17 +427,27 @@ fn scanner_sorts_by_last_timestamp_desc() {
 
     write_jsonl(
         &codex_rollout_path(&h, "2026-01-01", "44444444-4444-4444-4444-444444444444"),
-        &[r#"{"timestamp":"2026-01-01T00:00:00Z","type":"event_msg","payload":{"type":"user_message","message":"old"}}"#],
+        &[
+            r#"{"timestamp":"2026-01-01T00:00:00Z","type":"event_msg","payload":{"type":"user_message","message":"old"}}"#,
+        ],
     );
     write_jsonl(
         &codex_rollout_path(&h, "2026-04-01", "55555555-5555-5555-5555-555555555555"),
-        &[r#"{"timestamp":"2026-04-01T00:00:00Z","type":"event_msg","payload":{"type":"user_message","message":"new"}}"#],
+        &[
+            r#"{"timestamp":"2026-04-01T00:00:00Z","type":"event_msg","payload":{"type":"user_message","message":"new"}}"#,
+        ],
     );
 
     let sessions = scanner::scan_local_sessions().unwrap();
     assert_eq!(sessions.len(), 2);
-    assert_eq!(sessions[0].session_id, "55555555-5555-5555-5555-555555555555");
-    assert_eq!(sessions[1].session_id, "44444444-4444-4444-4444-444444444444");
+    assert_eq!(
+        sessions[0].session_id,
+        "55555555-5555-5555-5555-555555555555"
+    );
+    assert_eq!(
+        sessions[1].session_id,
+        "44444444-4444-4444-4444-444444444444"
+    );
 }
 
 #[test]
@@ -418,7 +457,9 @@ fn scanner_merges_saved_metadata() {
     let file = codex_rollout_path(&h, "2026-04-01", session_id);
     write_jsonl(
         &file,
-        &[r#"{"timestamp":"2026-04-01T00:00:00Z","type":"event_msg","payload":{"type":"user_message","message":"hi"}}"#],
+        &[
+            r#"{"timestamp":"2026-04-01T00:00:00Z","type":"event_msg","payload":{"type":"user_message","message":"hi"}}"#,
+        ],
     );
 
     config::upsert_session_meta(
@@ -432,7 +473,10 @@ fn scanner_merges_saved_metadata() {
     .unwrap();
 
     let sessions = scanner::scan_local_sessions().unwrap();
-    let s = sessions.iter().find(|s| s.session_id == session_id).unwrap();
+    let s = sessions
+        .iter()
+        .find(|s| s.session_id == session_id)
+        .unwrap();
     assert_eq!(s.name.as_deref(), Some("nice-name"));
     assert_eq!(s.description.as_deref(), Some("nice-desc"));
 }
@@ -444,7 +488,9 @@ fn scanner_uses_codex_session_index_name_when_saved_name_is_missing() {
     let file = codex_rollout_path(&h, "2026-04-01", session_id);
     write_jsonl(
         &file,
-        &[r#"{"timestamp":"2026-04-01T00:00:00Z","type":"event_msg","payload":{"type":"user_message","message":"fallback should not win"}}"#],
+        &[
+            r#"{"timestamp":"2026-04-01T00:00:00Z","type":"event_msg","payload":{"type":"user_message","message":"fallback should not win"}}"#,
+        ],
     );
     fs::write(
         scanner::codex_home().join("session_index.jsonl"),
@@ -456,7 +502,10 @@ fn scanner_uses_codex_session_index_name_when_saved_name_is_missing() {
     .unwrap();
 
     let sessions = scanner::scan_local_sessions().unwrap();
-    let s = sessions.iter().find(|s| s.session_id == session_id).unwrap();
+    let s = sessions
+        .iter()
+        .find(|s| s.session_id == session_id)
+        .unwrap();
     assert_eq!(s.name.as_deref(), Some("릴리즈 설치 검증"));
 }
 
@@ -467,12 +516,20 @@ fn scanner_falls_back_to_first_user_message_as_name() {
     let file = codex_rollout_path(&h, "2026-04-01", session_id);
     write_jsonl(
         &file,
-        &[r#"{"timestamp":"2026-04-01T00:00:00Z","type":"event_msg","payload":{"type":"user_message","message":"업데이트 버튼을 추가해줘. 설치 과정을 쉽게 만들고 싶어."}}"#],
+        &[
+            r#"{"timestamp":"2026-04-01T00:00:00Z","type":"event_msg","payload":{"type":"user_message","message":"업데이트 버튼을 추가해줘. 설치 과정을 쉽게 만들고 싶어."}}"#,
+        ],
     );
 
     let sessions = scanner::scan_local_sessions().unwrap();
-    let s = sessions.iter().find(|s| s.session_id == session_id).unwrap();
-    assert_eq!(s.name.as_deref(), Some("업데이트 버튼을 추가해줘. 설치 과정을 쉽게"));
+    let s = sessions
+        .iter()
+        .find(|s| s.session_id == session_id)
+        .unwrap();
+    assert_eq!(
+        s.name.as_deref(),
+        Some("업데이트 버튼을 추가해줘. 설치 과정을 쉽게")
+    );
 }
 
 #[test]
@@ -489,15 +546,24 @@ fn scanner_ignores_injected_agents_instructions_as_first_message() {
     );
 
     let sessions = scanner::scan_local_sessions().unwrap();
-    let s = sessions.iter().find(|s| s.session_id == session_id).unwrap();
+    let s = sessions
+        .iter()
+        .find(|s| s.session_id == session_id)
+        .unwrap();
     assert_eq!(
         s.first_user_message.as_deref(),
         Some("핸드오버 문서를 읽고 이어서 작업해줘.")
     );
-    assert_eq!(s.name.as_deref(), Some("핸드오버 문서를 읽고 이어서 작업해줘."));
+    assert_eq!(
+        s.name.as_deref(),
+        Some("핸드오버 문서를 읽고 이어서 작업해줘.")
+    );
 
     let messages = scanner::get_session_messages(file.to_str().unwrap(), 5).unwrap();
-    assert_eq!(messages, vec!["핸드오버 문서를 읽고 이어서 작업해줘.".to_string()]);
+    assert_eq!(
+        messages,
+        vec!["핸드오버 문서를 읽고 이어서 작업해줘.".to_string()]
+    );
 }
 
 #[test]
@@ -514,8 +580,14 @@ fn scanner_ignores_codex_review_history_as_first_message() {
     );
 
     let sessions = scanner::scan_local_sessions().unwrap();
-    let s = sessions.iter().find(|s| s.session_id == session_id).unwrap();
-    assert_eq!(s.first_user_message.as_deref(), Some("실제 새 요청을 처리해줘."));
+    let s = sessions
+        .iter()
+        .find(|s| s.session_id == session_id)
+        .unwrap();
+    assert_eq!(
+        s.first_user_message.as_deref(),
+        Some("실제 새 요청을 처리해줘.")
+    );
     assert_eq!(s.name.as_deref(), Some("실제 새 요청을 처리해줘."));
 }
 
@@ -533,8 +605,14 @@ fn scanner_ignores_codex_approval_history_as_first_message() {
     );
 
     let sessions = scanner::scan_local_sessions().unwrap();
-    let s = sessions.iter().find(|s| s.session_id == session_id).unwrap();
-    assert_eq!(s.first_user_message.as_deref(), Some("진짜 작업 요청입니다."));
+    let s = sessions
+        .iter()
+        .find(|s| s.session_id == session_id)
+        .unwrap();
+    assert_eq!(
+        s.first_user_message.as_deref(),
+        Some("진짜 작업 요청입니다.")
+    );
     assert_eq!(s.name.as_deref(), Some("진짜 작업 요청입니다."));
 }
 
@@ -553,8 +631,14 @@ fn scanner_ignores_environment_context_and_skill_injections() {
     );
 
     let sessions = scanner::scan_local_sessions().unwrap();
-    let s = sessions.iter().find(|s| s.session_id == session_id).unwrap();
-    assert_eq!(s.first_user_message.as_deref(), Some("실제 요청만 이름으로 써줘."));
+    let s = sessions
+        .iter()
+        .find(|s| s.session_id == session_id)
+        .unwrap();
+    assert_eq!(
+        s.first_user_message.as_deref(),
+        Some("실제 요청만 이름으로 써줘.")
+    );
     assert_eq!(s.name.as_deref(), Some("실제 요청만 이름으로 써줘."));
 }
 
@@ -593,7 +677,10 @@ fn scanner_skips_malformed_jsonl_lines() {
     write_jsonl(&file, &lines);
 
     let sessions = scanner::scan_local_sessions().unwrap();
-    let s = sessions.iter().find(|s| s.session_id == session_id).unwrap();
+    let s = sessions
+        .iter()
+        .find(|s| s.session_id == session_id)
+        .unwrap();
     assert_eq!(s.total_lines, 3);
     assert_eq!(s.first_user_message.as_deref(), Some("good"));
 }
@@ -604,7 +691,9 @@ fn scanner_delete_removes_jsonl_file() {
     let file = codex_rollout_path(&h, "2026-04-01", "88888888-8888-8888-8888-888888888888");
     write_jsonl(
         &file,
-        &[r#"{"timestamp":"2026-04-01T00:00:00Z","type":"event_msg","payload":{"type":"user_message","message":"x"}}"#],
+        &[
+            r#"{"timestamp":"2026-04-01T00:00:00Z","type":"event_msg","payload":{"type":"user_message","message":"x"}}"#,
+        ],
     );
     assert!(file.exists());
 
@@ -621,7 +710,9 @@ fn scanner_delete_session_uses_codex_cli_before_file_fallback() {
     let file = codex_rollout_path(&h, "2026-04-01", session_id);
     write_jsonl(
         &file,
-        &[r#"{"timestamp":"2026-04-01T00:00:00Z","type":"event_msg","payload":{"type":"user_message","message":"x"}}"#],
+        &[
+            r#"{"timestamp":"2026-04-01T00:00:00Z","type":"event_msg","payload":{"type":"user_message","message":"x"}}"#,
+        ],
     );
     let fake = write_fake_codex(cli_dir.path(), &log, Some(&file));
     std::env::set_var("CODEX_CLI", &fake);
@@ -649,10 +740,13 @@ fn scanner_archive_actions_use_codex_cli() {
 
     let body = fs::read_to_string(log).unwrap();
     let lines: Vec<&str> = body.lines().collect();
-    assert_eq!(lines, vec![
-        format!("archive {session_id}"),
-        format!("unarchive {session_id}"),
-    ]);
+    assert_eq!(
+        lines,
+        vec![
+            format!("archive {session_id}"),
+            format!("unarchive {session_id}"),
+        ]
+    );
 }
 
 #[test]
@@ -757,7 +851,9 @@ fn cloud_upload_overwrites_existing_cloud_copy_for_resync() {
     );
     cloud::upload_session(&session).unwrap();
 
-    let cloud_file = cloud::cloud_path().unwrap().join(format!("{session_id}.jsonl"));
+    let cloud_file = cloud::cloud_path()
+        .unwrap()
+        .join(format!("{session_id}.jsonl"));
     let body = fs::read_to_string(cloud_file).unwrap();
     assert!(body.contains("latest local copy"));
     assert!(!body.contains("initial cloud copy"));
@@ -775,7 +871,9 @@ fn summary_auto_summarize_session_parses_codex_output() {
     let file = codex_rollout_path(&h, "2026-04-06", session_id);
     write_jsonl(
         &file,
-        &[r#"{"timestamp":"2026-04-06T10:00:00Z","type":"event_msg","payload":{"type":"user_message","message":"summarize this menu session"}}"#],
+        &[
+            r#"{"timestamp":"2026-04-06T10:00:00Z","type":"event_msg","payload":{"type":"user_message","message":"summarize this menu session"}}"#,
+        ],
     );
 
     let result = summary::auto_summarize_session(file.to_str().unwrap(), Some("old summary"));
@@ -788,7 +886,10 @@ fn summary_auto_summarize_session_parses_codex_output() {
 
     assert_eq!(
         result.unwrap(),
-        ("tested-menu".to_string(), "menu summary regenerated".to_string())
+        (
+            "tested-menu".to_string(),
+            "menu summary regenerated".to_string()
+        )
     );
 }
 
@@ -818,7 +919,10 @@ fn resume_plan_linux_includes_bash_command() {
 fn resume_plan_skips_cwd_if_path_missing() {
     let plan = resume::build_resume_plan("sid", Some("/definitely/not/here/xyz123"), "linux");
     let joined = plan.args.join(" ");
-    assert!(!joined.contains("/definitely/not/here"), "missing path should be filtered");
+    assert!(
+        !joined.contains("/definitely/not/here"),
+        "missing path should be filtered"
+    );
 }
 
 fn make_term(kind: TerminalKind, program: &str) -> DetectedTerminal {
@@ -936,8 +1040,14 @@ fn auto_detect_prefers_windows_terminal_over_cmd_and_git_bash() {
 fn terminal_kind_parse_aliases() {
     assert_eq!(TerminalKind::parse("git-bash"), Some(TerminalKind::GitBash));
     assert_eq!(TerminalKind::parse("gitbash"), Some(TerminalKind::GitBash));
-    assert_eq!(TerminalKind::parse("wt"), Some(TerminalKind::WindowsTerminal));
-    assert_eq!(TerminalKind::parse("windows-terminal"), Some(TerminalKind::WindowsTerminal));
+    assert_eq!(
+        TerminalKind::parse("wt"),
+        Some(TerminalKind::WindowsTerminal)
+    );
+    assert_eq!(
+        TerminalKind::parse("windows-terminal"),
+        Some(TerminalKind::WindowsTerminal)
+    );
     assert_eq!(TerminalKind::parse("pwsh"), Some(TerminalKind::PowerShell));
     assert_eq!(TerminalKind::parse("cmd"), Some(TerminalKind::Cmd));
     assert_eq!(TerminalKind::parse("auto"), None);
@@ -1000,12 +1110,13 @@ status_line = ["model-with-reasoning", "context-used", "five-hour-limit", "weekl
 
 #[test]
 fn summary_exec_invocation_reads_prompt_from_stdin() {
-    let invocation = summary::build_codex_exec_invocation("C:/Users/me/AppData/Roaming/npm/codex.cmd");
-    assert_eq!(invocation.program, "C:/Users/me/AppData/Roaming/npm/codex.cmd");
+    let invocation =
+        summary::build_codex_exec_invocation("C:/Users/me/AppData/Roaming/npm/codex.cmd");
     assert_eq!(
-        invocation.args,
-        vec!["exec", "--skip-git-repo-check", "-"]
+        invocation.program,
+        "C:/Users/me/AppData/Roaming/npm/codex.cmd"
     );
+    assert_eq!(invocation.args, vec!["exec", "--skip-git-repo-check", "-"]);
     assert!(invocation.prompt_on_stdin);
 }
 
@@ -1029,7 +1140,9 @@ fn updater_configuration_is_enabled_for_installer_builds() {
     );
     assert_eq!(
         tauri_conf["plugins"]["updater"]["endpoints"][0].as_str(),
-        Some("https://github.com/nowJDev/codex-session-manager/releases/latest/download/latest.json")
+        Some(
+            "https://github.com/nowJDev/codex-session-manager/releases/latest/download/latest.json"
+        )
     );
     assert!(tauri_conf["plugins"]["updater"]["pubkey"]
         .as_str()
@@ -1042,8 +1155,12 @@ fn updater_configuration_is_enabled_for_installer_builds() {
     let capability = fs::read_to_string(manifest_dir.join("capabilities/default.json")).unwrap();
     let capability: serde_json::Value = serde_json::from_str(&capability).unwrap();
     let permissions = capability["permissions"].as_array().unwrap();
-    assert!(permissions.iter().any(|p| p.as_str() == Some("updater:default")));
-    assert!(permissions.iter().any(|p| p.as_str() == Some("process:default")));
+    assert!(permissions
+        .iter()
+        .any(|p| p.as_str() == Some("updater:default")));
+    assert!(permissions
+        .iter()
+        .any(|p| p.as_str() == Some("process:default")));
 }
 
 #[cfg(target_os = "windows")]
@@ -1054,7 +1171,11 @@ fn environment_prefers_cmd_shim_over_extensionless_npm_shim() {
     let old_path = std::env::var_os("PATH");
     let old_cli = std::env::var_os("CODEX_CLI");
     fs::write(dir.path().join("codex"), "extensionless shim").unwrap();
-    fs::write(dir.path().join("codex.cmd"), "@echo off\r\necho codex-cli 9.9.9\r\n").unwrap();
+    fs::write(
+        dir.path().join("codex.cmd"),
+        "@echo off\r\necho codex-cli 9.9.9\r\n",
+    )
+    .unwrap();
 
     std::env::remove_var("CODEX_CLI");
     std::env::set_var("PATH", dir.path());

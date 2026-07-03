@@ -1,5 +1,9 @@
 // Codex 세션 JSONL 파일을 찾아 앱 표시용 메타데이터로 변환한다.
 use crate::config::load_config;
+use crate::domain::transcript::{
+    compact_whitespace, extract_user_message_text, first_user_message_name, truncate,
+    TranscriptContent, TranscriptPart, TranscriptPartKind,
+};
 use crate::types::Session;
 use anyhow::{anyhow, Result};
 use serde_json::Value;
@@ -66,6 +70,33 @@ struct JsonlMeta {
     total_lines: usize,
 }
 
+fn transcript_part_kind(item: &Value) -> Option<TranscriptPartKind> {
+    match item.get("type").and_then(|v| v.as_str()) {
+        Some("text") => Some(TranscriptPartKind::Text),
+        Some("output_text") => Some(TranscriptPartKind::OutputText),
+        Some("input_text") => Some(TranscriptPartKind::InputText),
+        _ => None,
+    }
+}
+
+fn transcript_content_from_json(value: &Value) -> Option<TranscriptContent> {
+    if let Some(text) = value.as_str() {
+        return Some(TranscriptContent::Text(text.to_string()));
+    }
+    let parts = value.as_array()?.iter().filter_map(|item| {
+        let kind = transcript_part_kind(item)?;
+        let text = item
+            .get("text")
+            .or_else(|| item.get("content"))
+            .and_then(|v| v.as_str())?;
+        Some(TranscriptPart {
+            kind,
+            text: text.to_string(),
+        })
+    });
+    Some(TranscriptContent::Parts(parts.collect()))
+}
+
 fn read_jsonl_meta(path: &Path) -> Result<JsonlMeta> {
     let file = fs::File::open(path)?;
     let reader = BufReader::new(file);
@@ -87,7 +118,10 @@ fn read_jsonl_meta(path: &Path) -> Result<JsonlMeta> {
             Err(_) => continue,
         };
         if first_ts.is_none() {
-            first_ts = val.get("timestamp").and_then(|v| v.as_str()).map(String::from);
+            first_ts = val
+                .get("timestamp")
+                .and_then(|v| v.as_str())
+                .map(String::from);
         }
         if let Some(ts) = val.get("timestamp").and_then(|v| v.as_str()) {
             last_ts = Some(ts.to_string());
@@ -105,7 +139,10 @@ fn read_jsonl_meta(path: &Path) -> Result<JsonlMeta> {
                     session_id = payload.get("id").and_then(|v| v.as_str()).map(String::from);
                 }
                 if cwd.is_none() {
-                    cwd = payload.get("cwd").and_then(|v| v.as_str()).map(String::from);
+                    cwd = payload
+                        .get("cwd")
+                        .and_then(|v| v.as_str())
+                        .map(String::from);
                 }
                 if version.is_none() {
                     version = payload
@@ -124,7 +161,9 @@ fn read_jsonl_meta(path: &Path) -> Result<JsonlMeta> {
                     && payload.get("type").and_then(|v| v.as_str()) == Some("user_message")
                 {
                     if let Some(message) = payload.get("message") {
-                        first_user = extract_user_message_text(message).map(|s| truncate(&s, 200));
+                        first_user = transcript_content_from_json(message)
+                            .and_then(|content| extract_user_message_text(&content))
+                            .map(|s| truncate(&s, 200));
                     }
                 }
             }
@@ -133,7 +172,9 @@ fn read_jsonl_meta(path: &Path) -> Result<JsonlMeta> {
                     && payload.get("role").and_then(|v| v.as_str()) == Some("user")
                 {
                     if let Some(content) = payload.get("content") {
-                        first_user = extract_user_message_text(content).map(|s| truncate(&s, 200));
+                        first_user = transcript_content_from_json(content)
+                            .and_then(|content| extract_user_message_text(&content))
+                            .map(|s| truncate(&s, 200));
                     }
                 }
             }
@@ -152,73 +193,20 @@ fn read_jsonl_meta(path: &Path) -> Result<JsonlMeta> {
     })
 }
 
-fn extract_text(content: &Value) -> Option<String> {
-    if let Some(s) = content.as_str() {
-        return Some(s.to_string());
-    }
-    if let Some(arr) = content.as_array() {
-        for item in arr {
-            if matches!(
-                item.get("type").and_then(|v| v.as_str()),
-                Some("text") | Some("output_text") | Some("input_text")
-            ) {
-                if let Some(t) = item
-                    .get("text")
-                    .or_else(|| item.get("content"))
-                    .and_then(|v| v.as_str())
-                {
-                    return Some(t.to_string());
-                }
-            }
-        }
-    }
-    None
-}
-
-fn is_injected_instruction_message(message: &str) -> bool {
-    let trimmed = message.trim_start();
-    (trimmed.starts_with("# AGENTS.md instructions") && trimmed.contains("<INSTRUCTIONS>"))
-        || trimmed.starts_with("The following is the Codex agent history")
-        || trimmed.starts_with("Summarize the following Codex sessions in Korean.")
-        || trimmed.starts_with("Summarize this Codex session in Korean.")
-        || trimmed.starts_with("<environment_context>")
-        || trimmed.starts_with("<skill>")
-}
-
-fn extract_user_message_text(content: &Value) -> Option<String> {
-    let text = extract_text(content)?;
-    if is_injected_instruction_message(&text) {
-        None
-    } else {
-        Some(text)
-    }
-}
-
-fn truncate(s: &str, n: usize) -> String {
-    s.chars().take(n).collect()
-}
-
-fn compact_whitespace(s: &str) -> String {
-    s.split_whitespace().collect::<Vec<_>>().join(" ")
-}
-
-fn first_user_message_name(message: &str) -> Option<String> {
-    let compact = compact_whitespace(message);
-    if compact.is_empty() {
-        None
-    } else {
-        Some(truncate(&compact, 24))
-    }
-}
-
 fn load_session_index_names() -> HashMap<String, String> {
     let path = codex_home().join("session_index.jsonl");
-    let Ok(file) = fs::File::open(path) else { return HashMap::new() };
+    let Ok(file) = fs::File::open(path) else {
+        return HashMap::new();
+    };
     let reader = BufReader::new(file);
     let mut names = HashMap::new();
     for line in reader.lines().map_while(Result::ok) {
-        let Ok(val) = serde_json::from_str::<Value>(&line) else { continue };
-        let Some(id) = val.get("id").and_then(|v| v.as_str()) else { continue };
+        let Ok(val) = serde_json::from_str::<Value>(&line) else {
+            continue;
+        };
+        let Some(id) = val.get("id").and_then(|v| v.as_str()) else {
+            continue;
+        };
         let name = val
             .get("thread_name")
             .or_else(|| val.get("name"))
@@ -276,7 +264,9 @@ pub fn read_cwd_from_jsonl(path: &PathBuf) -> Option<String> {
             break;
         }
         let Ok(line) = line else { continue };
-        let Ok(val) = serde_json::from_str::<Value>(&line) else { continue };
+        let Ok(val) = serde_json::from_str::<Value>(&line) else {
+            continue;
+        };
         if let Some(next_cwd) = val.pointer("/payload/cwd").and_then(|v| v.as_str()) {
             cwd = Some(next_cwd.to_string());
         }
@@ -288,7 +278,9 @@ fn collect_jsonl_files(root: &Path) -> Vec<PathBuf> {
     let mut out = Vec::new();
     let mut stack = vec![root.to_path_buf()];
     while let Some(dir) = stack.pop() {
-        let Ok(entries) = fs::read_dir(&dir) else { continue };
+        let Ok(entries) = fs::read_dir(&dir) else {
+            continue;
+        };
         for entry in entries.flatten() {
             let path = entry.path();
             if path.is_dir() {
@@ -444,16 +436,15 @@ pub fn scan_local_sessions() -> Result<Vec<Session>> {
                 }
                 continue;
             }
-            let inferred_name = index_names
-                .get(&stem)
-                .cloned()
-                .or_else(|| {
-                    meta.as_ref()
-                        .and_then(|m| m.first_user_message.as_deref())
-                        .and_then(first_user_message_name)
-                });
+            let inferred_name = index_names.get(&stem).cloned().or_else(|| {
+                meta.as_ref()
+                    .and_then(|m| m.first_user_message.as_deref())
+                    .and_then(first_user_message_name)
+            });
             let favorite = saved_meta.favorite.unwrap_or(false);
-            let project_dir = cwd.clone().unwrap_or_else(|| root.to_string_lossy().to_string());
+            let project_dir = cwd
+                .clone()
+                .unwrap_or_else(|| root.to_string_lossy().to_string());
             let archived = path.starts_with(&archived_root);
 
             total_pushed += 1;
@@ -512,16 +503,22 @@ pub fn get_session_messages(file_path: &str, max_messages: usize) -> Result<Vec<
             break;
         }
         let Ok(line) = line_res else { continue };
-        let Ok(val) = serde_json::from_str::<Value>(&line) else { continue };
+        let Ok(val) = serde_json::from_str::<Value>(&line) else {
+            continue;
+        };
         if val.get("type").and_then(|v| v.as_str()) != Some("event_msg") {
             continue;
         }
-        let Some(payload) = val.get("payload") else { continue };
+        let Some(payload) = val.get("payload") else {
+            continue;
+        };
         if payload.get("type").and_then(|v| v.as_str()) != Some("user_message") {
             continue;
         }
         if let Some(message) = payload.get("message") {
-            if let Some(text) = extract_user_message_text(message) {
+            if let Some(text) = transcript_content_from_json(message)
+                .and_then(|content| extract_user_message_text(&content))
+            {
                 out.push(truncate(&text, 300));
             }
         }
@@ -538,8 +535,8 @@ pub fn delete_session_file(file_path: &str) -> Result<()> {
 }
 
 fn run_codex_session_action(action: &str, session_id: &str) -> Result<()> {
-    let codex = crate::environment::locate_codex()
-        .ok_or_else(|| anyhow!("codex CLI를 찾을 수 없음"))?;
+    let codex =
+        crate::environment::locate_codex().ok_or_else(|| anyhow!("codex CLI를 찾을 수 없음"))?;
     let mut cmd = Command::new(&codex);
     cmd.arg(action);
     if action == "delete" {
@@ -552,7 +549,9 @@ fn run_codex_session_action(action: &str, session_id: &str) -> Result<()> {
         const CREATE_NO_WINDOW: u32 = 0x0800_0000;
         cmd.creation_flags(CREATE_NO_WINDOW);
     }
-    let output = cmd.output().map_err(|e| anyhow!("codex {} 실행 실패: {}", action, e))?;
+    let output = cmd
+        .output()
+        .map_err(|e| anyhow!("codex {} 실행 실패: {}", action, e))?;
     if output.status.success() {
         Ok(())
     } else {

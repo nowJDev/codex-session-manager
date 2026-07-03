@@ -1,4 +1,6 @@
-use codex_session_manager_lib::{cloud, config, environment, resume, scanner, summary, terminal, types::SessionMeta};
+use codex_session_manager_lib::{
+    cloud, config, environment, resume, scanner, summary, terminal, types::SessionMeta,
+};
 use std::process::ExitCode;
 
 fn print_help() {
@@ -44,33 +46,51 @@ fn main() -> ExitCode {
             Ok(())
         }
         "set-name" => {
-            let id = args.get(1).ok_or_else(|| anyhow::anyhow!("session-id required"))?;
-            let name = args.get(2).ok_or_else(|| anyhow::anyhow!("name required"))?;
+            let id = args
+                .get(1)
+                .ok_or_else(|| anyhow::anyhow!("session-id required"))?;
+            let name = args
+                .get(2)
+                .ok_or_else(|| anyhow::anyhow!("name required"))?;
             config::upsert_session_meta(
                 id,
-                SessionMeta { name: Some(name.clone()), ..Default::default() },
+                SessionMeta {
+                    name: Some(name.clone()),
+                    ..Default::default()
+                },
             )?;
             println!("ok");
             Ok(())
         }
         "set-desc" => {
-            let id = args.get(1).ok_or_else(|| anyhow::anyhow!("session-id required"))?;
-            let desc = args.get(2).ok_or_else(|| anyhow::anyhow!("desc required"))?;
+            let id = args
+                .get(1)
+                .ok_or_else(|| anyhow::anyhow!("session-id required"))?;
+            let desc = args
+                .get(2)
+                .ok_or_else(|| anyhow::anyhow!("desc required"))?;
             config::upsert_session_meta(
                 id,
-                SessionMeta { description: Some(desc.clone()), ..Default::default() },
+                SessionMeta {
+                    description: Some(desc.clone()),
+                    ..Default::default()
+                },
             )?;
             println!("ok");
             Ok(())
         }
         "delete-meta" => {
-            let id = args.get(1).ok_or_else(|| anyhow::anyhow!("session-id required"))?;
+            let id = args
+                .get(1)
+                .ok_or_else(|| anyhow::anyhow!("session-id required"))?;
             config::delete_session_meta(id)?;
             println!("ok");
             Ok(())
         }
         "delete" => {
-            let id = args.get(1).ok_or_else(|| anyhow::anyhow!("session-id required"))?;
+            let id = args
+                .get(1)
+                .ok_or_else(|| anyhow::anyhow!("session-id required"))?;
             let sessions = scanner::scan_local_sessions()?;
             let s = sessions
                 .iter()
@@ -115,7 +135,9 @@ fn main() -> ExitCode {
             Ok(())
         }
         "auto-summarize" => {
-            let id = args.get(1).ok_or_else(|| anyhow::anyhow!("session-id required"))?;
+            let id = args
+                .get(1)
+                .ok_or_else(|| anyhow::anyhow!("session-id required"))?;
             // file_path 찾기
             let sessions = scanner::scan_local_sessions()?;
             let s = sessions
@@ -132,37 +154,51 @@ fn main() -> ExitCode {
                     ..Default::default()
                 },
             )?;
-            println!("{}", serde_json::to_string_pretty(&serde_json::json!({
-                "name": name,
-                "description": desc,
-            }))?);
+            println!(
+                "{}",
+                serde_json::to_string_pretty(&serde_json::json!({
+                    "name": name,
+                    "description": desc,
+                }))?
+            );
             Ok(())
         }
         "set-favorite" => {
-            let id = args.get(1).ok_or_else(|| anyhow::anyhow!("session-id required"))?;
+            let id = args
+                .get(1)
+                .ok_or_else(|| anyhow::anyhow!("session-id required"))?;
             let flag = args.get(2).map(|s| s.as_str()).unwrap_or("1");
             let val = matches!(flag, "1" | "true" | "yes" | "on");
             config::upsert_session_meta(
                 id,
-                SessionMeta { favorite: Some(val), ..Default::default() },
+                SessionMeta {
+                    favorite: Some(val),
+                    ..Default::default()
+                },
             )?;
             println!("ok");
             Ok(())
         }
         "archive" => {
-            let id = args.get(1).ok_or_else(|| anyhow::anyhow!("session-id required"))?;
+            let id = args
+                .get(1)
+                .ok_or_else(|| anyhow::anyhow!("session-id required"))?;
             scanner::archive_session(id)?;
             println!("archived: {}", id);
             Ok(())
         }
         "unarchive" => {
-            let id = args.get(1).ok_or_else(|| anyhow::anyhow!("session-id required"))?;
+            let id = args
+                .get(1)
+                .ok_or_else(|| anyhow::anyhow!("session-id required"))?;
             scanner::unarchive_session(id)?;
             println!("unarchived: {}", id);
             Ok(())
         }
         "resume-plan" => {
-            let id = args.get(1).ok_or_else(|| anyhow::anyhow!("session-id required"))?;
+            let id = args
+                .get(1)
+                .ok_or_else(|| anyhow::anyhow!("session-id required"))?;
             let cwd = args.get(2).map(|s| s.as_str());
             let target = if cfg!(target_os = "windows") {
                 "windows"
@@ -172,15 +208,20 @@ fn main() -> ExitCode {
                 "linux"
             };
             let plan = resume::build_resume_plan(id, cwd, target);
-            println!("{}", serde_json::to_string_pretty(&serde_json::json!({
-                "program": plan.program,
-                "args": plan.args,
-                "target": target,
-            }))?);
+            println!(
+                "{}",
+                serde_json::to_string_pretty(&serde_json::json!({
+                    "program": plan.program,
+                    "args": plan.args,
+                    "target": target,
+                }))?
+            );
             Ok(())
         }
         "messages" => {
-            let file = args.get(1).ok_or_else(|| anyhow::anyhow!("file-path required"))?;
+            let file = args
+                .get(1)
+                .ok_or_else(|| anyhow::anyhow!("file-path required"))?;
             let n: usize = args.get(2).map(|s| s.parse().unwrap_or(5)).unwrap_or(5);
             let msgs = scanner::get_session_messages(file, n)?;
             println!("{}", serde_json::to_string_pretty(&msgs)?);
@@ -192,7 +233,9 @@ fn main() -> ExitCode {
             Ok(())
         }
         "set-terminal" => {
-            let value = args.get(1).ok_or_else(|| anyhow::anyhow!("kind required (auto|git-bash|wt|powershell|cmd|terminal)"))?;
+            let value = args.get(1).ok_or_else(|| {
+                anyhow::anyhow!("kind required (auto|git-bash|wt|powershell|cmd|terminal)")
+            })?;
             if value != "auto" && terminal::TerminalKind::parse(value).is_none() {
                 return Err(anyhow::anyhow!("unknown terminal kind: {}", value));
             }
@@ -216,7 +259,9 @@ fn main() -> ExitCode {
             Ok(())
         }
         "upload" => {
-            let id = args.get(1).ok_or_else(|| anyhow::anyhow!("session-id required"))?;
+            let id = args
+                .get(1)
+                .ok_or_else(|| anyhow::anyhow!("session-id required"))?;
             let sessions = scanner::scan_local_sessions()?;
             let s = sessions
                 .iter()
@@ -227,7 +272,9 @@ fn main() -> ExitCode {
             Ok(())
         }
         "checkout" => {
-            let id = args.get(1).ok_or_else(|| anyhow::anyhow!("session-id required"))?;
+            let id = args
+                .get(1)
+                .ok_or_else(|| anyhow::anyhow!("session-id required"))?;
             let sessions = cloud::list_cloud_sessions()?;
             let s = sessions
                 .iter()
@@ -238,7 +285,9 @@ fn main() -> ExitCode {
             Ok(())
         }
         "checkin" => {
-            let id = args.get(1).ok_or_else(|| anyhow::anyhow!("session-id required"))?;
+            let id = args
+                .get(1)
+                .ok_or_else(|| anyhow::anyhow!("session-id required"))?;
             // 로컬 또는 클라우드 메타에서 정보 가져오기
             let cloud_list = cloud::list_cloud_sessions()?;
             let s = cloud_list
@@ -250,16 +299,19 @@ fn main() -> ExitCode {
             Ok(())
         }
         "paths" => {
-            println!("{}", serde_json::to_string_pretty(&serde_json::json!({
-                "config_dir": config::config_dir(),
-                "config_file": config::config_file(),
-                "codex_home": scanner::codex_home(),
-                "sessions_dir": scanner::sessions_dir(),
-                "archived_sessions_dir": scanner::archived_sessions_dir(),
-                "projects_roots": scanner::projects_roots(),
-                "home_override": std::env::var("CODEX_SESSION_HOME").ok(),
-                "codex_home_override": std::env::var("CODEX_HOME").ok(),
-            }))?);
+            println!(
+                "{}",
+                serde_json::to_string_pretty(&serde_json::json!({
+                    "config_dir": config::config_dir(),
+                    "config_file": config::config_file(),
+                    "codex_home": scanner::codex_home(),
+                    "sessions_dir": scanner::sessions_dir(),
+                    "archived_sessions_dir": scanner::archived_sessions_dir(),
+                    "projects_roots": scanner::projects_roots(),
+                    "home_override": std::env::var("CODEX_SESSION_HOME").ok(),
+                    "codex_home_override": std::env::var("CODEX_HOME").ok(),
+                }))?
+            );
             Ok(())
         }
         _ => {

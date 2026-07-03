@@ -61,7 +61,10 @@ pub struct ResumePlan {
 }
 
 fn first_existing(candidates: &[PathBuf]) -> Option<String> {
-    candidates.iter().find(|p| p.exists()).map(|p| p.to_string_lossy().to_string())
+    candidates
+        .iter()
+        .find(|p| p.exists())
+        .map(|p| p.to_string_lossy().to_string())
 }
 
 fn locate_git_bash() -> Option<String> {
@@ -71,7 +74,12 @@ fn locate_git_bash() -> Option<String> {
         }
     }
     let mut candidates: Vec<PathBuf> = Vec::new();
-    for var in ["ProgramFiles", "ProgramFiles(x86)", "ProgramW6432", "LOCALAPPDATA"] {
+    for var in [
+        "ProgramFiles",
+        "ProgramFiles(x86)",
+        "ProgramW6432",
+        "LOCALAPPDATA",
+    ] {
         if let Ok(base) = std::env::var(var) {
             candidates.push(PathBuf::from(base).join("Git").join("git-bash.exe"));
         }
@@ -88,7 +96,10 @@ fn locate_windows_terminal() -> Option<String> {
         }
     }
     if let Ok(local) = std::env::var("LOCALAPPDATA") {
-        let pkgs = PathBuf::from(local).join("Microsoft").join("WindowsApps").join("wt.exe");
+        let pkgs = PathBuf::from(local)
+            .join("Microsoft")
+            .join("WindowsApps")
+            .join("wt.exe");
         if pkgs.exists() {
             return Some(pkgs.to_string_lossy().to_string());
         }
@@ -106,7 +117,12 @@ fn locate_powershell() -> Option<String> {
     let mut candidates = Vec::new();
     for var in ["ProgramFiles", "ProgramFiles(x86)"] {
         if let Ok(base) = std::env::var(var) {
-            candidates.push(PathBuf::from(&base).join("PowerShell").join("7").join("pwsh.exe"));
+            candidates.push(
+                PathBuf::from(&base)
+                    .join("PowerShell")
+                    .join("7")
+                    .join("pwsh.exe"),
+            );
         }
     }
     if let Some(p) = first_existing(&candidates) {
@@ -164,7 +180,11 @@ pub fn detect_all_terminals(target_os: &str) -> Vec<DetectedTerminal> {
     };
     match target_os {
         "windows" => {
-            push(&mut out, TerminalKind::WindowsTerminal, locate_windows_terminal());
+            push(
+                &mut out,
+                TerminalKind::WindowsTerminal,
+                locate_windows_terminal(),
+            );
             push(&mut out, TerminalKind::PowerShell, locate_powershell());
             push(&mut out, TerminalKind::Cmd, locate_cmd());
             push(&mut out, TerminalKind::GitBash, locate_git_bash());
@@ -258,7 +278,10 @@ pub fn build_resume_command_with_codex(
                 .map(|p| format!("cd '{}' && ", p.replace('\\', "/")))
                 .unwrap_or_default();
             let cmd = format!("{}{}; exec bash", cd, codex_invoke);
-            ResumePlan { program: term.program.clone(), args: vec!["-c".into(), cmd] }
+            ResumePlan {
+                program: term.program.clone(),
+                args: vec!["-c".into(), cmd],
+            }
         }
         TerminalKind::WindowsTerminal => {
             let mut args = Vec::new();
@@ -271,7 +294,10 @@ pub fn build_resume_command_with_codex(
             args.push("-NoExit".into());
             args.push("-Command".into());
             args.push(codex_invoke.clone());
-            ResumePlan { program: term.program.clone(), args }
+            ResumePlan {
+                program: term.program.clone(),
+                args,
+            }
         }
         TerminalKind::PowerShell => {
             let cd = work_dir
@@ -307,7 +333,9 @@ pub fn build_resume_command_with_codex(
             }
         }
         TerminalKind::LinuxDefault => {
-            let cd = work_dir.map(|p| format!("cd '{}' && ", p)).unwrap_or_default();
+            let cd = work_dir
+                .map(|p| format!("cd '{}' && ", p))
+                .unwrap_or_default();
             let cmd = format!("{}{}; exec bash", cd, codex_invoke);
             ResumePlan {
                 program: term.program.clone(),
@@ -337,7 +365,10 @@ pub fn build_custom_resume_command(
     flags: Option<&str>,
 ) -> ResumePlan {
     let work_dir = cwd.filter(|p| Path::new(p).exists()).unwrap_or("");
-    let flags_str = flags.map(|s| s.trim()).filter(|s| !s.is_empty()).unwrap_or("");
+    let flags_str = flags
+        .map(|s| s.trim())
+        .filter(|s| !s.is_empty())
+        .unwrap_or("");
     let codex_invoke = if flags_str.is_empty() {
         format!("codex resume {}", session_id)
     } else {

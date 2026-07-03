@@ -1,0 +1,346 @@
+// 세션 관리 use case를 조율하는 애플리케이션 서비스이다.
+use crate::application::ports::SessionPorts;
+use crate::domain::session::{is_retryable_auto_summary, merge_local_and_cloud_sessions};
+use crate::types::{Config, DeleteSessionTarget, Session, SessionMeta, Settings};
+use anyhow::Result;
+use std::collections::HashMap;
+use std::path::PathBuf;
+
+pub struct SessionService<P> {
+    ports: P,
+}
+
+impl<P: SessionPorts> SessionService<P> {
+    pub fn new(ports: P) -> Self {
+        Self { ports }
+    }
+
+    pub fn list_sessions(&self) -> Result<Vec<Session>> {
+        let local = self.ports.scan_local_sessions()?;
+        let cloud_all = self.ports.list_cloud_sessions().unwrap_or_default();
+        Ok(merge_local_and_cloud_sessions(local, cloud_all))
+    }
+
+    pub fn get_config(&self) -> Config {
+        self.ports.load_config()
+    }
+
+    pub fn save_session_meta(&self, session_id: &str, patch: SessionMeta) -> Result<()> {
+        self.ports.save_session_meta(session_id, patch)
+    }
+
+    pub fn delete_session(&self, session_id: &str, file_path: &str) -> Result<()> {
+        self.ports.delete_session(session_id, file_path)?;
+        self.ports.delete_session_meta(session_id)
+    }
+
+    pub fn delete_sessions(&self, targets: Vec<DeleteSessionTarget>) -> Result<()> {
+        for target in targets {
+            self.delete_session(&target.session_id, &target.file_path)?;
+        }
+        Ok(())
+    }
+
+    pub fn archive_session(&self, session_id: &str) -> Result<()> {
+        self.ports.archive_session(session_id)
+    }
+
+    pub fn unarchive_session(&self, session_id: &str) -> Result<()> {
+        self.ports.unarchive_session(session_id)
+    }
+
+    pub fn save_settings(&self, patch: Settings) -> Result<()> {
+        self.ports.update_settings(patch)
+    }
+
+    pub fn set_cloud_folder(&self, root: &str) -> Result<PathBuf> {
+        self.ports.set_cloud_folder(root)
+    }
+
+    pub fn upload_to_cloud(&self, session: &Session) -> Result<()> {
+        self.ports.upload_to_cloud(session)
+    }
+
+    pub fn checkout_session(&self, session: &Session) -> Result<String> {
+        self.ports.checkout_session(session)
+    }
+
+    pub fn checkin_session(&self, session: &Session) -> Result<()> {
+        self.ports.checkin_session(session)
+    }
+
+    pub fn resume_session(&self, session_id: &str, cwd: Option<&str>) -> Result<()> {
+        self.ports.resume_session(session_id, cwd)
+    }
+
+    pub fn pending_auto_summary_batch(&self, batch_size: usize) -> Result<Vec<(String, String)>> {
+        Ok(self
+            .ports
+            .scan_local_sessions()?
+            .into_iter()
+            .filter(|session| {
+                session.description.as_deref().unwrap_or("").is_empty()
+                    && is_retryable_auto_summary(session.auto_summary.as_deref())
+            })
+            .take(batch_size)
+            .map(|session| (session.session_id, session.file_path))
+            .collect())
+    }
+
+    pub fn summarize_batch(
+        &self,
+        pending: &[(String, String)],
+    ) -> Result<HashMap<String, (String, String)>> {
+        self.ports.summarize_batch(pending)
+    }
+
+    pub fn save_summary(&self, session_id: &str, name: String, description: String) -> Result<()> {
+        self.ports.save_session_meta(
+            session_id,
+            SessionMeta {
+                name: Some(name),
+                auto_summary: Some(description),
+                ..Default::default()
+            },
+        )
+    }
+
+    pub fn mark_summary_missing(&self, session_id: &str) -> Result<()> {
+        self.ports.save_session_meta(
+            session_id,
+            SessionMeta {
+                auto_summary: Some("(요약 누락 — 재시도 예정)".into()),
+                ..Default::default()
+            },
+        )
+    }
+
+    pub fn mark_summary_failed(&self, session_id: &str, error: &str) -> Result<()> {
+        self.ports.save_session_meta(
+            session_id,
+            SessionMeta {
+                auto_summary: Some(format!("(자동 요약 실패: {})", error)),
+                ..Default::default()
+            },
+        )
+    }
+
+    pub fn generate_summary(&self, session_id: &str, file_path: &str) -> Result<String> {
+        let cfg = self.ports.load_config();
+        let previous_summary = cfg
+            .sessions
+            .get(session_id)
+            .and_then(|meta| meta.description.clone().or(meta.auto_summary.clone()));
+
+        let (name, description) = self
+            .ports
+            .summarize_session(file_path, previous_summary.as_deref())?;
+        self.save_summary(session_id, name, description.clone())?;
+        Ok(description)
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::SessionService;
+    use crate::application::ports::SessionPorts;
+    use crate::types::{Config, Session, SessionMeta, Settings};
+    use anyhow::Result;
+    use std::cell::RefCell;
+    use std::collections::HashMap;
+    use std::path::PathBuf;
+    use std::rc::Rc;
+
+    #[derive(Default)]
+    struct FakeState {
+        local: Vec<Session>,
+        cloud: Vec<Session>,
+        config: Config,
+        saved_meta: Vec<(String, SessionMeta)>,
+        deleted_meta: Vec<String>,
+        deleted_sessions: Vec<(String, String)>,
+        summaries: HashMap<String, (String, String)>,
+    }
+
+    #[derive(Clone, Default)]
+    struct FakePorts {
+        state: Rc<RefCell<FakeState>>,
+    }
+
+    impl SessionPorts for FakePorts {
+        fn scan_local_sessions(&self) -> Result<Vec<Session>> {
+            Ok(self.state.borrow().local.clone())
+        }
+
+        fn delete_session(&self, session_id: &str, file_path: &str) -> Result<()> {
+            self.state
+                .borrow_mut()
+                .deleted_sessions
+                .push((session_id.to_string(), file_path.to_string()));
+            Ok(())
+        }
+
+        fn archive_session(&self, _session_id: &str) -> Result<()> {
+            Ok(())
+        }
+
+        fn unarchive_session(&self, _session_id: &str) -> Result<()> {
+            Ok(())
+        }
+
+        fn load_config(&self) -> Config {
+            self.state.borrow().config.clone()
+        }
+
+        fn save_session_meta(&self, session_id: &str, patch: SessionMeta) -> Result<()> {
+            self.state
+                .borrow_mut()
+                .saved_meta
+                .push((session_id.to_string(), patch));
+            Ok(())
+        }
+
+        fn delete_session_meta(&self, session_id: &str) -> Result<()> {
+            self.state
+                .borrow_mut()
+                .deleted_meta
+                .push(session_id.to_string());
+            Ok(())
+        }
+
+        fn update_settings(&self, _patch: Settings) -> Result<()> {
+            Ok(())
+        }
+
+        fn list_cloud_sessions(&self) -> Result<Vec<Session>> {
+            Ok(self.state.borrow().cloud.clone())
+        }
+
+        fn set_cloud_folder(&self, _root: &str) -> Result<PathBuf> {
+            Ok(PathBuf::from("cloud"))
+        }
+
+        fn upload_to_cloud(&self, _session: &Session) -> Result<()> {
+            Ok(())
+        }
+
+        fn checkout_session(&self, _session: &Session) -> Result<String> {
+            Ok("checked-out.jsonl".into())
+        }
+
+        fn checkin_session(&self, _session: &Session) -> Result<()> {
+            Ok(())
+        }
+
+        fn resume_session(&self, _session_id: &str, _cwd: Option<&str>) -> Result<()> {
+            Ok(())
+        }
+
+        fn summarize_batch(
+            &self,
+            _items: &[(String, String)],
+        ) -> Result<HashMap<String, (String, String)>> {
+            Ok(self.state.borrow().summaries.clone())
+        }
+
+        fn summarize_session(
+            &self,
+            _file_path: &str,
+            previous_summary: Option<&str>,
+        ) -> Result<(String, String)> {
+            Ok((
+                "generated".into(),
+                format!("summary after {}", previous_summary.unwrap_or("none")),
+            ))
+        }
+    }
+
+    fn session(id: &str, file_path: &str) -> Session {
+        Session {
+            session_id: id.into(),
+            name: None,
+            description: None,
+            auto_summary: None,
+            project: "Agent".into(),
+            project_dir: "C:/Agent".into(),
+            file_path: file_path.into(),
+            size: 1,
+            total_lines: 1,
+            first_timestamp: None,
+            last_timestamp: None,
+            cwd: None,
+            version: None,
+            first_user_message: Some("hello".into()),
+            storage_type: "local".into(),
+            archived: false,
+            favorite: false,
+            locked_by: None,
+        }
+    }
+
+    #[test]
+    fn list_sessions_merges_storage_state_without_real_files() {
+        let ports = FakePorts::default();
+        {
+            let mut state = ports.state.borrow_mut();
+            state.local = vec![
+                session("same", "local.jsonl"),
+                session("local", "only.jsonl"),
+            ];
+            state.cloud = vec![
+                session("same", "cloud.jsonl"),
+                session("cloud", "cloud.jsonl"),
+            ];
+        }
+
+        let sessions = SessionService::new(ports).list_sessions().unwrap();
+        let by_id = sessions
+            .iter()
+            .map(|session| (session.session_id.as_str(), session.storage_type.as_str()))
+            .collect::<HashMap<_, _>>();
+
+        assert_eq!(by_id.get("same"), Some(&"synced"));
+        assert_eq!(by_id.get("local"), Some(&"local-only"));
+        assert_eq!(by_id.get("cloud"), Some(&"cloud-only"));
+    }
+
+    #[test]
+    fn delete_session_removes_file_and_metadata_through_ports() {
+        let ports = FakePorts::default();
+        let state = ports.state.clone();
+
+        SessionService::new(ports)
+            .delete_session("s1", "session.jsonl")
+            .unwrap();
+
+        let state = state.borrow();
+        assert_eq!(
+            state.deleted_sessions,
+            vec![("s1".to_string(), "session.jsonl".to_string())]
+        );
+        assert_eq!(state.deleted_meta, vec!["s1".to_string()]);
+    }
+
+    #[test]
+    fn generate_summary_uses_previous_summary_and_persists_result() {
+        let ports = FakePorts::default();
+        ports.state.borrow_mut().config.sessions.insert(
+            "s1".into(),
+            SessionMeta {
+                auto_summary: Some("old".into()),
+                ..Default::default()
+            },
+        );
+        let state = ports.state.clone();
+
+        let description = SessionService::new(ports)
+            .generate_summary("s1", "session.jsonl")
+            .unwrap();
+
+        assert_eq!(description, "summary after old");
+        let saved = &state.borrow().saved_meta[0];
+        assert_eq!(saved.0, "s1");
+        assert_eq!(saved.1.name.as_deref(), Some("generated"));
+        assert_eq!(saved.1.auto_summary.as_deref(), Some("summary after old"));
+    }
+}

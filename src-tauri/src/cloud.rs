@@ -20,16 +20,16 @@ const CLOUD_FOLDER: &str = "Codex Sessions";
 /// Google Drive의 "My Drive" 폴더 — OS 언어에 따라 localize된 이름들.
 /// Windows Drive for desktop은 OS 표시 언어를 따라간다 (영어 OS면 영어, 한국어 OS면 한국어 등).
 const MY_DRIVE_NAMES: &[&str] = &[
-    "My Drive",      // English
-    "내 드라이브",    // Korean
-    "マイドライブ",   // Japanese
-    "Mein Drive",    // German
-    "Meu Drive",     // Portuguese
-    "Mi unidad",     // Spanish
-    "Mon Drive",     // French
-    "Il mio Drive",  // Italian
-    "我的云端硬盘",   // Chinese (Simplified)
-    "我的雲端硬碟",   // Chinese (Traditional)
+    "My Drive",     // English
+    "내 드라이브",  // Korean
+    "マイドライブ", // Japanese
+    "Mein Drive",   // German
+    "Meu Drive",    // Portuguese
+    "Mi unidad",    // Spanish
+    "Mon Drive",    // French
+    "Il mio Drive", // Italian
+    "我的云端硬盘", // Chinese (Simplified)
+    "我的雲端硬碟", // Chinese (Traditional)
 ];
 
 /// 알려진 이름으로 못 찾았을 때 — 드라이브 루트에서 사용자 폴더로 보이는 것
@@ -135,7 +135,10 @@ pub fn detect_google_drive_result() -> CloudDetectResult {
             found: true,
             path: Some(p.to_string_lossy().to_string()),
         },
-        None => CloudDetectResult { found: false, path: None },
+        None => CloudDetectResult {
+            found: false,
+            path: None,
+        },
     }
 }
 
@@ -279,7 +282,9 @@ pub fn acquire_lock(session_id: &str) -> Result<()> {
 }
 
 pub fn release_lock(session_id: &str) -> Result<()> {
-    let Some(cloud) = cloud_path() else { return Ok(()) };
+    let Some(cloud) = cloud_path() else {
+        return Ok(());
+    };
     let path = lock_path(&cloud, session_id);
     if path.exists() {
         let _ = fs::remove_file(&path);
@@ -288,7 +293,9 @@ pub fn release_lock(session_id: &str) -> Result<()> {
 }
 
 pub fn list_cloud_sessions() -> Result<Vec<Session>> {
-    let Some(cloud) = cloud_path() else { return Ok(vec![]) };
+    let Some(cloud) = cloud_path() else {
+        return Ok(vec![]);
+    };
     if !cloud.exists() {
         return Ok(vec![]);
     }
@@ -296,12 +303,18 @@ pub fn list_cloud_sessions() -> Result<Vec<Session>> {
     for entry in fs::read_dir(&cloud)? {
         let Ok(entry) = entry else { continue };
         let path = entry.path();
-        let Some(name) = path.file_name().and_then(|s| s.to_str()) else { continue };
+        let Some(name) = path.file_name().and_then(|s| s.to_str()) else {
+            continue;
+        };
         if !name.ends_with(".meta.json") {
             continue;
         }
-        let Ok(body) = fs::read_to_string(&path) else { continue };
-        let Ok(meta) = serde_json::from_str::<CloudMeta>(&body) else { continue };
+        let Ok(body) = fs::read_to_string(&path) else {
+            continue;
+        };
+        let Ok(meta) = serde_json::from_str::<CloudMeta>(&body) else {
+            continue;
+        };
         let jsonl = cloud.join(format!("{}.jsonl", meta.session_id));
         let stat = fs::metadata(&jsonl).ok();
         let lock = read_lock(&meta.session_id);
@@ -361,7 +374,9 @@ pub fn checkout(session: &Session) -> Result<String> {
 }
 
 pub fn checkin(session: &Session) -> Result<()> {
-    let Some(cloud) = cloud_path() else { return Ok(()) };
+    let Some(cloud) = cloud_path() else {
+        return Ok(());
+    };
 
     // 로컬 jsonl 위치 — file_path가 실제 로컬 파일이면 그걸 우선 사용.
     // (클라우드 폴더 안의 경로일 수도 있으니 그건 제외.) 못 찾으면 project_dir 기반으로 폴백.
@@ -374,8 +389,15 @@ pub fn checkin(session: &Session) -> Result<()> {
         file_path_pb
     } else {
         read_cloud_meta(&cloud, &session.session_id)
-            .and_then(|m| m.rollout_relative_path.map(|rel| sessions_dir().join(rel.replace('/', std::path::MAIN_SEPARATOR_STR))))
-            .unwrap_or_else(|| sessions_dir().join("cloud").join(format!("{}.jsonl", session.session_id)))
+            .and_then(|m| {
+                m.rollout_relative_path
+                    .map(|rel| sessions_dir().join(rel.replace('/', std::path::MAIN_SEPARATOR_STR)))
+            })
+            .unwrap_or_else(|| {
+                sessions_dir()
+                    .join("cloud")
+                    .join(format!("{}.jsonl", session.session_id))
+            })
     };
 
     if local_path.exists() {
