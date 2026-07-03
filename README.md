@@ -2,7 +2,7 @@
 
 OpenAI Codex CLI 세션을 데스크톱에서 빠르게 찾고, 이름을 붙이고, 이어서 실행할 수 있게 해주는 Tauri 앱입니다.
 
-[Download latest release](https://github.com/nowJDev/codex-session-manager/releases/tag/v0.5.9) · [Report an issue](https://github.com/nowJDev/codex-session-manager/issues/new)
+[Download latest release](https://github.com/nowJDev/codex-session-manager/releases/tag/v0.5.10) · [Report an issue](https://github.com/nowJDev/codex-session-manager/issues/new)
 
 ![Codex Session Manager dark UI](docs/screenshot.png)
 
@@ -18,12 +18,12 @@ OpenAI Codex CLI 세션을 데스크톱에서 빠르게 찾고, 이름을 붙이
 
 ## Latest Release
 
-Current release: [Codex Session Manager v0.5.9](https://github.com/nowJDev/codex-session-manager/releases/tag/v0.5.9).
+Current release: [Codex Session Manager v0.5.10](https://github.com/nowJDev/codex-session-manager/releases/tag/v0.5.10).
 
 | Type | Download |
 |---|---|
-| Windows installer | `Codex.Session.Manager_0.5.9_x64-setup.exe` |
-| Windows portable | `Codex.Session.Manager_v0.5.9_x64-portable.zip` |
+| Windows installer | `Codex.Session.Manager_0.5.10_x64-setup.exe` |
+| Windows portable | `Codex.Session.Manager_v0.5.10_x64-portable.zip` |
 
 `latest.json`과 `.sig` 파일은 설치형 앱의 자동 업데이트 검증용 보조 asset입니다.
 
@@ -168,7 +168,7 @@ Installers are written to `src-tauri/target/release/bundle/`.
 
 이 프로젝트는 [glowElephant/claude-session-manager](https://github.com/glowElephant/claude-session-manager)를 fork해서 Codex용으로 이식한 프로젝트입니다. 첫 Codex 릴리스 라인은 `v0.5.x`입니다.
 
-`v0.5.0`은 최초 포트 태그로 남겨 두었고, GitHub Actions의 Node 24 대응 이후 `v0.5.1`부터 공개 릴리스 워크플로가 안정화되었습니다. `v0.5.9` 이상을 사용하면 새 아이콘, 요약 재시도 수정, 설치형 자동 업데이트, portable Windows asset, 다중 선택 삭제, 개선된 테이블 레이아웃, Codex 상태 패널, usage 페이지 이동 버튼, 헥사고날 구조로 정리된 백엔드 경계와 도메인 세션 DTO 분리 개선을 사용할 수 있습니다. 이후 릴리스는 Windows 설치 파일과 portable zip 중심으로 배포합니다.
+`v0.5.0`은 최초 포트 태그로 남겨 두었고, GitHub Actions의 Node 24 대응 이후 `v0.5.1`부터 공개 릴리스 워크플로가 안정화되었습니다. `v0.5.10` 이상을 사용하면 새 아이콘, 요약 재시도 수정, 설치형 자동 업데이트, portable Windows asset, 다중 선택 삭제, 대량 삭제 응답성 개선, 개선된 테이블 레이아웃, Codex 상태 패널, usage 페이지 이동 버튼, 헥사고날 구조로 정리된 백엔드 경계와 프론트엔드 어댑터 분리 개선을 사용할 수 있습니다. 이후 릴리스는 Windows 설치 파일과 portable zip 중심으로 배포합니다.
 
 ## License
 
