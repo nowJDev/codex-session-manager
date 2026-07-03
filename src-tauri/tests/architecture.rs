@@ -46,6 +46,19 @@ fn domain_transcript_does_not_depend_on_json_transport_shape() {
 }
 
 #[test]
+fn domain_session_does_not_depend_on_session_dto() {
+    let source = read("src-tauri/src/domain/session.rs");
+    assert!(
+        !source.contains("crate::types::Session"),
+        "domain session rules should not import transport/application Session DTO"
+    );
+    assert!(
+        !source.contains("storage_type"),
+        "domain session rules should return domain state instead of mutating DTO storage_type"
+    );
+}
+
+#[test]
 fn frontend_app_does_not_orchestrate_ipc_workflows_directly() {
     let source = read("src/App.tsx");
     assert!(
@@ -182,5 +195,25 @@ fn session_ports_are_split_by_external_capability() {
     assert!(
         !aggregate.contains("fn "),
         "SessionPorts should compose capability traits instead of owning method declarations"
+    );
+
+    let scan_port = source
+        .split("pub trait SessionScanPort")
+        .nth(1)
+        .and_then(|tail| tail.split("pub trait SessionCommandPort").next())
+        .unwrap_or("");
+    assert!(
+        !scan_port.contains("get_session_messages"),
+        "SessionScanPort should not own message retrieval capability"
+    );
+
+    let message_port = source
+        .split("pub trait SessionMessagePort")
+        .nth(1)
+        .and_then(|tail| tail.split("pub trait SessionPorts").next())
+        .unwrap_or("");
+    assert!(
+        message_port.contains("fn get_session_messages"),
+        "SessionMessagePort should declare the message retrieval capability directly"
     );
 }

@@ -1,9 +1,10 @@
 // 세션 관리 use case를 조율하는 애플리케이션 서비스이다.
 use crate::application::ports::{ResumePlan, SessionPorts};
-use crate::domain::session::{is_retryable_auto_summary, merge_local_and_cloud_sessions};
+use crate::domain::session::{classify_storage_state, is_retryable_auto_summary, StorageState};
 use crate::types::{Config, DeleteSessionTarget, Session, SessionMeta, Settings};
 use anyhow::Result;
 use std::collections::HashMap;
+use std::collections::HashSet;
 use std::path::PathBuf;
 
 pub struct SessionService<P> {
@@ -165,12 +166,45 @@ impl<P: SessionPorts> SessionService<P> {
     }
 }
 
+fn merge_local_and_cloud_sessions(
+    mut local: Vec<Session>,
+    cloud_all: Vec<Session>,
+) -> Vec<Session> {
+    let cloud_ids: HashSet<String> = cloud_all.iter().map(|c| c.session_id.clone()).collect();
+    for session in local.iter_mut() {
+        if let Some(state) = classify_storage_state(true, cloud_ids.contains(&session.session_id)) {
+            session.storage_type = storage_type_value(state).into();
+        }
+    }
+
+    let local_ids: HashSet<String> = local.iter().map(|s| s.session_id.clone()).collect();
+    let cloud_only = cloud_all
+        .into_iter()
+        .filter(|session| !local_ids.contains(&session.session_id))
+        .map(|mut session| {
+            if let Some(state) = classify_storage_state(false, true) {
+                session.storage_type = storage_type_value(state).into();
+            }
+            session
+        });
+    local.extend(cloud_only);
+    local
+}
+
+fn storage_type_value(state: StorageState) -> &'static str {
+    match state {
+        StorageState::Synced => "synced",
+        StorageState::LocalOnly => "local-only",
+        StorageState::CloudOnly => "cloud-only",
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::SessionService;
     use crate::application::ports::{
-        CloudSyncPort, ResumePlan, ResumePort, SessionCommandPort, SessionMetadataPort,
-        SessionScanPort, SummaryPort,
+        CloudSyncPort, ResumePlan, ResumePort, SessionCommandPort, SessionMessagePort,
+        SessionMetadataPort, SessionScanPort, SummaryPort,
     };
     use crate::types::{Config, Session, SessionMeta, Settings};
     use anyhow::Result;
@@ -199,7 +233,9 @@ mod tests {
         fn scan_local_sessions(&self) -> Result<Vec<Session>> {
             Ok(self.state.borrow().local.clone())
         }
+    }
 
+    impl SessionMessagePort for FakePorts {
         fn get_session_messages(
             &self,
             _file_path: &str,

@@ -1,7 +1,7 @@
 // 기존 인프라 모듈을 애플리케이션 outbound port 구현으로 감싼다.
 use crate::application::ports::{
-    CloudSyncPort, ResumePlan, ResumePort, SessionCommandPort, SessionMetadataPort,
-    SessionScanPort, SummaryPort,
+    CloudSyncPort, ResumePlan, ResumePort, SessionCommandPort, SessionMessagePort,
+    SessionMetadataPort, SessionScanPort, SummaryPort,
 };
 use crate::types::{Config, Session, SessionMeta, Settings};
 use anyhow::Result;
@@ -15,7 +15,9 @@ impl SessionScanPort for DefaultSessionPorts {
     fn scan_local_sessions(&self) -> Result<Vec<Session>> {
         crate::scanner::scan_local_sessions()
     }
+}
 
+impl SessionMessagePort for DefaultSessionPorts {
     fn get_session_messages(&self, file_path: &str, max_messages: usize) -> Result<Vec<String>> {
         crate::scanner::get_session_messages(file_path, max_messages)
     }

@@ -8,7 +8,6 @@ use std::pin::Pin;
 
 pub trait SessionScanPort {
     fn scan_local_sessions(&self) -> Result<Vec<Session>>;
-    fn get_session_messages(&self, file_path: &str, max_messages: usize) -> Result<Vec<String>>;
 }
 
 pub trait SessionCommandPort {
@@ -49,9 +48,9 @@ pub trait SummaryPort {
     ) -> Result<(String, String)>;
 }
 
-pub trait SessionMessagePort: SessionScanPort {}
-
-impl<T> SessionMessagePort for T where T: SessionScanPort {}
+pub trait SessionMessagePort {
+    fn get_session_messages(&self, file_path: &str, max_messages: usize) -> Result<Vec<String>>;
+}
 
 pub trait SessionPorts:
     SessionScanPort
@@ -60,6 +59,7 @@ pub trait SessionPorts:
     + CloudSyncPort
     + ResumePort
     + SummaryPort
+    + SessionMessagePort
 {
 }
 
@@ -70,6 +70,7 @@ impl<T> SessionPorts for T where
         + CloudSyncPort
         + ResumePort
         + SummaryPort
+        + SessionMessagePort
 {
 }
 

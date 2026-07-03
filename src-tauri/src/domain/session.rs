@@ -1,6 +1,10 @@
 // 세션 표시와 동기화 상태에 관한 순수 규칙을 제공한다.
-use crate::types::Session;
-use std::collections::HashSet;
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum StorageState {
+    Synced,
+    LocalOnly,
+    CloudOnly,
+}
 
 pub fn is_retryable_auto_summary(value: Option<&str>) -> bool {
     let text = value.unwrap_or("").trim();
@@ -12,34 +16,18 @@ pub fn is_retryable_auto_summary(value: Option<&str>) -> bool {
         || text.contains("batch file arguments are invalid")
 }
 
-pub fn merge_local_and_cloud_sessions(
-    mut local: Vec<Session>,
-    cloud_all: Vec<Session>,
-) -> Vec<Session> {
-    let cloud_ids: HashSet<String> = cloud_all.iter().map(|c| c.session_id.clone()).collect();
-    for session in local.iter_mut() {
-        if cloud_ids.contains(&session.session_id) {
-            session.storage_type = "synced".into();
-        } else {
-            session.storage_type = "local-only".into();
-        }
+pub fn classify_storage_state(local_exists: bool, cloud_exists: bool) -> Option<StorageState> {
+    match (local_exists, cloud_exists) {
+        (true, true) => Some(StorageState::Synced),
+        (true, false) => Some(StorageState::LocalOnly),
+        (false, true) => Some(StorageState::CloudOnly),
+        (false, false) => None,
     }
-
-    let local_ids: HashSet<String> = local.iter().map(|s| s.session_id.clone()).collect();
-    let cloud_only = cloud_all
-        .into_iter()
-        .filter(|session| !local_ids.contains(&session.session_id))
-        .map(|mut session| {
-            session.storage_type = "cloud-only".into();
-            session
-        });
-    local.extend(cloud_only);
-    local
 }
 
 #[cfg(test)]
 mod tests {
-    use super::is_retryable_auto_summary;
+    use super::{classify_storage_state, is_retryable_auto_summary, StorageState};
 
     #[test]
     fn auto_summary_failure_markers_are_retryable() {
@@ -55,5 +43,22 @@ mod tests {
         assert!(!is_retryable_auto_summary(Some(
             "세션 매니저 릴리즈를 점검했다."
         )));
+    }
+
+    #[test]
+    fn storage_state_is_classified_without_session_dto() {
+        assert_eq!(
+            classify_storage_state(true, true),
+            Some(StorageState::Synced)
+        );
+        assert_eq!(
+            classify_storage_state(true, false),
+            Some(StorageState::LocalOnly)
+        );
+        assert_eq!(
+            classify_storage_state(false, true),
+            Some(StorageState::CloudOnly)
+        );
+        assert_eq!(classify_storage_state(false, false), None);
     }
 }
