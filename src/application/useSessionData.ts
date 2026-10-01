@@ -1,5 +1,5 @@
 // 세션 화면의 원천 데이터 조회와 외부 이벤트 구독을 관리한다.
-import { useCallback, useEffect, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 import { tauriGateway } from "@/adapters/tauriGateway";
 import { detectLocale, type Locale } from "@/i18n";
 import type { AppConfig, CodexStatus, Session } from "@/types";
@@ -12,6 +12,8 @@ export function useSessionData() {
   const [codexCliMissing, setCodexCliMissing] = useState(false);
   const [codexStatus, setCodexStatus] = useState<CodexStatus | null>(null);
   const [codexStatusLoading, setCodexStatusLoading] = useState(false);
+  const refreshInFlight = useRef<Promise<void> | null>(null);
+  const refreshQueued = useRef(false);
 
   const refreshCodexStatus = useCallback(async () => {
     setCodexStatusLoading(true);
@@ -24,22 +26,34 @@ export function useSessionData() {
     }
   }, []);
 
-  const refresh = useCallback(async () => {
+  const refresh = useCallback(() => {
+    refreshQueued.current = true;
+    if (refreshInFlight.current) return refreshInFlight.current;
     setLoading(true);
-    try {
-      const [list, cfg] = await Promise.all([
-        tauriGateway.listSessions(),
-        tauriGateway.getConfig(),
-      ]);
-      setSessions(list);
-      setConfig(cfg);
-      const savedLocale = cfg.settings.locale;
-      if (savedLocale === "en" || savedLocale === "ko") setLocale(savedLocale);
-    } catch (err) {
-      console.error(err);
-    } finally {
-      setLoading(false);
-    }
+    refreshInFlight.current = Promise.resolve().then(async () => {
+      try {
+        while (refreshQueued.current) {
+          refreshQueued.current = false;
+          try {
+            const [list, cfg] = await Promise.all([
+              tauriGateway.listSessions(),
+              tauriGateway.getConfig(),
+            ]);
+            if (refreshQueued.current) continue;
+            setSessions(list);
+            setConfig(cfg);
+            const savedLocale = cfg.settings.locale;
+            if (savedLocale === "en" || savedLocale === "ko") setLocale(savedLocale);
+          } catch (err) {
+            console.error(err);
+          }
+        }
+      } finally {
+        refreshInFlight.current = null;
+        setLoading(false);
+      }
+    });
+    return refreshInFlight.current;
   }, []);
 
   useEffect(() => {

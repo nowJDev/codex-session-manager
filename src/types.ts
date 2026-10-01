@@ -32,6 +32,13 @@ export interface DeleteSessionTarget {
   filePath: string;
 }
 
+export type DeleteSessionStatus = "deleted" | "alreadyMissing";
+
+export interface DeleteSessionResult extends DeleteSessionTarget {
+  status: DeleteSessionStatus | "failed";
+  error: string | null;
+}
+
 export interface Settings {
   locale?: string | null;
   cloudPath?: string | null;

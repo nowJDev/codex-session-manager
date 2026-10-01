@@ -8,7 +8,7 @@ use crate::domain::transcript::{
     compact_whitespace, extract_user_message_text, first_user_message_name, truncate,
     TranscriptContent, TranscriptPart, TranscriptPartKind,
 };
-use crate::types::Session;
+use crate::types::{DeleteSessionStatus, Session};
 use anyhow::{anyhow, Result};
 use serde_json::Value;
 use std::collections::HashMap;
@@ -270,10 +270,7 @@ pub fn scan_local_sessions() -> Result<Vec<Session>> {
     let roots = projects_roots();
     let archived_root = archived_sessions_dir();
 
-    let log_path = dirs::home_dir()
-        .unwrap_or_else(|| PathBuf::from("."))
-        .join(".codex-sessions")
-        .join("scan-debug.log");
+    let log_path = crate::config::config_dir().join("scan-debug.log");
     if let Some(parent) = log_path.parent() {
         let _ = fs::create_dir_all(parent);
     }
@@ -483,6 +480,7 @@ pub fn get_session_messages(file_path: &str, max_messages: usize) -> Result<Vec<
     Ok(out)
 }
 
+#[cfg(test)]
 pub fn delete_session_file(file_path: &str) -> Result<()> {
     let path = PathBuf::from(file_path);
     if path.exists() {
@@ -491,30 +489,70 @@ pub fn delete_session_file(file_path: &str) -> Result<()> {
     Ok(())
 }
 
-fn run_codex_session_action(action: &str, session_id: &str) -> Result<()> {
-    let codex =
-        crate::environment::locate_codex().ok_or_else(|| anyhow!("codex CLI를 찾을 수 없음"))?;
-    let mut cmd = Command::new(&codex);
-    cmd.arg(action);
-    if action == "delete" {
-        cmd.arg("--force");
+fn validate_session_id(session_id: &str) -> Result<()> {
+    if session_id.is_empty()
+        || session_id.starts_with('-')
+        || !session_id
+            .bytes()
+            .all(|byte| byte.is_ascii_alphanumeric() || byte == b'-')
+    {
+        return Err(anyhow!("올바르지 않은 세션 ID"));
     }
-    cmd.arg(session_id);
+    Ok(())
+}
+
+fn codex_command(codex: &str, home: &Path) -> Command {
+    let mut cmd = Command::new(codex);
+    cmd.env("CODEX_HOME", home);
     #[cfg(target_os = "windows")]
     {
         use std::os::windows::process::CommandExt;
         const CREATE_NO_WINDOW: u32 = 0x0800_0000;
         cmd.creation_flags(CREATE_NO_WINDOW);
     }
-    let output = cmd
-        .output()
-        .map_err(|e| anyhow!("codex {} 실행 실패: {}", action, e))?;
+    cmd
+}
+
+fn run_codex_session_action_using(
+    codex: &str,
+    home: &Path,
+    action: &str,
+    session_id: &str,
+) -> Result<()> {
+    validate_session_id(session_id)?;
+    let mut cmd = codex_command(codex, home);
+    cmd.arg(action);
+    if action == "delete" {
+        cmd.arg("--force");
+    }
+    cmd.arg(session_id);
+    let output = cmd.output().map_err(|e| {
+        crate::debuglog::log(
+            "session-action",
+            &format!(
+                "action={action} id={session_id} cli={codex} home={} launch_error={e}",
+                home.display()
+            ),
+        );
+        anyhow!("codex {} 실행 실패: {}", action, e)
+    })?;
     if output.status.success() {
         Ok(())
     } else {
         let stderr = String::from_utf8_lossy(&output.stderr).trim().to_string();
+        let version = codex_command(codex, home)
+            .arg("--version")
+            .output()
+            .ok()
+            .filter(|output| output.status.success())
+            .map(|output| String::from_utf8_lossy(&output.stdout).trim().to_string())
+            .unwrap_or_else(|| "unknown".into());
+        crate::debuglog::log("session-action", &format!(
+            "action={action} id={session_id} cli={codex} version={version} home={} exit={} stderr={stderr}",
+            home.display(), output.status
+        ));
         Err(anyhow!(
-            "codex {} {} 실패(exit {}): {}",
+            "codex {} {} 실패({}): {}",
             action,
             session_id,
             output.status,
@@ -523,12 +561,71 @@ fn run_codex_session_action(action: &str, session_id: &str) -> Result<()> {
     }
 }
 
-pub fn delete_session(session_id: &str, file_path: &str) -> Result<()> {
-    match run_codex_session_action("delete", session_id) {
-        Ok(()) => Ok(()),
-        Err(_) if crate::environment::locate_codex().is_none() => delete_session_file(file_path),
-        Err(e) => Err(e),
+fn run_codex_session_action(action: &str, session_id: &str) -> Result<()> {
+    let codex =
+        crate::environment::locate_codex().ok_or_else(|| anyhow!("codex CLI를 찾을 수 없음"))?;
+    run_codex_session_action_using(&codex, &codex_home(), action, session_id)
+}
+
+fn delete_session_using(
+    codex: Option<&str>,
+    home: &Path,
+    roots: &[PathBuf],
+    session_id: &str,
+    file_path: &Path,
+) -> Result<DeleteSessionStatus> {
+    validate_session_id(session_id)?;
+    let result = codex
+        .ok_or_else(|| anyhow!("codex CLI를 찾을 수 없음"))
+        .and_then(|codex| run_codex_session_action_using(codex, home, "delete", session_id));
+    match result {
+        Ok(()) => Ok(DeleteSessionStatus::Deleted),
+        Err(error) => {
+            match crate::session_state::is_session_absent(home, roots, session_id, file_path) {
+                Ok(true) => {
+                    crate::debuglog::log(
+                        "session-delete",
+                        &format!(
+                            "id={session_id} already_missing=true home={}",
+                            home.display()
+                        ),
+                    );
+                    Ok(DeleteSessionStatus::AlreadyMissing)
+                }
+                Ok(false) => Err(error),
+                Err(inspection_error) => {
+                    crate::debuglog::log(
+                        "session-delete",
+                        &format!("id={session_id} state_check_error={inspection_error:#}"),
+                    );
+                    Err(anyhow!(
+                        "{error}; 세션 부재 확인 실패: {inspection_error:#}"
+                    ))
+                }
+            }
+        }
     }
+}
+
+pub fn delete_session(session_id: &str, file_path: &str) -> Result<DeleteSessionStatus> {
+    let home = codex_home();
+    // projects_roots는 접근 불가 경로를 제외하므로 안전한 부재 확인에는 필터 전 경로를 사용한다.
+    let mut roots = vec![home.join("sessions"), home.join("archived_sessions")];
+    roots.extend(
+        load_config()
+            .settings
+            .extra_project_dirs
+            .unwrap_or_default()
+            .into_iter()
+            .map(PathBuf::from),
+    );
+    delete_session_using(
+        crate::environment::locate_codex().as_deref(),
+        &home,
+        &roots,
+        session_id,
+        Path::new(file_path),
+    )
 }
 
 pub fn archive_session(session_id: &str) -> Result<()> {
@@ -538,3 +635,7 @@ pub fn archive_session(session_id: &str) -> Result<()> {
 pub fn unarchive_session(session_id: &str) -> Result<()> {
     run_codex_session_action("unarchive", session_id)
 }
+
+#[cfg(test)]
+#[path = "scanner_delete_tests.rs"]
+mod delete_tests;

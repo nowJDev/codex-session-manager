@@ -128,6 +128,12 @@
     "titleSingle": "Delete this session?",
     "titleBulk": "Delete {count} selected sessions?",
     "confirm": "Confirm",
-    "pending": "Deleting..."
+    "pending": "Deleting...",
+    "resultTitle": "Deletion results",
+    "resultSummary": "Deleted {deleted} · Already missing {missing} · Failed {failed}",
+    "resultUnknown": "Could not confirm deletion results. Review the refreshed list before retrying.",
+    "failureDetails": "Failed sessions and error details",
+    "retryFailed": "Retry failed sessions",
+    "dismiss": "Dismiss"
   }
 }

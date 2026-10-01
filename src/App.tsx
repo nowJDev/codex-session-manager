@@ -29,6 +29,8 @@ function App() {
     selectedForDeleteIds,
     pendingDelete,
     deleting,
+    deleteReport,
+    dismissDeleteReport,
     filtered,
     selected,
     selectedForDeleteCount,
@@ -41,6 +43,7 @@ function App() {
     handleResume,
     handleDelete,
     handleBulkDelete,
+    handleRetryFailedDelete,
     confirmDelete,
     cancelDelete,
     handleToggleArchive,
@@ -98,6 +101,7 @@ function App() {
               variant="destructive"
               size="sm"
               onClick={handleBulkDelete}
+              disabled={deleting}
               title={t("action.deleteSelected", { count: selectedForDeleteCount })}
             >
               <Trash2 className="h-4 w-4" />
@@ -123,6 +127,45 @@ function App() {
           </Button>
         </div>
       </header>
+
+      {deleteReport && (
+        <section className="border-b border-border bg-muted/40 px-5 py-3 text-sm" aria-label={t("delete.resultTitle")}>
+          <div className="flex items-start justify-between gap-3">
+            <p role="status">
+              {deleteReport.error
+                ? t("delete.resultUnknown")
+                : t("delete.resultSummary", {
+                    deleted: deleteReport.results.filter((result) => result.status === "deleted").length,
+                    missing: deleteReport.results.filter((result) => result.status === "alreadyMissing").length,
+                    failed: deleteReport.results.filter((result) => result.status === "failed").length,
+                  })}
+            </p>
+            <div className="flex shrink-0 gap-2">
+              {deleteReport.results.some((result) => result.status === "failed") && (
+                <Button variant="outline" size="sm" disabled={deleting} onClick={handleRetryFailedDelete}>
+                  {t("delete.retryFailed")}
+                </Button>
+              )}
+              <Button variant="ghost" size="sm" onClick={dismissDeleteReport}>
+                {t("delete.dismiss")}
+              </Button>
+            </div>
+          </div>
+          {deleteReport.error && <p className="break-all text-destructive">{deleteReport.error}</p>}
+          {deleteReport.results.some((result) => result.status === "failed") && (
+            <details className="mt-1">
+              <summary className="cursor-pointer">{t("delete.failureDetails")}</summary>
+              <ul className="mt-2 max-h-40 space-y-1 overflow-auto">
+                {deleteReport.results.filter((result) => result.status === "failed").map((result) => (
+                  <li key={result.sessionId} className="break-all text-destructive">
+                    {result.sessionId} — {result.error}
+                  </li>
+                ))}
+              </ul>
+            </details>
+          )}
+        </section>
+      )}
 
       <main className="flex flex-1 overflow-hidden">
         <section className="min-w-0 flex-1 overflow-auto">

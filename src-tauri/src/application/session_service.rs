@@ -1,7 +1,7 @@
 // 세션 관리 use case를 조율하는 애플리케이션 서비스이다.
 use crate::application::ports::{ResumePlan, SessionPorts};
 use crate::domain::session::{classify_storage_state, is_retryable_auto_summary, StorageState};
-use crate::types::{Config, DeleteSessionTarget, Session, SessionMeta, Settings};
+use crate::types::{Config, DeleteSessionResult, DeleteSessionStatus, DeleteSessionTarget, Session, SessionMeta, Settings};
 use anyhow::Result;
 use std::collections::HashMap;
 use std::collections::HashSet;
@@ -30,20 +30,29 @@ impl<P: SessionPorts> SessionService<P> {
         self.ports.save_session_meta(session_id, patch)
     }
 
-    pub fn delete_session(&self, session_id: &str, file_path: &str) -> Result<()> {
-        self.ports.delete_session(session_id, file_path)?;
-        self.ports.delete_session_meta(session_id)
+    pub fn delete_session(&self, session_id: &str, file_path: &str) -> Result<DeleteSessionStatus> {
+        let status = self.ports.delete_session(session_id, file_path)?;
+        self.ports.delete_session_meta(session_id)?;
+        Ok(status)
     }
 
     pub fn delete_session_meta(&self, session_id: &str) -> Result<()> {
         self.ports.delete_session_meta(session_id)
     }
 
-    pub fn delete_sessions(&self, targets: Vec<DeleteSessionTarget>) -> Result<()> {
-        for target in targets {
-            self.delete_session(&target.session_id, &target.file_path)?;
-        }
-        Ok(())
+    pub fn delete_sessions(&self, targets: Vec<DeleteSessionTarget>) -> Vec<DeleteSessionResult> {
+        targets.into_iter().map(|target| {
+            let (status, error) = match self.delete_session(&target.session_id, &target.file_path) {
+                Ok(status) => (status, None),
+                Err(error) => (DeleteSessionStatus::Failed, Some(format!("{error:#}"))),
+            };
+            DeleteSessionResult {
+                session_id: target.session_id,
+                file_path: target.file_path,
+                status,
+                error,
+            }
+        }).collect()
     }
 
     pub fn archive_session(&self, session_id: &str) -> Result<()> {
@@ -218,7 +227,7 @@ mod tests {
         CloudSyncPort, ResumePlan, ResumePort, SessionCommandPort, SessionMessagePort,
         SessionMetadataPort, SessionScanPort, SummaryPort,
     };
-    use crate::types::{Config, Session, SessionMeta, Settings};
+    use crate::types::{Config, DeleteSessionStatus, Session, SessionMeta, Settings};
     use anyhow::Result;
     use std::cell::RefCell;
     use std::collections::HashMap;
@@ -233,6 +242,9 @@ mod tests {
         saved_meta: Vec<(String, SessionMeta)>,
         deleted_meta: Vec<String>,
         deleted_sessions: Vec<(String, String)>,
+        delete_errors: HashMap<String, String>,
+        already_missing: Vec<String>,
+        metadata_errors: HashMap<String, String>,
         updated_settings: Vec<Settings>,
         cloud_folders: Vec<String>,
         uploaded_sessions: Vec<String>,
@@ -261,12 +273,19 @@ mod tests {
     }
 
     impl SessionCommandPort for FakePorts {
-        fn delete_session(&self, session_id: &str, file_path: &str) -> Result<()> {
+        fn delete_session(&self, session_id: &str, file_path: &str) -> Result<DeleteSessionStatus> {
             self.state
                 .borrow_mut()
                 .deleted_sessions
                 .push((session_id.to_string(), file_path.to_string()));
-            Ok(())
+            if let Some(error) = self.state.borrow().delete_errors.get(session_id) {
+                anyhow::bail!("{error}");
+            }
+            Ok(if self.state.borrow().already_missing.iter().any(|id| id == session_id) {
+                DeleteSessionStatus::AlreadyMissing
+            } else {
+                DeleteSessionStatus::Deleted
+            })
         }
 
         fn archive_session(&self, _session_id: &str) -> Result<()> {
@@ -292,6 +311,9 @@ mod tests {
         }
 
         fn delete_session_meta(&self, session_id: &str) -> Result<()> {
+            if let Some(error) = self.state.borrow().metadata_errors.get(session_id) {
+                anyhow::bail!("{error}");
+            }
             self.state
                 .borrow_mut()
                 .deleted_meta
@@ -429,6 +451,40 @@ mod tests {
             vec![("s1".to_string(), "session.jsonl".to_string())]
         );
         assert_eq!(state.deleted_meta, vec!["s1".to_string()]);
+    }
+
+    #[test]
+    fn bulk_delete_continues_after_failure_and_preserves_failed_metadata() {
+        let ports = FakePorts::default();
+        ports.state.borrow_mut().delete_errors.insert("bad".into(), "locked".into());
+        let state = ports.state.clone();
+        let targets = ["first", "bad", "last"].map(|id| crate::types::DeleteSessionTarget {
+            session_id: id.into(),
+            file_path: format!("{id}.jsonl"),
+        });
+        let results = SessionService::new(ports).delete_sessions(targets.to_vec());
+        assert_eq!(results.iter().map(|r| r.status).collect::<Vec<_>>(),
+            vec![DeleteSessionStatus::Deleted, DeleteSessionStatus::Failed, DeleteSessionStatus::Deleted]);
+        assert_eq!(results[1].error.as_deref(), Some("locked"));
+        let state = state.borrow();
+        assert_eq!(state.deleted_sessions.len(), 3, "a failed item must not stop the batch");
+        assert_eq!(state.deleted_meta, vec!["first", "last"]);
+    }
+
+    #[test]
+    fn bulk_delete_reports_missing_and_metadata_failure_separately() {
+        let ports = FakePorts::default();
+        ports.state.borrow_mut().already_missing.push("gone".into());
+        ports.state.borrow_mut().metadata_errors.insert("meta".into(), "metadata write failed".into());
+        let state = ports.state.clone();
+        let targets = ["gone", "meta", "last"].map(|id| crate::types::DeleteSessionTarget {
+            session_id: id.into(), file_path: format!("{id}.jsonl"),
+        });
+        let results = SessionService::new(ports).delete_sessions(targets.to_vec());
+        assert_eq!(results.iter().map(|r| r.status).collect::<Vec<_>>(),
+            vec![DeleteSessionStatus::AlreadyMissing, DeleteSessionStatus::Failed, DeleteSessionStatus::Deleted]);
+        assert_eq!(results[1].error.as_deref(), Some("metadata write failed"));
+        assert_eq!(state.borrow().deleted_meta, vec!["gone", "last"]);
     }
 
     #[test]

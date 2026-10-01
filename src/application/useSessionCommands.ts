@@ -1,10 +1,10 @@
 // 세션에 대한 사용자 명령 workflow를 관리한다.
-import { useState, type Dispatch, type SetStateAction } from "react";
+import { useRef, useState, type Dispatch, type SetStateAction } from "react";
 import { tauriGateway } from "@/adapters/tauriGateway";
-import type { Session } from "@/types";
+import type { DeleteSessionResult, Session } from "@/types";
 
 type EditMode = "rename" | "describe" | null;
-type PendingDelete = { sessions: Session[] } | null;
+type PendingDelete = { sessions: Pick<Session, "sessionId" | "filePath">[] } | null;
 
 interface UseSessionCommandsParams {
   refresh: () => Promise<void>;
@@ -25,6 +25,11 @@ export function useSessionCommands({
   const [editTarget, setEditTarget] = useState<Session | null>(null);
   const [pendingDelete, setPendingDelete] = useState<PendingDelete>(null);
   const [deleting, setDeleting] = useState(false);
+  const deletingRef = useRef(false);
+  const [deleteReport, setDeleteReport] = useState<{
+    results: DeleteSessionResult[];
+    error: string | null;
+  } | null>(null);
 
   async function handleResume(s: Session) {
     try {
@@ -39,50 +44,60 @@ export function useSessionCommands({
   }
 
   function handleDelete(s: Session) {
+    if (deletingRef.current) return;
     setPendingDelete({ sessions: [s] });
   }
 
   function handleBulkDelete() {
-    if (selectedForDelete.length === 0) return;
+    if (selectedForDelete.length === 0 || deletingRef.current) return;
     setPendingDelete({ sessions: selectedForDelete });
+  }
+
+  function handleRetryFailedDelete() {
+    if (deletingRef.current) return;
+    const sessions = deleteReport?.results.filter((result) => result.status === "failed") ?? [];
+    if (sessions.length > 0) setPendingDelete({ sessions });
   }
 
   async function confirmDelete() {
     const targets = pendingDelete?.sessions ?? [];
-    if (targets.length === 0 || deleting) return;
+    if (targets.length === 0 || deletingRef.current) return;
+    deletingRef.current = true;
     setDeleting(true);
+    setDeleteReport(null);
     try {
-      if (targets.length === 1) {
-        const target = targets[0];
-        await tauriGateway.deleteSession(target.sessionId, target.filePath);
-      } else {
-        await tauriGateway.deleteSessions(
-          targets.map((s) => ({
-            sessionId: s.sessionId,
-            filePath: s.filePath,
-          })),
-        );
-      }
-      const deletedIds = new Set(targets.map((s) => s.sessionId));
+      const results = await tauriGateway.deleteSessions(
+        targets.map((s) => ({ sessionId: s.sessionId, filePath: s.filePath })),
+      );
+      setDeleteReport({ results, error: null });
+      const deletedIds = new Set(
+        results.filter((result) => result.status !== "failed").map((result) => result.sessionId),
+      );
       setSelectedId((cur) => (cur && deletedIds.has(cur) ? null : cur));
       setSelectedForDeleteIds((cur) => {
-        if (targets.length > 1) return new Set();
         const next = new Set(cur);
         for (const id of deletedIds) next.delete(id);
+        for (const result of results) {
+          if (result.status === "failed") next.add(result.sessionId);
+        }
         return next;
       });
-      await refresh();
-      setPendingDelete(null);
     } catch (err) {
       console.error(err);
-      alert(String(err));
+      setDeleteReport({ results: [], error: String(err) });
     } finally {
-      setDeleting(false);
+      setPendingDelete(null);
+      try {
+        await refresh();
+      } finally {
+        deletingRef.current = false;
+        setDeleting(false);
+      }
     }
   }
 
   function cancelDelete() {
-    if (deleting) return;
+    if (deletingRef.current) return;
     setPendingDelete(null);
   }
 
@@ -156,9 +171,12 @@ export function useSessionCommands({
     editTarget,
     pendingDelete,
     deleting,
+    deleteReport,
+    dismissDeleteReport: () => setDeleteReport(null),
     handleResume,
     handleDelete,
     handleBulkDelete,
+    handleRetryFailedDelete,
     confirmDelete,
     cancelDelete,
     handleToggleArchive,

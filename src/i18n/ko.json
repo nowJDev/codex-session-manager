@@ -128,6 +128,12 @@
     "titleSingle": "세션을 삭제하시겠습니까?",
     "titleBulk": "선택한 {count}개 세션을 삭제하시겠습니까?",
     "confirm": "확인",
-    "pending": "삭제하는 중..."
+    "pending": "삭제하는 중...",
+    "resultTitle": "삭제 결과",
+    "resultSummary": "삭제 {deleted}개 · 이미 없음 {missing}개 · 실패 {failed}개",
+    "resultUnknown": "삭제 결과를 확인하지 못했습니다. 새로고침된 목록을 확인한 뒤 다시 시도하세요.",
+    "failureDetails": "실패한 세션과 오류 상세",
+    "retryFailed": "실패 항목 재시도",
+    "dismiss": "닫기"
   }
 }

@@ -60,6 +60,23 @@ pub struct DeleteSessionTarget {
     pub file_path: String,
 }
 
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub enum DeleteSessionStatus {
+    Deleted,
+    AlreadyMissing,
+    Failed,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct DeleteSessionResult {
+    pub session_id: String,
+    pub file_path: String,
+    pub status: DeleteSessionStatus,
+    pub error: Option<String>,
+}
+
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct Session {

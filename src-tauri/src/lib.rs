@@ -9,6 +9,7 @@ pub mod domain;
 pub(crate) mod environment;
 pub(crate) mod resume;
 pub(crate) mod scanner;
+pub(crate) mod session_state;
 pub(crate) mod summary;
 pub(crate) mod terminal;
 pub mod types;

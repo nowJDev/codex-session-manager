@@ -2,6 +2,8 @@ import { invoke } from "@tauri-apps/api/core";
 import type {
   AppConfig,
   DeleteSessionTarget,
+  DeleteSessionResult,
+  DeleteSessionStatus,
   EnvironmentReport,
   CodexStatus,
   Session,
@@ -16,9 +18,9 @@ export const ipc = {
   saveSessionMeta: (sessionId: string, patch: SessionMeta) =>
     invoke<void>("save_session_meta", { sessionId, patch }),
   deleteSession: (sessionId: string, filePath: string) =>
-    invoke<void>("delete_session", { sessionId, filePath }),
+    invoke<DeleteSessionStatus>("delete_session", { sessionId, filePath }),
   deleteSessions: (targets: DeleteSessionTarget[]) =>
-    invoke<void>("delete_sessions", { targets }),
+    invoke<DeleteSessionResult[]>("delete_sessions", { targets }),
   archiveSession: (sessionId: string) =>
     invoke<void>("archive_session", { sessionId }),
   unarchiveSession: (sessionId: string) =>

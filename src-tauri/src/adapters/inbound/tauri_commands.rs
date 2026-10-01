@@ -7,7 +7,7 @@ use crate::application::ports::{
 };
 use crate::application::session_service::SessionService;
 use crate::application::system_service::SystemService;
-use crate::types::{Config, DeleteSessionTarget, Session, SessionMeta, Settings};
+use crate::types::{Config, DeleteSessionResult, DeleteSessionStatus, DeleteSessionTarget, Session, SessionMeta, Settings};
 
 fn to_str<E: std::fmt::Display>(e: E) -> String {
     e.to_string()
@@ -35,8 +35,11 @@ pub fn start_auto_summary(app: tauri::AppHandle) -> Result<bool, String> {
 }
 
 #[tauri::command]
-pub fn list_sessions() -> Result<Vec<Session>, String> {
-    session_service().list_sessions().map_err(to_str)
+pub async fn list_sessions() -> Result<Vec<Session>, String> {
+    tokio::task::spawn_blocking(|| session_service().list_sessions())
+        .await
+        .map_err(to_str)?
+        .map_err(to_str)
 }
 
 #[tauri::command]
@@ -52,7 +55,7 @@ pub fn save_session_meta(session_id: String, patch: SessionMeta) -> Result<(), S
 }
 
 #[tauri::command]
-pub async fn delete_session(session_id: String, file_path: String) -> Result<(), String> {
+pub async fn delete_session(session_id: String, file_path: String) -> Result<DeleteSessionStatus, String> {
     tokio::task::spawn_blocking(move || session_service().delete_session(&session_id, &file_path))
         .await
         .map_err(to_str)?
@@ -60,10 +63,9 @@ pub async fn delete_session(session_id: String, file_path: String) -> Result<(),
 }
 
 #[tauri::command]
-pub async fn delete_sessions(targets: Vec<DeleteSessionTarget>) -> Result<(), String> {
+pub async fn delete_sessions(targets: Vec<DeleteSessionTarget>) -> Result<Vec<DeleteSessionResult>, String> {
     tokio::task::spawn_blocking(move || session_service().delete_sessions(targets))
         .await
-        .map_err(to_str)?
         .map_err(to_str)
 }
 
@@ -137,13 +139,17 @@ pub fn resume_session(session_id: String, cwd: Option<String>) -> Result<(), Str
 }
 
 #[tauri::command]
-pub fn check_environment_cmd() -> EnvironmentReport {
-    system_service().check_environment()
+pub async fn check_environment_cmd() -> Result<EnvironmentReport, String> {
+    tokio::task::spawn_blocking(|| system_service().check_environment())
+        .await
+        .map_err(to_str)
 }
 
 #[tauri::command]
-pub fn get_codex_status_cmd() -> CodexStatus {
-    system_service().get_codex_status()
+pub async fn get_codex_status_cmd() -> Result<CodexStatus, String> {
+    tokio::task::spawn_blocking(|| system_service().get_codex_status())
+        .await
+        .map_err(to_str)
 }
 
 #[tauri::command]

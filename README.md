@@ -41,7 +41,10 @@ Current release: [Codex Session Manager v0.5.10](https://github.com/nowJDev/code
 - Codex JSONL의 `session_meta`, `turn_context`, `event_msg`, `response_item` 레코드를 관대하게 파싱합니다.
 - 앱 전용 메타데이터는 `~/.codex-sessions/config.json`에 저장합니다.
 - Archive / Unarchive 메뉴는 `codex archive <session-id>`와 `codex unarchive <session-id>`를 사용합니다.
-- 삭제 액션은 파일 직접 삭제보다 `codex delete <session-id>`를 우선 사용합니다.
+- 삭제는 `codex delete --force <session-id>`를 사용하며, 한 건이 실패해도 나머지 항목을 계속 처리합니다.
+- 결과에 삭제·이미 없음·실패 수를 표시하고 항상 목록을 갱신합니다. 실패 항목은 결과 패널에서 다시 확인 후 재시도할 수 있습니다.
+- CLI 실패를 파일 강제 삭제로 우회하지 않습니다. 파일·인덱스·최신 Codex 상태 DB의 등록이 모두 없을 때만 남은 앱 메타데이터를 정리합니다. 조회 오류는 실패로 남깁니다.
+- 새로고침과 시작 시 환경·상태 조회는 백그라운드에서 실행하며, 겹치는 목록 갱신 요청을 병합합니다.
 
 ### Resume And Terminal
 
@@ -111,6 +114,10 @@ cargo test -- --test-threads=1
 # Frontend build
 cd ..
 pnpm build
+
+# 삭제·새로고침 프런트엔드 회귀 검사.
+node scripts/check-delete-workflow.mjs
+node --test tests/refresh-responsiveness.test.mjs
 ```
 
 `session-cli`는 GUI 없이 백엔드 동작을 확인하는 하네스입니다.
@@ -163,6 +170,8 @@ Installers are written to `src-tauri/target/release/bundle/`.
 - macOS/Linux: `~/.codex-sessions/debug.log`.
 
 문제가 생기면 앱의 설정 화면에서 로그 마지막 부분을 복사한 뒤 [GitHub Issues](https://github.com/nowJDev/codex-session-manager/issues/new)에 등록해 주세요.
+
+삭제 명령 실패 시 CLI 경로·버전·종료 상태·오류가 이 로그에 기록됩니다. Codex 상태 DB는 읽기 전용으로 조회하며, 호환되지 않는 형식이나 읽기 오류를 자동 복구하거나 삭제하지 않습니다.
 
 ## Fork Lineage
 

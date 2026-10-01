@@ -3,7 +3,7 @@ use crate::application::ports::{
     CloudSyncPort, ResumePlan, ResumePort, SessionCommandPort, SessionMessagePort,
     SessionMetadataPort, SessionScanPort, SummaryPort,
 };
-use crate::types::{Config, Session, SessionMeta, Settings};
+use crate::types::{Config, DeleteSessionStatus, Session, SessionMeta, Settings};
 use anyhow::Result;
 use std::collections::HashMap;
 use std::path::PathBuf;
@@ -31,7 +31,7 @@ impl SessionMessagePort for DefaultSessionPorts {
 }
 
 impl SessionCommandPort for DefaultSessionPorts {
-    fn delete_session(&self, session_id: &str, file_path: &str) -> Result<()> {
+    fn delete_session(&self, session_id: &str, file_path: &str) -> Result<DeleteSessionStatus> {
         crate::scanner::delete_session(session_id, file_path)
     }
 
