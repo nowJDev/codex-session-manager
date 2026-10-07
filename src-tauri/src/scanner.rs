@@ -64,8 +64,12 @@ pub fn projects_roots() -> Vec<PathBuf> {
     roots
 }
 
-struct JsonlMeta {
+pub(crate) struct JsonlMeta {
     session_id: Option<String>,
+    pub(crate) parent_id: Option<String>,
+    pub(crate) is_subagent: bool,
+    pub(crate) agent_nickname: Option<String>,
+    is_guardian: bool,
     first_timestamp: Option<String>,
     last_timestamp: Option<String>,
     cwd: Option<String>,
@@ -101,11 +105,15 @@ fn transcript_content_from_json(value: &Value) -> Option<TranscriptContent> {
     Some(TranscriptContent::Parts(parts.collect()))
 }
 
-fn read_jsonl_meta(path: &Path) -> Result<JsonlMeta> {
+pub(crate) fn read_jsonl_meta(path: &Path) -> Result<JsonlMeta> {
     let file = fs::File::open(path)?;
     let reader = BufReader::new(file);
 
     let mut session_id = None;
+    let mut parent_id = None;
+    let mut is_subagent = false;
+    let mut agent_nickname = None;
+    let mut is_guardian = false;
     let mut first_ts = None;
     let mut last_ts = None;
     let mut cwd = None;
@@ -141,6 +149,28 @@ fn read_jsonl_meta(path: &Path) -> Result<JsonlMeta> {
             "session_meta" => {
                 if session_id.is_none() {
                     session_id = payload.get("id").and_then(|v| v.as_str()).map(String::from);
+                    let subagent = payload.pointer("/source/subagent").filter(|v| !v.is_null());
+                    is_subagent = subagent.is_some();
+                    if let Some(subagent) = subagent {
+                        let spawned = subagent.get("thread_spawn").unwrap_or(&Value::Null);
+                        let other = subagent.get("other").and_then(|v| v.as_str());
+                        is_guardian = other == Some("guardian");
+                        parent_id = payload
+                            .get("parent_thread_id")
+                            .and_then(|v| v.as_str())
+                            .filter(|s| !s.trim().is_empty())
+                            .or_else(|| spawned.get("parent_thread_id").and_then(|v| v.as_str()))
+                            .filter(|s| !s.trim().is_empty())
+                            .map(String::from);
+                        agent_nickname = payload
+                            .get("agent_nickname")
+                            .and_then(|v| v.as_str())
+                            .filter(|s| !s.trim().is_empty())
+                            .or_else(|| spawned.get("agent_nickname").and_then(|v| v.as_str()))
+                            .or(other)
+                            .filter(|s| !s.trim().is_empty())
+                            .map(String::from);
+                    }
                 }
                 if cwd.is_none() {
                     cwd = payload
@@ -188,6 +218,10 @@ fn read_jsonl_meta(path: &Path) -> Result<JsonlMeta> {
 
     Ok(JsonlMeta {
         session_id,
+        parent_id,
+        is_subagent,
+        agent_nickname,
+        is_guardian,
         first_timestamp: first_ts,
         last_timestamp: last_ts,
         cwd,
@@ -378,12 +412,14 @@ pub fn scan_local_sessions() -> Result<Vec<Session>> {
             }
 
             let saved_meta = saved.get(&stem).cloned().unwrap_or_default();
-            if !should_include_scanned_session(
-                saved_meta.name.as_deref(),
-                saved_meta.description.as_deref(),
-                saved_meta.auto_summary.as_deref(),
-                meta.as_ref().and_then(|m| m.first_user_message.as_deref()),
-            ) {
+            if !meta.as_ref().is_some_and(|m| m.is_subagent && !m.is_guardian)
+                && !should_include_scanned_session(
+                    saved_meta.name.as_deref(),
+                    saved_meta.description.as_deref(),
+                    saved_meta.auto_summary.as_deref(),
+                    meta.as_ref().and_then(|m| m.first_user_message.as_deref()),
+                )
+            {
                 total_excluded += 1;
                 if let Some(f) = log.as_mut() {
                     let _ = writeln!(f, "[no-real-user-message] {}", path.display());
@@ -404,6 +440,9 @@ pub fn scan_local_sessions() -> Result<Vec<Session>> {
             total_pushed += 1;
             out.push(Session {
                 session_id: stem,
+                parent_id: meta.as_ref().and_then(|m| m.parent_id.clone()),
+                is_subagent: meta.as_ref().is_some_and(|m| m.is_subagent),
+                agent_nickname: meta.as_ref().and_then(|m| m.agent_nickname.clone()),
                 name: saved_meta.name.or(inferred_name),
                 description: saved_meta.description,
                 auto_summary: saved_meta.auto_summary,

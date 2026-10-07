@@ -4,6 +4,7 @@
     "version": "v{version}"
   },
   "list": {
+    "subagent": "sub",
     "name": "Name",
     "description": "Description",
     "project": "Project",
@@ -22,6 +23,8 @@
     "archived": "archived"
   },
   "action": {
+    "expandChildren": "Expand {count} child sessions of {name}",
+    "collapseChildren": "Collapse child sessions of {name}",
     "select": "Select a session",
     "resumeHere": "Resume in current terminal",
     "resumeNew": "Resume in new terminal",

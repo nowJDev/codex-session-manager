@@ -1190,3 +1190,142 @@ fn environment_prefers_cmd_shim_over_extensionless_npm_shim() {
         std::env::set_var("CODEX_CLI", cli);
     }
 }
+
+#[test]
+fn session_tree_lists_subagents_without_user_messages() {
+    let h = setup_temp_home();
+    let session_id = "a1000000-1111-2222-3333-444444444444";
+    write_jsonl(
+        &codex_rollout_path(&h, "2026-10-08", session_id),
+        &[r#"{"type":"session_meta","payload":{"id":"a1000000-1111-2222-3333-444444444444","source":{"subagent":{"thread_spawn":{"parent_thread_id":"parent","agent_nickname":"worker"}}}}}"#],
+    );
+
+    let sessions = scanner::scan_local_sessions().unwrap();
+    assert_eq!(sessions.len(), 1, "a spawned subagent must remain visible without user messages");
+    let value = serde_json::to_value(&sessions[0]).unwrap();
+    assert_eq!(value["parentId"].as_str(), Some("parent"));
+    assert_eq!(value["isSubagent"].as_bool(), Some(true));
+    assert_eq!(value["agentNickname"].as_str(), Some("worker"));
+}
+
+#[test]
+fn session_tree_prefers_payload_relationship_metadata() {
+    let h = setup_temp_home();
+    let session_id = "a2000000-1111-2222-3333-444444444444";
+    write_jsonl(
+        &codex_rollout_path(&h, "2026-10-08", session_id),
+        &[
+            r#"{"type":"session_meta","payload":{"id":"a2000000-1111-2222-3333-444444444444","parent_thread_id":"payload-parent","agent_nickname":"payload-worker","source":{"subagent":{"thread_spawn":{"parent_thread_id":"nested-parent","agent_nickname":"nested-worker"}}}}}"#,
+            r#"{"type":"event_msg","payload":{"type":"user_message","message":"work"}}"#,
+        ],
+    );
+
+    let sessions = scanner::scan_local_sessions().unwrap();
+    let value = serde_json::to_value(&sessions[0]).unwrap();
+    assert_eq!(value["parentId"].as_str(), Some("payload-parent"));
+    assert_eq!(value["isSubagent"].as_bool(), Some(true));
+    assert_eq!(value["agentNickname"].as_str(), Some("payload-worker"));
+}
+
+#[test]
+fn session_tree_retains_guardian_visibility_policy() {
+    let h = setup_temp_home();
+    let hidden_id = "a3000000-1111-2222-3333-444444444444";
+    let visible_id = "a4000000-1111-2222-3333-444444444444";
+    write_jsonl(
+        &codex_rollout_path(&h, "2026-10-08", hidden_id),
+        &[r#"{"type":"session_meta","payload":{"id":"a3000000-1111-2222-3333-444444444444","parent_thread_id":"parent","source":{"subagent":{"other":"guardian"}}}}"#],
+    );
+    write_jsonl(
+        &codex_rollout_path(&h, "2026-10-08", visible_id),
+        &[
+            r#"{"type":"session_meta","payload":{"id":"a4000000-1111-2222-3333-444444444444","parent_thread_id":"parent","source":{"subagent":{"other":"guardian"}}}}"#,
+            r#"{"type":"event_msg","payload":{"type":"user_message","message":"visible guardian"}}"#,
+        ],
+    );
+
+    let sessions = scanner::scan_local_sessions().unwrap();
+    assert_eq!(sessions.len(), 1, "guardian records must still use the existing visibility policy");
+    assert_eq!(sessions[0].session_id, visible_id);
+    let value = serde_json::to_value(&sessions[0]).unwrap();
+    assert_eq!(value["parentId"].as_str(), Some("parent"));
+    assert_eq!(value["isSubagent"].as_bool(), Some(true));
+    assert_eq!(value["agentNickname"].as_str(), Some("guardian"));
+}
+
+#[test]
+fn session_tree_keeps_user_forks_as_main_sessions() {
+    let h = setup_temp_home();
+    let session_id = "a5000000-1111-2222-3333-444444444444";
+    write_jsonl(
+        &codex_rollout_path(&h, "2026-10-08", session_id),
+        &[
+            r#"{"type":"session_meta","payload":{"id":"a5000000-1111-2222-3333-444444444444","source":"cli","forked_from_id":"parent"}}"#,
+            r#"{"type":"event_msg","payload":{"type":"user_message","message":"user fork"}}"#,
+        ],
+    );
+
+    let sessions = scanner::scan_local_sessions().unwrap();
+    let value = serde_json::to_value(&sessions[0]).unwrap();
+    assert!(value["parentId"].is_null());
+    assert_eq!(value["isSubagent"].as_bool(), Some(false));
+    assert!(value["agentNickname"].is_null());
+}
+
+#[test]
+fn session_tree_preserves_cloud_relationship_metadata() {
+    let h = setup_temp_home();
+    let cloud_root = tempfile::tempdir().unwrap();
+    let session_id = "a6000000-1111-2222-3333-444444444444";
+    let file = codex_rollout_path(&h, "2026-10-08", session_id);
+    write_jsonl(
+        &file,
+        &[
+            r#"{"type":"session_meta","payload":{"id":"a6000000-1111-2222-3333-444444444444","parent_thread_id":"parent","agent_nickname":"worker","source":{"subagent":{"thread_spawn":{"parent_thread_id":"parent"}}}}}"#,
+            r#"{"type":"event_msg","payload":{"type":"user_message","message":"sync child"}}"#,
+        ],
+    );
+    let cloud_folder = cloud::set_cloud_root(cloud_root.path().to_str().unwrap()).unwrap();
+    let session = scanner::scan_local_sessions().unwrap().remove(0);
+    cloud::upload_session(&cloud_folder, &session).unwrap();
+    scanner::delete_session_file(file.to_str().unwrap()).unwrap();
+
+    let cloud_session = cloud::list_cloud_sessions(Some(cloud_folder.clone())).unwrap().remove(0);
+    let value = serde_json::to_value(&cloud_session).unwrap();
+    assert_eq!(value["parentId"].as_str(), Some("parent"));
+    assert_eq!(value["isSubagent"].as_bool(), Some(true));
+    assert_eq!(value["agentNickname"].as_str(), Some("worker"));
+    let checked_out = cloud::checkout(&cloud_folder, &cloud_session).unwrap();
+    assert_eq!(std::path::PathBuf::from(checked_out), file);
+    let local_session = scanner::scan_local_sessions().unwrap().remove(0);
+    assert_eq!(serde_json::to_value(local_session).unwrap()["parentId"], value["parentId"]);
+}
+
+#[test]
+fn session_tree_reads_relationships_from_legacy_cloud_jsonl() {
+    let _h = setup_temp_home();
+    let cloud_root = tempfile::tempdir().unwrap();
+    let session_id = "a7000000-1111-2222-3333-444444444444";
+    let cloud_folder = cloud::set_cloud_root(cloud_root.path().to_str().unwrap()).unwrap();
+    write_jsonl(
+        &cloud_folder.join(format!("{session_id}.jsonl")),
+        &[r#"{"type":"session_meta","payload":{"id":"a7000000-1111-2222-3333-444444444444","source":{"subagent":{"thread_spawn":{"parent_thread_id":"parent","agent_nickname":"legacy-worker"}}}}}"#],
+    );
+    fs::write(
+        cloud_folder.join(format!("{session_id}.meta.json")),
+        serde_json::json!({
+            "sessionId": session_id,
+            "name": "legacy child",
+            "project": "Agent",
+            "projectDir": "C:/Agent",
+            "uploadedAt": "2026-10-08T10:00:00Z"
+        }).to_string(),
+    ).unwrap();
+
+    let sessions = cloud::list_cloud_sessions(Some(cloud_folder)).unwrap();
+    assert_eq!(sessions.len(), 1);
+    let value = serde_json::to_value(&sessions[0]).unwrap();
+    assert_eq!(value["parentId"].as_str(), Some("parent"));
+    assert_eq!(value["isSubagent"].as_bool(), Some(true));
+    assert_eq!(value["agentNickname"].as_str(), Some("legacy-worker"));
+}

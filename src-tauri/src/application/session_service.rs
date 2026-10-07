@@ -390,6 +390,9 @@ mod tests {
     fn session(id: &str, file_path: &str) -> Session {
         Session {
             session_id: id.into(),
+            parent_id: None,
+            is_subagent: false,
+            agent_nickname: None,
             name: None,
             description: None,
             auto_summary: None,

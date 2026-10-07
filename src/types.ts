@@ -1,5 +1,8 @@
 export interface Session {
   sessionId: string;
+  parentId: string | null;
+  isSubagent: boolean;
+  agentNickname: string | null;
   name: string | null;
   description: string | null;
   autoSummary: string | null;

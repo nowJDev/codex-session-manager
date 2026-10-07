@@ -136,3 +136,71 @@ export function shortSessionId(id: string): string {
   if (id.length <= 13) return id;
   return `${id.slice(0, 8)}...${id.slice(-4)}`;
 }
+
+export interface SessionTreeRow {
+  session: Session;
+  depth: number;
+  childCount: number;
+}
+
+export function buildSessionTreeRows(
+  sortedSessions: Session[],
+  expandedIds: ReadonlySet<string>,
+): SessionTreeRow[] {
+  const byId = new Map(sortedSessions.map((session) => [session.sessionId, session]));
+  const children = new Map<string, Session[]>();
+  const roots: Session[] = [];
+  for (const session of sortedSessions) {
+    const parentId = session.isSubagent ? session.parentId : null;
+    if (parentId && parentId !== session.sessionId && byId.has(parentId)) {
+      const siblings = children.get(parentId) ?? [];
+      siblings.push(session);
+      children.set(parentId, siblings);
+    } else {
+      roots.push(session);
+    }
+  }
+
+  const rows: SessionTreeRow[] = [];
+  const visited = new Set<string>();
+  // 접힌 자손도 방문하여 순환 관계의 대체 루트 처리에서 다시 노출하지 않는다.
+  for (const root of [...roots, ...sortedSessions]) {
+    if (visited.has(root.sessionId)) continue;
+    const stack = [{ session: root, depth: 0, visible: true }];
+    while (stack.length) {
+      const { session, depth, visible } = stack.pop()!;
+      if (visited.has(session.sessionId)) continue;
+      visited.add(session.sessionId);
+      const descendants = (children.get(session.sessionId) ?? [])
+        .filter((child) => !visited.has(child.sessionId));
+      if (visible) rows.push({ session, depth, childCount: descendants.length });
+      for (let i = descendants.length - 1; i >= 0; i--) {
+        stack.push({
+          session: descendants[i],
+          depth: depth + 1,
+          visible: visible && expandedIds.has(session.sessionId),
+        });
+      }
+    }
+  }
+  return rows;
+}
+
+export function filterSessionsWithAncestors(sessions: Session[], query: string): Session[] {
+  const q = query.trim().toLowerCase();
+  if (!q) return sessions;
+  const byId = new Map(sessions.map((session) => [session.sessionId, session]));
+  const included = new Set<string>();
+  for (const session of sessions) {
+    const text = [session.name, session.description, session.autoSummary, session.project,
+      session.sessionId, session.firstUserMessage, session.agentNickname]
+      .filter(Boolean).join(" ").toLowerCase();
+    if (!text.includes(q)) continue;
+    let ancestor: Session | undefined = session;
+    while (ancestor && !included.has(ancestor.sessionId)) {
+      included.add(ancestor.sessionId);
+      ancestor = ancestor.isSubagent && ancestor.parentId ? byId.get(ancestor.parentId) : undefined;
+    }
+  }
+  return sessions.filter((session) => included.has(session.sessionId));
+}

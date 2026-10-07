@@ -10,6 +10,7 @@ OpenAI Codex CLI 세션을 데스크톱에서 빠르게 찾고, 이름을 붙이
 
 - `~/.codex/sessions/YYYY/MM/DD/*.jsonl`과 `~/.codex/archived_sessions`에서 Codex 세션을 스캔합니다.
 - 세션에 이름, 설명, 즐겨찾기, 자동 요약을 붙여 다시 찾기 쉽게 만듭니다.
+- 부모 세션 아래에 서브 세션을 트리로 묶고 이름 앞 화살표로 펼치거나 접습니다.
 - 이름, 설명, 프로젝트, 세션 ID, 첫 사용자 메시지로 검색하고 컬럼별로 정렬합니다.
 - 세션을 더블클릭하거나 메뉴에서 `codex resume <session-id>`로 새 터미널에서 이어갑니다.
 - 체크박스로 여러 세션을 선택해 한 번에 삭제할 수 있습니다.
@@ -39,6 +40,9 @@ Current release: [Codex Session Manager v0.5.10](https://github.com/nowJDev/code
 ### Session Management
 
 - Codex JSONL의 `session_meta`, `turn_context`, `event_msg`, `response_item` 레코드를 관대하게 파싱합니다.
+- 서브 세션은 부모 ID로 연결하며 에이전트 이름과 서브 표시를 제공합니다. 부모가 없는 기록은 최상위에 표시합니다.
+- 트리는 처음에 접혀 있으며 검색 결과에는 일치한 서브 세션의 부모도 함께 표시하고 자동으로 펼칩니다. 기존 정렬은 부모끼리와 같은 부모의 자식끼리 적용됩니다. 전체 선택은 현재 표시된 행만 선택하며 부모의 개별 삭제는 자식에게 전파되지 않습니다.
+- 클라우드 동기화에서도 부모 관계를 보존합니다. 예전 클라우드 메타데이터는 저장된 JSONL에서 관계를 읽습니다.
 - 앱 전용 메타데이터는 `~/.codex-sessions/config.json`에 저장합니다.
 - Archive / Unarchive 메뉴는 `codex archive <session-id>`와 `codex unarchive <session-id>`를 사용합니다.
 - 삭제는 `codex delete --force <session-id>`를 사용하며, 한 건이 실패해도 나머지 항목을 계속 처리합니다.
@@ -115,9 +119,9 @@ cargo test -- --test-threads=1
 cd ..
 pnpm build
 
-# 삭제·새로고침 프런트엔드 회귀 검사.
+# 삭제·새로고침·세션 트리 프런트엔드 회귀 검사.
 node scripts/check-delete-workflow.mjs
-node --test tests/refresh-responsiveness.test.mjs
+node --test tests/*.test.mjs
 ```
 
 `session-cli`는 GUI 없이 백엔드 동작을 확인하는 하네스입니다.

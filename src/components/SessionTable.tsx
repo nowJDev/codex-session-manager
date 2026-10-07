@@ -6,6 +6,8 @@ import {
   Cloud,
   CloudUpload,
   CloudDownload,
+  ChevronDown,
+  ChevronRight,
   RefreshCw,
   HardDrive,
   MoreHorizontal,
@@ -30,6 +32,7 @@ import {
 import { sessionDescriptionText } from "@/lib/sessionDisplay";
 import {
   compareSessions,
+  buildSessionTreeRows,
   loadColumnWidths,
   loadSortPreference,
   MIN_COLUMN_WIDTH,
@@ -47,6 +50,7 @@ import type { Locale } from "@/i18n";
 
 interface Props {
   sessions: Session[];
+  autoExpand?: boolean;
   selectedId: string | null;
   locale: Locale;
   t: (k: string, p?: Record<string, string | number>) => string;
@@ -154,6 +158,7 @@ function ResizableHead({
 
 function SessionTableInner({
   sessions,
+  autoExpand = false,
   selectedId,
   locale,
   t,
@@ -172,6 +177,11 @@ function SessionTableInner({
 }: Props) {
   const [widths, setWidths] = useState<Record<ColKey, number>>(() => loadColumnWidths());
   const [sort, setSort] = useState<SortState>(() => loadSortPreference());
+  const [expandedIds, setExpandedIds] = useState<Set<string>>(() => new Set());
+
+  useEffect(() => {
+    if (autoExpand) setExpandedIds((current) => new Set([...current, ...sessions.map((s) => s.sessionId)]));
+  }, [sessions, autoExpand]);
 
   useEffect(() => {
     saveColumnWidths(widths);
@@ -197,9 +207,11 @@ function SessionTableInner({
     () => [...sessions].sort((a, b) => compareSessions(a, b, sort)),
     [sessions, sort]
   );
+  const treeRows = useMemo(() => buildSessionTreeRows(sortedSessions, expandedIds), [sortedSessions, expandedIds]);
+  const visibleSessions = useMemo(() => treeRows.map((row) => row.session), [treeRows]);
   const tableWidth = useMemo(() => totalColumnWidth(widths), [widths]);
-  const visibleSelectedCount = sortedSessions.filter((s) => selectedSessionIds.has(s.sessionId)).length;
-  const allVisibleSelected = sortedSessions.length > 0 && visibleSelectedCount === sortedSessions.length;
+  const visibleSelectedCount = visibleSessions.filter((s) => selectedSessionIds.has(s.sessionId)).length;
+  const allVisibleSelected = visibleSessions.length > 0 && visibleSelectedCount === visibleSessions.length;
   const someVisibleSelected = visibleSelectedCount > 0 && !allVisibleSelected;
   const selectAllRef = useRef<HTMLInputElement | null>(null);
 
@@ -239,7 +251,7 @@ function SessionTableInner({
               ref={selectAllRef}
               type="checkbox"
               checked={allVisibleSelected}
-              onChange={(e) => onToggleVisibleSelection(sortedSessions, e.currentTarget.checked)}
+              onChange={(e) => onToggleVisibleSelection(visibleSessions, e.currentTarget.checked)}
               aria-label={allVisibleSelected ? t("action.deselectAll") : t("action.selectAll")}
               title={allVisibleSelected ? t("action.deselectAll") : t("action.selectAll")}
               className="h-4 w-4 min-w-4 shrink-0 rounded border-border accent-primary"
@@ -334,13 +346,17 @@ function SessionTableInner({
         </TableRow>
       </TableHeader>
       <TableBody>
-        {sortedSessions.map((s) => {
+        {treeRows.map(({ session: s, depth, childCount }) => {
           const selected = selectedId === s.sessionId;
           const checked = selectedSessionIds.has(s.sessionId);
           const desc = sessionDescriptionText(s);
+          const expanded = expandedIds.has(s.sessionId);
+          const displayName = s.name || s.agentNickname || t("list.noName");
+          // ponytail: 들여쓰기는 6단계까지 표시하며 더 깊은 트리는 이름 열 폭과 상한을 함께 늘린다.
           return (
             <TableRow
               key={s.sessionId}
+              data-depth={depth}
               data-state={selected ? "selected" : undefined}
               onClick={() => onSelect(s)}
               onDoubleClick={() => onResume(s)}
@@ -378,14 +394,40 @@ function SessionTableInner({
                   />
                 </Button>
               </TableCell>
-              <TableCell style={cellStyle("name")} title={s.name || undefined}>
-                {s.name ? (
-                  <span className="block truncate font-medium">{s.name}</span>
-                ) : (
-                  <span className="text-sm italic text-muted-foreground/60">
-                    {t("list.noName")}
-                  </span>
-                )}
+              <TableCell style={cellStyle("name")} title={[s.name, s.agentNickname].filter(Boolean).join(" · ") || undefined}>
+                <div className="flex min-w-0 items-center gap-1" style={{ paddingLeft: Math.min(depth, 6) * 16 }}>
+                  {childCount > 0 ? (
+                    <button
+                      type="button"
+                      aria-expanded={expanded}
+                      aria-label={t(expanded ? "action.collapseChildren" : "action.expandChildren", { name: displayName, count: childCount })}
+                      title={t(expanded ? "action.collapseChildren" : "action.expandChildren", { name: displayName, count: childCount })}
+                      onDoubleClick={(e) => e.stopPropagation()}
+                      onClick={(e) => {
+                        e.stopPropagation();
+                        setExpandedIds((current) => {
+                          const next = new Set(current);
+                          if (next.has(s.sessionId)) next.delete(s.sessionId);
+                          else next.add(s.sessionId);
+                          return next;
+                        });
+                      }}
+                      className="inline-flex h-6 w-5 shrink-0 items-center justify-center rounded text-muted-foreground hover:bg-muted/40 hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
+                    >
+                      {expanded ? <ChevronDown className="h-3.5 w-3.5" /> : <ChevronRight className="h-3.5 w-3.5" />}
+                    </button>
+                  ) : <span className="w-5 shrink-0" />}
+                  <div className="min-w-0 flex-1">
+                    <span className={cn("block truncate", s.name || s.agentNickname ? "font-medium" : "text-sm italic text-muted-foreground/60")}>
+                      {displayName}
+                    </span>
+                    {s.agentNickname && s.name && s.agentNickname !== s.name && (
+                      <span className="block truncate text-[10px] text-muted-foreground">{s.agentNickname}</span>
+                    )}
+                  </div>
+                  {s.isSubagent && <span className="shrink-0 rounded bg-muted px-1 text-[10px] text-muted-foreground">{t("list.subagent")}</span>}
+                  {childCount > 0 && <span className="shrink-0 text-[10px] tabular-nums text-muted-foreground">{childCount}</span>}
+                </div>
               </TableCell>
               <TableCell
                 style={cellStyle("lastActive")}

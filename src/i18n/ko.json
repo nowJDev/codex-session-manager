@@ -4,6 +4,7 @@
     "version": "v{version}"
   },
   "list": {
+    "subagent": "서브",
     "name": "이름",
     "description": "설명",
     "project": "프로젝트",
@@ -22,6 +23,8 @@
     "archived": "보관됨"
   },
   "action": {
+    "expandChildren": "{name}의 서브 세션 {count}개 펼치기",
+    "collapseChildren": "{name}의 서브 세션 접기",
     "select": "세션을 선택하세요",
     "resumeHere": "현재 터미널에서 이어하기",
     "resumeNew": "새 터미널에서 열기",

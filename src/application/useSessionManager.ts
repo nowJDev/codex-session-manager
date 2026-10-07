@@ -1,6 +1,7 @@
 // 세션 관리 화면의 application hook들을 조립한다.
 import { useMemo, useState } from "react";
 import { createT } from "@/i18n";
+import { filterSessionsWithAncestors } from "@/lib/sessionTableState";
 import { useSessionCommands } from "@/application/useSessionCommands";
 import { useSessionData } from "@/application/useSessionData";
 import { useSessionSelection } from "@/application/useSessionSelection";
@@ -22,24 +23,10 @@ export function useSessionManager() {
 
   const t = useMemo(() => createT(data.locale), [data.locale]);
 
-  const filtered = useMemo(() => {
-    const q = query.trim().toLowerCase();
-    if (!q) return data.sessions;
-    return data.sessions.filter((s) => {
-      const hay = [
-        s.name,
-        s.description,
-        s.autoSummary,
-        s.project,
-        s.sessionId,
-        s.firstUserMessage,
-      ]
-        .filter(Boolean)
-        .join(" ")
-        .toLowerCase();
-      return hay.includes(q);
-    });
-  }, [data.sessions, query]);
+  const filtered = useMemo(
+    () => filterSessionsWithAncestors(data.sessions, query),
+    [data.sessions, query],
+  );
 
   const total = data.sessions.length;
   const localCount = data.sessions.filter(

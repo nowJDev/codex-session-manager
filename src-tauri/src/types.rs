@@ -81,6 +81,12 @@ pub struct DeleteSessionResult {
 #[serde(rename_all = "camelCase")]
 pub struct Session {
     pub session_id: String,
+    #[serde(default)]
+    pub parent_id: Option<String>,
+    #[serde(default)]
+    pub is_subagent: bool,
+    #[serde(default)]
+    pub agent_nickname: Option<String>,
     pub name: Option<String>,
     pub description: Option<String>,
     pub auto_summary: Option<String>,

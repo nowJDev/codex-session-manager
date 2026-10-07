@@ -171,6 +171,7 @@ function App() {
         <section className="min-w-0 flex-1 overflow-auto">
           <SessionTable
             sessions={filtered}
+            autoExpand={!!query.trim()}
             selectedId={selectedId}
             locale={locale}
             t={t}

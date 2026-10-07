@@ -145,6 +145,12 @@ pub fn detect_google_drive_result() -> CloudDetectResult {
 #[serde(rename_all = "camelCase")]
 struct CloudMeta {
     session_id: String,
+    #[serde(default)]
+    parent_id: Option<String>,
+    #[serde(default)]
+    is_subagent: Option<bool>,
+    #[serde(default)]
+    agent_nickname: Option<String>,
     name: Option<String>,
     description: Option<String>,
     auto_summary: Option<String>,
@@ -172,6 +178,9 @@ pub fn upload_session(cloud: &PathBuf, s: &Session) -> Result<()> {
 
     let meta = CloudMeta {
         session_id: s.session_id.clone(),
+        parent_id: s.parent_id.clone(),
+        is_subagent: Some(s.is_subagent),
+        agent_nickname: s.agent_nickname.clone(),
         name: s.name.clone(),
         description: s.description.clone(),
         auto_summary: s.auto_summary.clone(),
@@ -295,10 +304,24 @@ pub fn list_cloud_sessions(cloud: Option<PathBuf>) -> Result<Vec<Session>> {
         };
         let jsonl = cloud.join(format!("{}.jsonl", meta.session_id));
         let stat = fs::metadata(&jsonl).ok();
+        let jsonl_meta = if meta.is_subagent.is_none() {
+            crate::scanner::read_jsonl_meta(&jsonl).ok()
+        } else {
+            None
+        };
         let lock = read_lock(&cloud, &meta.session_id);
         let locked_by = lock.map(|l| l.hostname);
         out.push(Session {
             session_id: meta.session_id.clone(),
+            parent_id: meta
+                .parent_id
+                .or_else(|| jsonl_meta.as_ref().and_then(|m| m.parent_id.clone())),
+            is_subagent: meta
+                .is_subagent
+                .unwrap_or_else(|| jsonl_meta.as_ref().is_some_and(|m| m.is_subagent)),
+            agent_nickname: meta
+                .agent_nickname
+                .or_else(|| jsonl_meta.as_ref().and_then(|m| m.agent_nickname.clone())),
             name: meta.name,
             description: meta.description,
             auto_summary: meta.auto_summary,
@@ -387,6 +410,9 @@ pub fn checkin(cloud: Option<PathBuf>, session: &Session) -> Result<()> {
         let body = fs::read_to_string(&meta_path).unwrap_or_default();
         if let Ok(mut meta) = serde_json::from_str::<CloudMeta>(&body) {
             meta.uploaded_at = chrono::Utc::now().to_rfc3339();
+            meta.parent_id = session.parent_id.clone();
+            meta.is_subagent = Some(session.is_subagent);
+            meta.agent_nickname = session.agent_nickname.clone();
             if session.name.is_some() {
                 meta.name = session.name.clone();
             }
