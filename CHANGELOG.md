@@ -7,6 +7,23 @@ All notable changes to this project are documented here.
 ### Changed
 - Release workflow가 Windows 설치 exe와 portable zip 중심으로 산출물을 줄이도록 변경.
 
+## [0.5.11] — 2026-10-08
+
+### Added
+- 부모 아래에 서브 세션을 접고 펼치는 트리 표시, 에이전트 이름·서브 배지와 중첩 탐색을 추가.
+- 서브 세션 검색에 조상을 함께 표시하고 클라우드 메타데이터에도 부모 관계를 보존.
+
+### Fixed
+- 삭제 실패 항목의 재시도와 이미 없는 세션의 메타데이터 정리를 보강하고, 삭제·새로고침 중 UI 응답성을 개선.
+- 브라우저 탭 제목에 남아 있던 Claude Session Manager를 Codex Session Manager로 수정.
+
+### Removed
+- 사용하지 않는 Vite·Tauri 템플릿 이미지를 제거.
+
+### Verified
+- Rust 94개, 프런트엔드 트리·새로고침 8개, 삭제 회귀 4개 검사 통과.
+- 타입 검사·production 빌드와 실제 로컬 데이터의 Chrome 트리 화면 검증.
+
 ## [0.5.8] — 2026-07-03
 
 ### Changed

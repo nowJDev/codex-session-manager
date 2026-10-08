@@ -4,10 +4,17 @@ This document records release-level checks that are not fully covered by unit or
 
 ## Current Release
 
-- Current installer release: `v0.5.10`.
-- Release page: <https://github.com/nowJDev/codex-session-manager/releases/tag/v0.5.10>.
+- Current installer release: `v0.5.11`.
+- Release page: <https://github.com/nowJDev/codex-session-manager/releases/tag/v0.5.11>.
 - `v0.5.0` remains as the first Codex port tag, but the installer release was superseded by `v0.5.1` because GitHub Actions needed Node 24 for `pnpm 11.8.0`.
-- `v0.5.10` improves bulk-delete responsiveness and further tightens hexagonal boundaries across backend cloud/session ports and frontend Tauri/table adapters.
+- `v0.5.11` adds parent/sub-session trees, preserves relationships in cloud metadata, improves deletion recovery and refresh responsiveness, and fixes the browser tab title.
+
+Verification on 2026-10-08:
+
+- Rust 94 tests, frontend tree/refresh 8 tests and deletion regression 4 checks passed.
+- TypeScript check and production frontend build passed.
+- Chrome UI checks used the production frontend and a real local session snapshot through a temporary read-only IPC bridge. Expand/collapse, nested trees, keyboard input, ancestor-preserving search, visible-row selection and family-preserving sort passed.
+- Native Tauri IPC and a v0.5.11 installer smoke test have not been manually verified.
 
 ## Installer Smoke Test
 

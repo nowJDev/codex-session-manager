@@ -2,7 +2,7 @@
 
 OpenAI Codex CLI 세션을 데스크톱에서 빠르게 찾고, 이름을 붙이고, 이어서 실행할 수 있게 해주는 Tauri 앱입니다.
 
-[Download latest release](https://github.com/nowJDev/codex-session-manager/releases/tag/v0.5.10) · [Report an issue](https://github.com/nowJDev/codex-session-manager/issues/new)
+[Download latest release](https://github.com/nowJDev/codex-session-manager/releases/tag/v0.5.11) · [Report an issue](https://github.com/nowJDev/codex-session-manager/issues/new)
 
 ![Codex Session Manager dark UI](docs/screenshot.png)
 
@@ -19,12 +19,12 @@ OpenAI Codex CLI 세션을 데스크톱에서 빠르게 찾고, 이름을 붙이
 
 ## Latest Release
 
-Current release: [Codex Session Manager v0.5.10](https://github.com/nowJDev/codex-session-manager/releases/tag/v0.5.10).
+Current release: [Codex Session Manager v0.5.11](https://github.com/nowJDev/codex-session-manager/releases/tag/v0.5.11).
 
 | Type | Download |
 |---|---|
-| Windows installer | `Codex.Session.Manager_0.5.10_x64-setup.exe` |
-| Windows portable | `Codex.Session.Manager_v0.5.10_x64-portable.zip` |
+| Windows installer | `Codex.Session.Manager_0.5.11_x64-setup.exe` |
+| Windows portable | `Codex.Session.Manager_v0.5.11_x64-portable.zip` |
 
 `latest.json`과 `.sig` 파일은 설치형 앱의 자동 업데이트 검증용 보조 asset입니다.
 
