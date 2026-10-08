@@ -15,7 +15,7 @@ Goal은 부모·서브 관계를 실제 세션 목록에서 탐색하는 것이�
 - [x] 백엔드. `scanner.rs`, `types.rs`, `cloud.rs`, `application/session_service.rs`와 `integration_tests.rs`를 변경한다. 관계 없는 일반 세션·일반 서브의 무메시지 표시·부모 우선순위·guardian 기존 정책·클라우드 왕복·이전 메타데이터 fallback 테스트를 먼저 작성한다. `cargo test --manifest-path src-tauri/Cargo.toml -- --test-threads=1`에서 관계 단언 RED를 확인하고 관계 필드 파싱·직렬화·표시를 구현하여 GREEN을 확인한다.
 - [x] 프런트엔드 계산. `src/types.ts`, `src/lib/sessionTableState.ts`와 `tests/session-tree.test.mjs`를 변경한다. `buildSessionTreeRows(sortedSessions, expandedIds)`는 부모를 먼저 반환하며 `filterSessionsWithAncestors(sessions, query)`는 검색에 조상을 포함한다. 테스트는 `assert.deepEqual(rows.map(r => [r.session.sessionId, r.depth]), [["parent", 0], ["child", 1], ["grandchild", 2]])`와 접기·고아·순환·검색을 확인한다. 구현 전 트리 계산 함수가 없는 상태에서 단언 실패를 확인한 뒤 최소 함수를 구현한다. `node --test tests/session-tree.test.mjs`로 검증한다.
 - [x] 화면 연결. `SessionTable.tsx`, `useSessionManager.ts`, `App.tsx`, 한·영 번역에 관계 계산과 접기 버튼을 연결한다. 버튼은 키보드로 사용할 수 있고 aria-expanded와 번역된 이름을 제공한다. 검색 중에는 결과 가지가 보이고 검색 결과에서도 사용자가 가지를 다시 접을 수 있다. 전체 선택 대상은 계산된 표시 행이다.
-- [-] 검증·리뷰. 전체 Rust/Node 테스트, 기존 삭제 검사, `node node_modules/typescript/bin/tsc`, `node node_modules/vite/bin/vite.js build`, `git diff --check`를 실행한다. 실제 브라우저에서 임시 세션 데이터로 접기·중첩·검색·정렬·전체 선택을 검증한다. 전체 diff를 리뷰하고 README와 이 문서에 결과를 기록한 뒤 한글 커밋을 남긴다. 배포·원격 푸시는 수행하지 않는다.
+- [x] 검증·리뷰. 전체 Rust/Node 테스트, 기존 삭제 검사, `node node_modules/typescript/bin/tsc`, `node node_modules/vite/bin/vite.js build`, `git diff --check`를 실행한다. 실제 브라우저에서 로컬 세션 스냅샷으로 접기·중첩·검색·정렬·전체 선택을 검증한다. 전체 diff를 리뷰하고 README와 이 문서에 결과를 기록한 뒤 한글 커밋을 남긴다. 배포·원격 푸시는 수행하지 않는다.
 
 ## 검증·리뷰 결과.
 
@@ -28,5 +28,7 @@ Goal은 부모·서브 관계를 실제 세션 목록에서 탐색하는 것이�
 - 빌드한 session-cli로 실제 로컬 세션 104개를 조회했다. 서브 91개의 부모가 모두 연결됐고 같은 실제 데이터의 트리 계산에서 접힌 루트 13개·펼친 행 104개를 중복·누락 없이 확인했다.
 - 실제 SessionTable 코드를 실행한 이벤트 검사에서 처음 접힘·펼침·중첩·검색 자동 펼침과 다시 접기·표시된 행만 전체 선택·펼침 버튼의 클릭/더블클릭 전파 차단을 확인했다.
 - 전체 변경을 독립 리뷰했으며 확신 높은 결함은 발견되지 않았다. 로컬 기존 브랜치와 사용자 데이터는 보존했다.
-- 실제 UI/CSS·키보드·브라우저 이벤트 버블링의 수동 검증은 미수행이다. CUA inventory에 apps/browsers가 없고 in-app browser 생성은 Browser is not available: iab로 실패했다. 이 한계로 수동 검증 상태를 부분 완료로 유지한다.
+- Chrome에서 production 프런트엔드와 release session-cli의 실제 로컬 스냅샷 113개(서브 100개·루트 13개)를 연결해 수동 검증했다. 처음 13행, 부모 펼침 16행, 중첩 펼침 18행과 접기·Enter/Space 키 조작·닉네임 검색 시 조상 유지·검색 중 다시 접기·표시 행만 전체 선택·정렬 후 가족 묶음 유지를 확인했다. 펼침 조작은 세션 선택이나 재개를 유발하지 않았고 브라우저 오류 로그는 없었다.
+- 브라우저 검증은 임시 읽기 전용 IPC 연결을 사용했다. Windows native CUA 연결은 사용할 수 없어 Tauri 네이티브 IPC의 화면 검증은 범위에 포함하지 않았다. 원본 세션 데이터는 변경하지 않았다.
+- index.html에 남아 있던 Claude Session Manager 제목을 Codex Session Manager로 수정했다. 프런트엔드와 Windows release 실행 파일을 다시 빌드했고 Chrome의 실제 탭 제목을 확인했다.
 - 들여쓰기는 이름 열 가독성을 위해 6단계까지만 늘리며 실제 관계·표시·검색은 더 깊은 세션도 지원한다. 펼침 상태는 실행 중 메모리에 유지된다.
