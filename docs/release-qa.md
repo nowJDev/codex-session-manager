@@ -14,6 +14,8 @@ Verification on 2026-10-08:
 - Rust 94 tests, frontend tree/refresh 8 tests and deletion regression 4 checks passed.
 - TypeScript check and production frontend build passed.
 - Chrome UI checks used the production frontend and a real local session snapshot through a temporary read-only IPC bridge. Expand/collapse, nested trees, keyboard input, ancestor-preserving search, visible-row selection and family-preserving sort passed.
+- Windows release workflow completed successfully and published v0.5.11 as the latest non-draft, non-prerelease release. Installer, portable ZIP, installer signature and latest.json were uploaded.
+- Downloaded asset SHA256 values match GitHub digests. The portable executable reports 0.5.11; updater platforms reference the v0.5.11 installer and carry the same signature as its .sig asset.
 - Native Tauri IPC and a v0.5.11 installer smoke test have not been manually verified.
 
 ## Installer Smoke Test
