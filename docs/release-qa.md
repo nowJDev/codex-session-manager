@@ -2,13 +2,29 @@
 
 This document records release-level checks that are not fully covered by unit or integration tests.
 
-## v0.5.12 Release Preparation
+## Current Release v0.5.12
 
-The user approved publishing the registered-session fixes as v0.5.12. The existing Windows Release workflow will produce the NSIS installer, portable ZIP, updater signature and latest.json. Publication and asset verification remain pending until the workflow and downloaded digests are checked. The execution record is `superpowers/plans/2026-11-02-v0.5.12-release.md`.
+2026-11-02에 [v0.5.12](https://github.com/nowJDev/codex-session-manager/releases/tag/v0.5.12)를 최신 정식 릴리스로 발행했다. 태그의 소스 커밋은 `8cfa8099683c8bbed07e5175c4dda63d8e0db21f`이다. [Release 실행 41374695666](https://github.com/nowJDev/codex-session-manager/actions/runs/41374695666)의 Windows 빌드와 공개 전환이 성공했다. 실행 기록은 `superpowers/plans/2026-11-02-v0.5.12-release.md`를 따른다.
+
+- 버전 네 곳(package, Tauri, Cargo, Cargo.lock)이 0.5.12로 일치하고 의존성 lock 항목은 바뀌지 않았다.
+- 릴리스 준비 상태에서 Node 18개·삭제 검사 4개와 production build가 통과했다. 기능 코드의 직전 Windows Rust 122개 통과와 사용자 작동 확인은 `reviews/2026-11-02-paginated-sessions.md`에 기록했다.
+- 태그 푸시 후 자동 실행이 생성되지 않아 기존 workflow_dispatch로 Release를 실행했다. main CI 자동 실행은 생성되지 않았으며 별도의 CI 통과로 보고하지 않는다.
+- 다운로드한 자산 네 개 모두 크기·SHA256이 GitHub digest와 일치했다. 포터블 exe의 PE 버전은 0.5.12이며 SHA256은 `ea96862e2d26609601ca6f3e24a419d1eb0546e009cb052df2a41290f66fa92d`이다.
+- updater의 `windows-x86_64`와 `windows-x86_64-nsis`가 v0.5.12 설치 파일을 가리키며 signature가 공개 `.sig`와 같다. 저장소의 공개키로 Ed25519 서명·trusted comment를 검증했고, 변조된 설치 파일은 거부됐다. 검증 구현은 minisign-verify 0.2.5의 공개 테스트 벡터와 변조 거부도 통과했다.
+- 공개 `/releases/latest/download/latest.json`이 HTTP 200으로 0.5.12를 반환하며 다운로드한 자산과 해시가 일치했다. 릴리스는 draft·prerelease가 아니며 한국어 변경 내역을 제공한다.
+- 바탕화면 수정 버전 바로가기의 실행 파일을 검증한 공개 포터블 exe로 갱신했다. 사용자 앱을 강제 종료하거나 설치 프로그램을 재설치하지 않았다. 이전 로컬 exe와 테스트용 CLI·심볼, 임시 worktree·브랜치·다운로드·프런트 빌드는 정리했다.
+- 공개 설치 프로그램의 설치·업데이트 실행 및 공개 exe의 새 GUI 실행은 수행하지 않았다. 사용자 세션·설정은 보존했다. 기존 Actions의 Node 20 런타임 사용 중단 경고가 있었으며 Node 24 강제 실행으로 배포는 성공했다.
+
+| 자산 | SHA256 |
+| --- | --- |
+| `Codex.Session.Manager_0.5.12_x64-setup.exe` | `084cf34591c81a422d73146695e2f0189c7e009bdb283b74919a2d2955b31fb9` |
+| `Codex.Session.Manager_0.5.12_x64-setup.exe.sig` | `2335e037f7303b557fe3b308886bf86f875c225df320c7898801ddccaed73364` |
+| `Codex.Session.Manager_v0.5.12_x64-portable.zip` | `c88bdab9bf0405792f7ce31b2d3f4340eb26c4a3af55e28f2c85d3e09dd8d3e3` |
+| `latest.json` | `bb72b88c65c4168a24be95cf3a0708f17432d97aa30316dd30b563c9e96bf01c` |
 
 ## Previous Release v0.5.11
 
-- Current installer release: `v0.5.11`.
+- Installer release at that time: `v0.5.11`.
 - Release page: <https://github.com/nowJDev/codex-session-manager/releases/tag/v0.5.11>.
 - `v0.5.0` remains as the first Codex port tag, but the installer release was superseded by `v0.5.1` because GitHub Actions needed Node 24 for `pnpm 11.8.0`.
 - `v0.5.11` adds parent/sub-session trees, preserves relationships in cloud metadata, improves deletion recovery and refresh responsiveness, and fixes the browser tab title.
@@ -48,7 +64,11 @@ Result on 2026-06-19:
 
 ## Session Action Checks
 
-Archive and deletion actions should continue to use Codex CLI before direct file manipulation:
+현재 등록 세션 목록·삭제는 app-server의 `thread/list`와 `thread/delete`를 사용한다. 삭제 전 부모·하위 세션의 영향 범위를 확인하고 삭제 후 전체 등록 목록에서 부재를 검증한다. SQLite·인덱스를 직접 수정하지 않는다. 기존 CLI archive·unarchive 동작은 유지한다.
+
+현재 삭제 회귀는 등록 부재, 남아 있는 등록의 실패 판정, 전송 불확실성과 검증 실패를 포함한다. 상세 검증은 `reviews/2026-11-02-paginated-sessions.md`를 따른다.
+
+다음은 2026-06-19 당시 CLI 기반 경로의 과거 검증 기록이다.
 
 - `codex archive <session-id>`.
 - `codex unarchive <session-id>`.
