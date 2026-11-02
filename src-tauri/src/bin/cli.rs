@@ -135,9 +135,13 @@ fn main() -> ExitCode {
         "delete" => {
             let service = session_service();
             let id = required_arg(&args, 1, "session-id")?;
-            let session = find_session(&service, &id)?;
-            service.delete_session(&id, &session.file_path)?;
-            println!("deleted: {}", id);
+            let targets = vec![codex_session_manager_lib::types::DeleteSessionTarget { session_id: id.clone() }];
+            let plan = service.prepare_session_deletion(&targets)?;
+            let results = service.delete_sessions(targets, &plan.affected_ids)?;
+            println!("{}", serde_json::to_string_pretty(&results)?);
+            if results.iter().any(|r| matches!(r.status, codex_session_manager_lib::types::DeleteSessionStatus::Failed | codex_session_manager_lib::types::DeleteSessionStatus::Unconfirmed)) {
+                return Err(anyhow!("삭제 미완료 항목이 있습니다."));
+            }
             Ok(())
         }
         "auto-summarize-batch" => {
@@ -160,8 +164,7 @@ fn main() -> ExitCode {
         "auto-summarize" => {
             let service = session_service();
             let id = required_arg(&args, 1, "session-id")?;
-            let session = find_session(&service, &id)?;
-            let (name, desc) = service.generate_summary_pair(&id, &session.file_path)?;
+            let (name, desc) = service.generate_summary_pair(&id)?;
             println!(
                 "{}",
                 serde_json::to_string_pretty(&serde_json::json!({

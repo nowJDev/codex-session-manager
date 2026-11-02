@@ -12,7 +12,7 @@ import type {
   CodexStatus,
   DeleteSessionTarget,
   DeleteSessionResult,
-  DeleteSessionStatus,
+  DeletionPlan,
   EnvironmentReport,
   Session,
   SessionMeta,
@@ -50,9 +50,8 @@ export const tauriGateway = {
   getConfig: (): Promise<AppConfig> => ipc.getConfig(),
   saveSessionMeta: (sessionId: string, patch: SessionMeta): Promise<void> =>
     ipc.saveSessionMeta(sessionId, patch),
-  deleteSession: (sessionId: string, filePath: string): Promise<DeleteSessionStatus> =>
-    ipc.deleteSession(sessionId, filePath),
-  deleteSessions: (targets: DeleteSessionTarget[]): Promise<DeleteSessionResult[]> => ipc.deleteSessions(targets),
+  prepareSessionDeletion: (targets: DeleteSessionTarget[]): Promise<DeletionPlan> => ipc.prepareSessionDeletion(targets),
+  deleteSessions: (targets: DeleteSessionTarget[], approvedIds: string[]): Promise<DeleteSessionResult[]> => ipc.deleteSessions(targets, approvedIds),
   archiveSession: (sessionId: string): Promise<void> => ipc.archiveSession(sessionId),
   unarchiveSession: (sessionId: string): Promise<void> => ipc.unarchiveSession(sessionId),
   saveSettings: (patch: Settings): Promise<void> => ipc.saveSettings(patch),
@@ -62,8 +61,7 @@ export const tauriGateway = {
   checkinSession: (session: Session): Promise<void> => ipc.checkinSession(session),
   resumeSession: (sessionId: string, cwd: string | null): Promise<void> =>
     ipc.resumeSession(sessionId, cwd),
-  generateSummary: (sessionId: string, filePath: string): Promise<string> =>
-    ipc.generateSummary(sessionId, filePath),
+  generateSummary: (sessionId: string): Promise<string> => ipc.generateSummary(sessionId),
   checkEnvironment: (): Promise<EnvironmentReport> => ipc.checkEnvironment(),
   getCodexStatus: (): Promise<CodexStatus> => ipc.getCodexStatus(),
   checkUpdate: (): Promise<UpdateInfo> => ipc.checkUpdate(),

@@ -1,7 +1,10 @@
 // 세션 관리 use case를 조율하는 애플리케이션 서비스이다.
 use crate::application::ports::{ResumePlan, SessionPorts};
 use crate::domain::session::{classify_storage_state, is_retryable_auto_summary, StorageState};
-use crate::types::{Config, DeleteSessionResult, DeleteSessionStatus, DeleteSessionTarget, Session, SessionMeta, Settings};
+use crate::types::{
+    Config, DeleteSessionResult, DeleteSessionStatus, DeleteSessionTarget, DeletionPlan, Session,
+    SessionMeta, Settings,
+};
 use anyhow::Result;
 use std::collections::HashMap;
 use std::collections::HashSet;
@@ -30,29 +33,52 @@ impl<P: SessionPorts> SessionService<P> {
         self.ports.save_session_meta(session_id, patch)
     }
 
-    pub fn delete_session(&self, session_id: &str, file_path: &str) -> Result<DeleteSessionStatus> {
-        let status = self.ports.delete_session(session_id, file_path)?;
-        self.ports.delete_session_meta(session_id)?;
-        Ok(status)
+    pub fn prepare_session_deletion(
+        &self,
+        targets: &[DeleteSessionTarget],
+    ) -> Result<DeletionPlan> {
+        self.ports.prepare_session_deletion(targets)
+    }
+
+    pub fn delete_session(
+        &self,
+        session_id: &str,
+        approved_ids: &[String],
+    ) -> Result<DeleteSessionResult> {
+        self.delete_sessions(
+            vec![DeleteSessionTarget {
+                session_id: session_id.into(),
+            }],
+            approved_ids,
+        )?
+        .into_iter()
+        .find(|r| r.session_id == session_id)
+        .ok_or_else(|| anyhow::anyhow!("삭제 결과가 없습니다."))
     }
 
     pub fn delete_session_meta(&self, session_id: &str) -> Result<()> {
         self.ports.delete_session_meta(session_id)
     }
 
-    pub fn delete_sessions(&self, targets: Vec<DeleteSessionTarget>) -> Vec<DeleteSessionResult> {
-        targets.into_iter().map(|target| {
-            let (status, error) = match self.delete_session(&target.session_id, &target.file_path) {
-                Ok(status) => (status, None),
-                Err(error) => (DeleteSessionStatus::Failed, Some(format!("{error:#}"))),
-            };
-            DeleteSessionResult {
-                session_id: target.session_id,
-                file_path: target.file_path,
-                status,
-                error,
+    pub fn delete_sessions(
+        &self,
+        targets: Vec<DeleteSessionTarget>,
+        approved_ids: &[String],
+    ) -> Result<Vec<DeleteSessionResult>> {
+        let mut results = self.ports.delete_sessions(&targets, approved_ids)?;
+        for result in &mut results {
+            if matches!(
+                result.status,
+                DeleteSessionStatus::Deleted | DeleteSessionStatus::AlreadyMissing
+            ) {
+                if let Err(error) = self.ports.delete_session_meta(&result.session_id) {
+                    result.warning = Some(format!(
+                        "세션은 삭제됐지만 앱 메타데이터 정리에 실패했습니다: {error:#}"
+                    ));
+                }
             }
-        }).collect()
+        }
+        Ok(results)
     }
 
     pub fn archive_session(&self, session_id: &str) -> Result<()> {
@@ -117,11 +143,15 @@ impl<P: SessionPorts> SessionService<P> {
             .scan_local_sessions()?
             .into_iter()
             .filter(|session| {
-                session.description.as_deref().unwrap_or("").is_empty()
+                session.registered
+                    && !session.hidden
+                    && session.history_mode == "legacy"
+                    && session.file_path.is_some()
+                    && session.description.as_deref().unwrap_or("").is_empty()
                     && is_retryable_auto_summary(session.auto_summary.as_deref())
             })
             .take(batch_size)
-            .map(|session| (session.session_id, session.file_path))
+            .filter_map(|session| session.file_path.map(|path| (session.session_id, path)))
             .collect())
     }
 
@@ -163,11 +193,7 @@ impl<P: SessionPorts> SessionService<P> {
         )
     }
 
-    pub fn generate_summary_pair(
-        &self,
-        session_id: &str,
-        file_path: &str,
-    ) -> Result<(String, String)> {
+    pub fn generate_summary_pair(&self, session_id: &str) -> Result<(String, String)> {
         let cfg = self.ports.load_config();
         let previous_summary = cfg
             .sessions
@@ -176,13 +202,13 @@ impl<P: SessionPorts> SessionService<P> {
 
         let (name, description) = self
             .ports
-            .summarize_session(file_path, previous_summary.as_deref())?;
+            .summarize_session(session_id, previous_summary.as_deref())?;
         self.save_summary(session_id, name.clone(), description.clone())?;
         Ok((name, description))
     }
 
-    pub fn generate_summary(&self, session_id: &str, file_path: &str) -> Result<String> {
-        self.generate_summary_pair(session_id, file_path)
+    pub fn generate_summary(&self, session_id: &str) -> Result<String> {
+        self.generate_summary_pair(session_id)
             .map(|(_name, description)| description)
     }
 }
@@ -227,7 +253,10 @@ mod tests {
         CloudSyncPort, ResumePlan, ResumePort, SessionCommandPort, SessionMessagePort,
         SessionMetadataPort, SessionScanPort, SummaryPort,
     };
-    use crate::types::{Config, DeleteSessionStatus, Session, SessionMeta, Settings};
+    use crate::types::{
+        Config, DeleteSessionResult, DeleteSessionStatus, DeleteSessionTarget, DeletionPlan,
+        Session, SessionMeta, Settings,
+    };
     use anyhow::Result;
     use std::cell::RefCell;
     use std::collections::HashMap;
@@ -273,19 +302,42 @@ mod tests {
     }
 
     impl SessionCommandPort for FakePorts {
-        fn delete_session(&self, session_id: &str, file_path: &str) -> Result<DeleteSessionStatus> {
-            self.state
-                .borrow_mut()
-                .deleted_sessions
-                .push((session_id.to_string(), file_path.to_string()));
-            if let Some(error) = self.state.borrow().delete_errors.get(session_id) {
-                anyhow::bail!("{error}");
-            }
-            Ok(if self.state.borrow().already_missing.iter().any(|id| id == session_id) {
-                DeleteSessionStatus::AlreadyMissing
-            } else {
-                DeleteSessionStatus::Deleted
+        fn prepare_session_deletion(
+            &self,
+            targets: &[DeleteSessionTarget],
+        ) -> Result<DeletionPlan> {
+            Ok(DeletionPlan {
+                targets: targets.to_vec(),
+                affected_ids: targets.iter().map(|t| t.session_id.clone()).collect(),
             })
+        }
+        fn delete_sessions(
+            &self,
+            targets: &[DeleteSessionTarget],
+            _approved_ids: &[String],
+        ) -> Result<Vec<DeleteSessionResult>> {
+            Ok(targets
+                .iter()
+                .map(|target| {
+                    let id = &target.session_id;
+                    let mut state = self.state.borrow_mut();
+                    state.deleted_sessions.push((id.clone(), String::new()));
+                    let error = state.delete_errors.get(id).cloned();
+                    let status = if error.is_some() {
+                        DeleteSessionStatus::Failed
+                    } else if state.already_missing.contains(id) {
+                        DeleteSessionStatus::AlreadyMissing
+                    } else {
+                        DeleteSessionStatus::Deleted
+                    };
+                    DeleteSessionResult {
+                        session_id: id.clone(),
+                        status,
+                        error,
+                        warning: None,
+                    }
+                })
+                .collect())
         }
 
         fn archive_session(&self, _session_id: &str) -> Result<()> {
@@ -398,8 +450,12 @@ mod tests {
             auto_summary: None,
             project: "Agent".into(),
             project_dir: "C:/Agent".into(),
-            file_path: file_path.into(),
-            size: 1,
+            file_path: Some(file_path.into()),
+            size: Some(1),
+            preview: None,
+            history_mode: "legacy".into(),
+            registered: true,
+            hidden: false,
             total_lines: 1,
             first_timestamp: None,
             last_timestamp: None,
@@ -445,13 +501,13 @@ mod tests {
         let state = ports.state.clone();
 
         SessionService::new(ports)
-            .delete_session("s1", "session.jsonl")
+            .delete_session("s1", &["s1".into()])
             .unwrap();
 
         let state = state.borrow();
         assert_eq!(
             state.deleted_sessions,
-            vec![("s1".to_string(), "session.jsonl".to_string())]
+            vec![("s1".to_string(), String::new())]
         );
         assert_eq!(state.deleted_meta, vec!["s1".to_string()]);
     }
@@ -459,18 +515,33 @@ mod tests {
     #[test]
     fn bulk_delete_continues_after_failure_and_preserves_failed_metadata() {
         let ports = FakePorts::default();
-        ports.state.borrow_mut().delete_errors.insert("bad".into(), "locked".into());
+        ports
+            .state
+            .borrow_mut()
+            .delete_errors
+            .insert("bad".into(), "locked".into());
         let state = ports.state.clone();
         let targets = ["first", "bad", "last"].map(|id| crate::types::DeleteSessionTarget {
             session_id: id.into(),
-            file_path: format!("{id}.jsonl"),
         });
-        let results = SessionService::new(ports).delete_sessions(targets.to_vec());
-        assert_eq!(results.iter().map(|r| r.status).collect::<Vec<_>>(),
-            vec![DeleteSessionStatus::Deleted, DeleteSessionStatus::Failed, DeleteSessionStatus::Deleted]);
+        let results = SessionService::new(ports)
+            .delete_sessions(targets.to_vec(), &[])
+            .unwrap();
+        assert_eq!(
+            results.iter().map(|r| r.status).collect::<Vec<_>>(),
+            vec![
+                DeleteSessionStatus::Deleted,
+                DeleteSessionStatus::Failed,
+                DeleteSessionStatus::Deleted
+            ]
+        );
         assert_eq!(results[1].error.as_deref(), Some("locked"));
         let state = state.borrow();
-        assert_eq!(state.deleted_sessions.len(), 3, "a failed item must not stop the batch");
+        assert_eq!(
+            state.deleted_sessions.len(),
+            3,
+            "a failed item must not stop the batch"
+        );
         assert_eq!(state.deleted_meta, vec!["first", "last"]);
     }
 
@@ -478,15 +549,31 @@ mod tests {
     fn bulk_delete_reports_missing_and_metadata_failure_separately() {
         let ports = FakePorts::default();
         ports.state.borrow_mut().already_missing.push("gone".into());
-        ports.state.borrow_mut().metadata_errors.insert("meta".into(), "metadata write failed".into());
+        ports
+            .state
+            .borrow_mut()
+            .metadata_errors
+            .insert("meta".into(), "metadata write failed".into());
         let state = ports.state.clone();
         let targets = ["gone", "meta", "last"].map(|id| crate::types::DeleteSessionTarget {
-            session_id: id.into(), file_path: format!("{id}.jsonl"),
+            session_id: id.into(),
         });
-        let results = SessionService::new(ports).delete_sessions(targets.to_vec());
-        assert_eq!(results.iter().map(|r| r.status).collect::<Vec<_>>(),
-            vec![DeleteSessionStatus::AlreadyMissing, DeleteSessionStatus::Failed, DeleteSessionStatus::Deleted]);
-        assert_eq!(results[1].error.as_deref(), Some("metadata write failed"));
+        let results = SessionService::new(ports)
+            .delete_sessions(targets.to_vec(), &[])
+            .unwrap();
+        assert_eq!(
+            results.iter().map(|r| r.status).collect::<Vec<_>>(),
+            vec![
+                DeleteSessionStatus::AlreadyMissing,
+                DeleteSessionStatus::Deleted,
+                DeleteSessionStatus::Deleted
+            ]
+        );
+        assert!(results[1]
+            .warning
+            .as_deref()
+            .unwrap()
+            .contains("metadata write failed"));
         assert_eq!(state.borrow().deleted_meta, vec!["gone", "last"]);
     }
 
@@ -536,14 +623,85 @@ mod tests {
         );
         let state = ports.state.clone();
 
-        let description = SessionService::new(ports)
-            .generate_summary("s1", "session.jsonl")
-            .unwrap();
+        let description = SessionService::new(ports).generate_summary("s1").unwrap();
 
         assert_eq!(description, "summary after old");
         let saved = &state.borrow().saved_meta[0];
         assert_eq!(saved.0, "s1");
         assert_eq!(saved.1.name.as_deref(), Some("generated"));
         assert_eq!(saved.1.auto_summary.as_deref(), Some("summary after old"));
+    }
+
+    #[test]
+    fn registered_database_session_can_have_no_rollout_or_size() {
+        let mut value = serde_json::to_value(session("db-only", "old.jsonl")).unwrap();
+        value["filePath"] = serde_json::Value::Null;
+        value["size"] = serde_json::Value::Null;
+        value["registered"] = true.into();
+        value["historyMode"] = "paginated".into();
+        let parsed = serde_json::from_value::<Session>(value);
+        assert!(
+            parsed.is_ok(),
+            "registered DB-only sessions must not require a file: {parsed:?}"
+        );
+    }
+    #[test]
+    fn paginated_stub_must_not_overwrite_existing_cloud_backup() {
+        let dir = tempfile::tempdir().unwrap();
+        let file = dir.path().join("stub.jsonl");
+        std::fs::write(
+            &file,
+            r#"{"type":"session_meta","payload":{"id":"s1","history_mode":"paginated"}}"#,
+        )
+        .unwrap();
+        let cloud = dir.path().join("cloud");
+        std::fs::create_dir(&cloud).unwrap();
+        let backup = cloud.join("s1.jsonl");
+        std::fs::write(&backup, "preserve backup").unwrap();
+        let mut s = session("s1", file.to_str().unwrap());
+        s.history_mode = "legacy".into();
+        assert!(
+            crate::cloud::upload_session(&cloud, &s).is_err(),
+            "read actual file mode instead of trusting frontend"
+        );
+        assert_eq!(std::fs::read_to_string(&backup).unwrap(), "preserve backup");
+    }
+
+    #[test]
+    fn paginated_sessions_never_enter_legacy_auto_summary_queue() {
+        let ports = FakePorts::default();
+        let mut db = session("db", "stub.jsonl");
+        db.history_mode = "paginated".into();
+        let mut missing = session("missing", "gone.jsonl");
+        missing.file_path = None;
+        ports.state.borrow_mut().local = vec![db, missing, session("legacy", "complete.jsonl")];
+        let pending = SessionService::new(ports)
+            .pending_auto_summary_batch(5)
+            .unwrap();
+        assert_eq!(pending, vec![("legacy".into(), "complete.jsonl".into())]);
+    }
+
+    #[test]
+    fn unidentified_or_mismatched_files_preserve_existing_backup() {
+        let dir = tempfile::tempdir().unwrap();
+        let file = dir.path().join("source.jsonl");
+        let cloud = dir.path().join("cloud");
+        std::fs::create_dir(&cloud).unwrap();
+        let backup = cloud.join("s1.jsonl");
+        for body in [
+            "",
+            "invalid json",
+            r#"{"type":"event_msg"}"#,
+            r#"{"type":"session_meta","payload":{"id":"different"}}"#,
+        ] {
+            std::fs::write(&file, body).unwrap();
+            std::fs::write(&backup, "keep").unwrap();
+            let s = session("s1", file.to_str().unwrap());
+            assert!(
+                crate::cloud::upload_session(&cloud, &s).is_err(),
+                "unknown file must be refused: {body}"
+            );
+            assert_eq!(std::fs::read_to_string(&backup).unwrap(), "keep");
+        }
     }
 }

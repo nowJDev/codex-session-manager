@@ -34,6 +34,8 @@ pub fn build_resume_plan(session_id: &str, cwd: Option<&str>, target_os: &str) -
                     session_id,
                     cwd,
                     flags.as_deref(),
+                    &crate::environment::locate_codex().unwrap_or_else(|| "codex".into()),
+                    &crate::scanner::codex_home().to_string_lossy(),
                 );
             }
         }
@@ -59,7 +61,38 @@ pub fn build_resume_plan(session_id: &str, cwd: Option<&str>, target_os: &str) -
         }
     });
     let codex = crate::environment::locate_codex().unwrap_or_else(|| "codex".into());
-    build_resume_command_with_codex(&term, session_id, cwd, flags.as_deref(), &codex)
+    let mut plan =
+        build_resume_command_with_codex(&term, session_id, cwd, flags.as_deref(), &codex);
+    let home = crate::scanner::codex_home().to_string_lossy().to_string();
+    if let Some(command) = plan.args.last_mut() {
+        match term.kind {
+            TerminalKind::WindowsTerminal | TerminalKind::PowerShell => {
+                *command = format!(
+                    "$env:CODEX_HOME='{}'; {}",
+                    home.replace('\'', "''"),
+                    command
+                );
+            }
+            TerminalKind::Cmd => {
+                *command = format!("set \"CODEX_HOME={}\" && {}", home, command);
+            }
+            TerminalKind::GitBash | TerminalKind::LinuxDefault => {
+                *command = format!(
+                    "export CODEX_HOME='{}'; {}",
+                    home.replace('\'', "'\\''"),
+                    command
+                );
+            }
+            TerminalKind::MacTerminal => {
+                let export = format!("export CODEX_HOME='{}'; ", home.replace('\'', "'\\''"));
+                let escaped = export.replace('\\', "\\\\").replace('"', "\\\"");
+                *command =
+                    command.replacen("to do script \"", &format!("to do script \"{}", escaped), 1);
+            }
+            TerminalKind::Custom => {}
+        }
+    }
+    plan
 }
 
 pub fn resume_in_new_terminal(session_id: &str, cwd: Option<&str>) -> Result<()> {
@@ -87,7 +120,12 @@ pub fn resume_in_new_terminal(session_id: &str, cwd: Option<&str>) -> Result<()>
         if detected.is_empty() {
             for term in &["x-terminal-emulator", "gnome-terminal", "konsole", "xterm"] {
                 let args: Vec<&str> = plan.args.iter().map(|s| s.as_str()).collect();
-                if Command::new(term).args(&args).spawn().is_ok() {
+                if Command::new(term)
+                    .env("CODEX_HOME", crate::scanner::codex_home())
+                    .args(&args)
+                    .spawn()
+                    .is_ok()
+                {
                     crate::debuglog::log(
                         "resume",
                         &format!("spawned fallback linux terminal: {}", term),
@@ -102,6 +140,7 @@ pub fn resume_in_new_terminal(session_id: &str, cwd: Option<&str>) -> Result<()>
 
     let mut cmd = Command::new(&plan.program);
     cmd.args(&plan.args);
+    cmd.env("CODEX_HOME", crate::scanner::codex_home());
     #[cfg(target_os = "windows")]
     {
         use std::os::windows::process::CommandExt;
@@ -118,5 +157,18 @@ pub fn resume_in_new_terminal(session_id: &str, cwd: Option<&str>) -> Result<()>
             crate::debuglog::log("resume", &format!("ERROR spawn failed: {}", e));
             Err(anyhow!(e))
         }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    #[test]
+    fn windows_resume_plan_sets_home_inside_the_terminal_command() {
+        let plan = super::build_resume_plan("sid", None, "windows");
+        let command = plan.args.join(" ");
+        assert!(
+            command.contains("CODEX_HOME"),
+            "terminal reuse must preserve the API home: {command}"
+        );
     }
 }

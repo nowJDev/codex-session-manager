@@ -110,6 +110,7 @@ export function totalColumnWidth(source: Record<ColKey, number>): number {
 }
 
 export function compareSessions(a: Session, b: Session, sort: SortState): number {
+  if (sort.key === "size" && (a.size === null) !== (b.size === null)) return a.size === null ? 1 : -1;
   if (a.favorite !== b.favorite) return a.favorite ? -1 : 1;
   const sign = sort.dir === "asc" ? 1 : -1;
   const cmp = (x: string | null | undefined, y: string | null | undefined) =>
@@ -126,6 +127,8 @@ export function compareSessions(a: Session, b: Session, sort: SortState): number
     case "lastActive":
       return sign * cmp(a.lastTimestamp, b.lastTimestamp);
     case "size":
+      if (a.size === null) return b.size === null ? 0 : 1;
+      if (b.size === null) return -1;
       return sign * (a.size - b.size);
     case "type":
       return sign * a.storageType.localeCompare(b.storageType);
@@ -193,7 +196,7 @@ export function filterSessionsWithAncestors(sessions: Session[], query: string):
   const included = new Set<string>();
   for (const session of sessions) {
     const text = [session.name, session.description, session.autoSummary, session.project,
-      session.sessionId, session.firstUserMessage, session.agentNickname]
+      session.sessionId, session.firstUserMessage, session.preview, session.agentNickname]
       .filter(Boolean).join(" ").toLowerCase();
     if (!text.includes(q)) continue;
     let ancestor: Session | undefined = session;

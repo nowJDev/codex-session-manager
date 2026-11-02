@@ -20,7 +20,9 @@
     "synced": "synced",
     "cloudOnly": "cloud only",
     "localOnly": "local",
-    "archived": "archived"
+    "archived": "archived",
+    "showHidden": "Include hidden sessions",
+    "counts": "Registered local {registered} · Displayed {displayed} · Selected {selected}"
   },
   "action": {
     "expandChildren": "Expand {count} child sessions of {name}",
@@ -45,7 +47,11 @@
     "generateSummary": "Regenerate summary",
     "newSession": "New session",
     "back": "Back to list",
-    "quit": "Quit"
+    "quit": "Quit",
+    "selectVisible": "Select currently visible registered sessions",
+    "deselectVisible": "Deselect currently visible registered sessions",
+    "registeredRequired": "Available for sessions registered with Codex.",
+    "legacyRequired": "Requires a legacy JSONL file containing the complete history."
   },
   "prompt": {
     "enterName": "Enter session name:",
@@ -90,7 +96,8 @@
   "error": {
     "sessionNotFound": "Session not found",
     "resumeFailed": "Failed to resume session: {error}",
-    "scanFailed": "Failed to scan sessions: {error}"
+    "scanFailed": "Failed to scan sessions: {error}",
+    "refreshFailed": "Refresh failed. Showing the previous list. {error}"
   },
   "settings": {
     "title": "Settings",
@@ -133,10 +140,18 @@
     "confirm": "Confirm",
     "pending": "Deleting...",
     "resultTitle": "Deletion results",
-    "resultSummary": "Deleted {deleted} · Already missing {missing} · Failed {failed}",
+    "resultSummary": "Deleted {deleted} · Already missing {missing} · Failed {failed} · Unconfirmed {unconfirmed}",
     "resultUnknown": "Could not confirm deletion results. Review the refreshed list before retrying.",
     "failureDetails": "Failed sessions and error details",
-    "retryFailed": "Retry failed sessions",
-    "dismiss": "Dismiss"
+    "retryFailed": "Recheck results",
+    "dismiss": "Dismiss",
+    "preparing": "Checking deletion scope...",
+    "prepareFailed": "Could not confirm deletion scope. No delete request was sent.",
+    "scope": "Selected {selected} · Total affected {affected} · Additional descendants {descendants}. Local Codex registration and history will be deleted. Cloud copies are preserved.",
+    "warning": "Cleanup warning"
+  },
+  "detail": {
+    "preview": "Preview",
+    "firstMessage": "First user message"
   }
 }

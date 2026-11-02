@@ -8,7 +8,9 @@ use crate::domain::transcript::{
     compact_whitespace, extract_user_message_text, first_user_message_name, truncate,
     TranscriptContent, TranscriptPart, TranscriptPartKind,
 };
-use crate::types::{DeleteSessionStatus, Session};
+use crate::types::Session;
+#[cfg(test)]
+use crate::types::DeleteSessionStatus;
 use anyhow::{anyhow, Result};
 use serde_json::Value;
 use std::collections::HashMap;
@@ -65,11 +67,12 @@ pub fn projects_roots() -> Vec<PathBuf> {
 }
 
 pub(crate) struct JsonlMeta {
-    session_id: Option<String>,
+    pub(crate) session_id: Option<String>,
     pub(crate) parent_id: Option<String>,
     pub(crate) is_subagent: bool,
     pub(crate) agent_nickname: Option<String>,
     is_guardian: bool,
+    pub(crate) history_mode: String,
     first_timestamp: Option<String>,
     last_timestamp: Option<String>,
     cwd: Option<String>,
@@ -114,6 +117,7 @@ pub(crate) fn read_jsonl_meta(path: &Path) -> Result<JsonlMeta> {
     let mut is_subagent = false;
     let mut agent_nickname = None;
     let mut is_guardian = false;
+    let mut history_mode = "unknown".to_string();
     let mut first_ts = None;
     let mut last_ts = None;
     let mut cwd = None;
@@ -147,6 +151,7 @@ pub(crate) fn read_jsonl_meta(path: &Path) -> Result<JsonlMeta> {
         let payload = val.get("payload").unwrap_or(&Value::Null);
         match item_type {
             "session_meta" => {
+                history_mode = payload.get("history_mode").and_then(Value::as_str).unwrap_or("legacy").to_string();
                 if session_id.is_none() {
                     session_id = payload.get("id").and_then(|v| v.as_str()).map(String::from);
                     let subagent = payload.pointer("/source/subagent").filter(|v| !v.is_null());
@@ -222,6 +227,7 @@ pub(crate) fn read_jsonl_meta(path: &Path) -> Result<JsonlMeta> {
         is_subagent,
         agent_nickname,
         is_guardian,
+        history_mode,
         first_timestamp: first_ts,
         last_timestamp: last_ts,
         cwd,
@@ -298,10 +304,20 @@ fn collect_jsonl_files(root: &Path) -> Vec<PathBuf> {
     out
 }
 
+#[cfg(test)]
 pub fn scan_local_sessions() -> Result<Vec<Session>> {
+    scan_sessions_in_roots(projects_roots())
+}
+
+pub fn scan_extra_sessions() -> Result<Vec<Session>> {
+    let roots = load_config().settings.extra_project_dirs.unwrap_or_default()
+        .into_iter().map(PathBuf::from).collect();
+    scan_sessions_in_roots(roots)
+}
+
+fn scan_sessions_in_roots(roots: Vec<PathBuf>) -> Result<Vec<Session>> {
     use std::io::Write;
     let mut out = Vec::new();
-    let roots = projects_roots();
     let archived_root = archived_sessions_dir();
 
     let log_path = crate::config::config_dir().join("scan-debug.log");
@@ -449,8 +465,12 @@ pub fn scan_local_sessions() -> Result<Vec<Session>> {
                 favorite,
                 project: project_name_from_cwd(cwd.as_deref(), "Codex"),
                 project_dir,
-                file_path: path.to_string_lossy().to_string(),
-                size: stat.len(),
+                file_path: Some(path.to_string_lossy().to_string()),
+                size: Some(stat.len()),
+                preview: None,
+                history_mode: meta.as_ref().map(|m| m.history_mode.clone()).unwrap_or_else(|| "unknown".into()),
+                registered: false,
+                hidden: false,
                 total_lines: meta.as_ref().map(|m| m.total_lines).unwrap_or(0),
                 first_timestamp: meta.as_ref().and_then(|m| m.first_timestamp.clone()),
                 last_timestamp: meta.as_ref().and_then(|m| m.last_timestamp.clone()),
@@ -606,6 +626,7 @@ fn run_codex_session_action(action: &str, session_id: &str) -> Result<()> {
     run_codex_session_action_using(&codex, &codex_home(), action, session_id)
 }
 
+#[cfg(test)]
 fn delete_session_using(
     codex: Option<&str>,
     home: &Path,
@@ -646,6 +667,7 @@ fn delete_session_using(
     }
 }
 
+#[cfg(test)]
 pub fn delete_session(session_id: &str, file_path: &str) -> Result<DeleteSessionStatus> {
     let home = codex_home();
     // projects_roots는 접근 불가 경로를 제외하므로 안전한 부재 확인에는 필터 전 경로를 사용한다.

@@ -1,9 +1,10 @@
+// 세션 ID를 기준으로 Tauri 명령을 호출한다.
 import { invoke } from "@tauri-apps/api/core";
 import type {
   AppConfig,
   DeleteSessionTarget,
   DeleteSessionResult,
-  DeleteSessionStatus,
+  DeletionPlan,
   EnvironmentReport,
   CodexStatus,
   Session,
@@ -17,10 +18,10 @@ export const ipc = {
   getConfig: () => invoke<AppConfig>("get_config_cmd"),
   saveSessionMeta: (sessionId: string, patch: SessionMeta) =>
     invoke<void>("save_session_meta", { sessionId, patch }),
-  deleteSession: (sessionId: string, filePath: string) =>
-    invoke<DeleteSessionStatus>("delete_session", { sessionId, filePath }),
-  deleteSessions: (targets: DeleteSessionTarget[]) =>
-    invoke<DeleteSessionResult[]>("delete_sessions", { targets }),
+  prepareSessionDeletion: (targets: DeleteSessionTarget[]) =>
+    invoke<DeletionPlan>("prepare_session_deletion", { targets }),
+  deleteSessions: (targets: DeleteSessionTarget[], approvedIds: string[]) =>
+    invoke<DeleteSessionResult[]>("delete_sessions", { targets, approvedIds }),
   archiveSession: (sessionId: string) =>
     invoke<void>("archive_session", { sessionId }),
   unarchiveSession: (sessionId: string) =>
@@ -36,8 +37,8 @@ export const ipc = {
     invoke<void>("checkin_session", { session }),
   resumeSession: (sessionId: string, cwd: string | null) =>
     invoke<void>("resume_session", { sessionId, cwd }),
-  generateSummary: (sessionId: string, filePath: string) =>
-    invoke<string>("generate_summary_cmd", { sessionId, filePath }),
+  generateSummary: (sessionId: string) =>
+    invoke<string>("generate_summary_cmd", { sessionId }),
   checkEnvironment: () => invoke<EnvironmentReport>("check_environment_cmd"),
   getCodexStatus: () => invoke<CodexStatus>("get_codex_status_cmd"),
   checkUpdate: () => invoke<UpdateInfo>("check_update_cmd"),

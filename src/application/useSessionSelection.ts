@@ -1,5 +1,5 @@
 // 세션 선택과 다중 선택 파생 상태를 관리한다.
-import { useEffect, useMemo, useState } from "react";
+import { useMemo, useState } from "react";
 import type { Session } from "@/types";
 
 export function useSessionSelection(sessions: Session[]) {
@@ -11,19 +11,12 @@ export function useSessionSelection(sessions: Session[]) {
     [sessions, selectedId],
   );
   const selectedForDelete = useMemo(
-    () => sessions.filter((s) => selectedForDeleteIds.has(s.sessionId)),
+    () => sessions.filter((s) => s.registered && selectedForDeleteIds.has(s.sessionId)),
     [sessions, selectedForDeleteIds],
   );
 
-  useEffect(() => {
-    setSelectedForDeleteIds((cur) => {
-      const existing = new Set(sessions.map((s) => s.sessionId));
-      const next = new Set([...cur].filter((id) => existing.has(id)));
-      return next.size === cur.size ? cur : next;
-    });
-  }, [sessions]);
-
   function handleToggleSelected(s: Session) {
+    if (!s.registered) return;
     setSelectedForDeleteIds((cur) => {
       const next = new Set(cur);
       if (next.has(s.sessionId)) {
@@ -39,6 +32,7 @@ export function useSessionSelection(sessions: Session[]) {
     setSelectedForDeleteIds((cur) => {
       const next = new Set(cur);
       for (const session of visibleSessions) {
+        if (!session.registered) continue;
         if (selected) {
           next.add(session.sessionId);
         } else {

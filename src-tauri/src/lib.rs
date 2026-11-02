@@ -9,6 +9,7 @@ pub mod domain;
 pub(crate) mod environment;
 pub(crate) mod resume;
 pub(crate) mod scanner;
+#[cfg(test)]
 pub(crate) mod session_state;
 pub(crate) mod summary;
 pub(crate) mod terminal;
@@ -26,7 +27,7 @@ pub fn run() {
         detect_google_drive_cmd, generate_summary_cmd, get_codex_status_cmd, get_config_cmd,
         get_debug_log_cmd, list_sessions, open_debug_log_folder_cmd, resume_session,
         save_session_meta, save_settings, set_cloud_folder, start_auto_summary, unarchive_session,
-        upload_to_cloud,
+        upload_to_cloud, prepare_session_deletion,
     };
 
     tauri::Builder::default()
@@ -41,11 +42,12 @@ pub fn run() {
             save_session_meta,
             delete_session,
             delete_sessions,
+            prepare_session_deletion,
             archive_session,
             unarchive_session,
             save_settings,
             set_cloud_folder,
-            upload_to_cloud,
+            upload_to_cloud, prepare_session_deletion,
             checkout_session,
             checkin_session,
             resume_session,

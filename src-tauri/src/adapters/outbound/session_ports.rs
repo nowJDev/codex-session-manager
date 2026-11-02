@@ -3,7 +3,9 @@ use crate::application::ports::{
     CloudSyncPort, ResumePlan, ResumePort, SessionCommandPort, SessionMessagePort,
     SessionMetadataPort, SessionScanPort, SummaryPort,
 };
-use crate::types::{Config, DeleteSessionStatus, Session, SessionMeta, Settings};
+use crate::types::{
+    Config, DeleteSessionResult, DeleteSessionTarget, DeletionPlan, Session, SessionMeta, Settings,
+};
 use anyhow::Result;
 use std::collections::HashMap;
 use std::path::PathBuf;
@@ -20,7 +22,7 @@ fn cloud_path() -> Option<PathBuf> {
 
 impl SessionScanPort for DefaultSessionPorts {
     fn scan_local_sessions(&self) -> Result<Vec<Session>> {
-        crate::scanner::scan_local_sessions()
+        super::registered_sessions::list_sessions()
     }
 }
 
@@ -31,8 +33,15 @@ impl SessionMessagePort for DefaultSessionPorts {
 }
 
 impl SessionCommandPort for DefaultSessionPorts {
-    fn delete_session(&self, session_id: &str, file_path: &str) -> Result<DeleteSessionStatus> {
-        crate::scanner::delete_session(session_id, file_path)
+    fn prepare_session_deletion(&self, targets: &[DeleteSessionTarget]) -> Result<DeletionPlan> {
+        super::registered_sessions::prepare_deletion(targets)
+    }
+    fn delete_sessions(
+        &self,
+        targets: &[DeleteSessionTarget],
+        approved_ids: &[String],
+    ) -> Result<Vec<DeleteSessionResult>> {
+        super::registered_sessions::delete_sessions(targets, approved_ids)
     }
 
     fn archive_session(&self, session_id: &str) -> Result<()> {
@@ -78,7 +87,31 @@ impl CloudSyncPort for DefaultSessionPorts {
 
     fn checkout_session(&self, session: &Session) -> Result<String> {
         let cloud = cloud_path().ok_or_else(|| anyhow::anyhow!("cloud not configured"))?;
-        crate::cloud::checkout(&cloud, session)
+        let mut api = super::codex_app_server::AppServer::connect()?;
+        let before = api.list_threads()?;
+        if before.iter().any(|t| t.id == session.session_id) {
+            anyhow::bail!("이미 로컬에 등록된 세션입니다. 새로고침 후 재개해 주세요.");
+        }
+        let path = crate::cloud::checkout(&cloud, session)?;
+        let verify = (|| -> Result<()> {
+            api.request("thread/list", serde_json::json!({
+                "useStateDbOnly":false, "limit":1, "modelProviders":[],
+                "sourceKinds":["cli","vscode","exec","appServer","subAgent","subAgentReview","subAgentCompact","subAgentThreadSpawn","subAgentOther","unknown"]
+            }))?;
+            if !api
+                .list_threads()?
+                .iter()
+                .any(|t| t.id == session.session_id)
+            {
+                anyhow::bail!("파일 복사는 완료했지만 Codex 세션 등록을 확인하지 못했습니다.");
+            }
+            Ok(())
+        })();
+        if let Err(error) = verify {
+            let _ = crate::cloud::release_lock(&cloud, &session.session_id);
+            return Err(error);
+        }
+        Ok(path)
     }
 
     fn checkin_session(&self, session: &Session) -> Result<()> {
@@ -111,9 +144,30 @@ impl SummaryPort for DefaultSessionPorts {
 
     fn summarize_session(
         &self,
-        file_path: &str,
+        session_id: &str,
         previous_summary: Option<&str>,
     ) -> Result<(String, String)> {
-        crate::summary::auto_summarize_session(file_path, previous_summary)
+        let mut api = super::codex_app_server::AppServer::connect()?;
+        let value = api.request(
+            "thread/read",
+            serde_json::json!({"threadId":session_id,"includeTurns":false}),
+        )?;
+        let thread: super::codex_app_server::RegisteredThread = serde_json::from_value(
+            value
+                .get("thread")
+                .cloned()
+                .ok_or_else(|| anyhow::anyhow!("세션 응답에 thread가 없습니다."))?,
+        )?;
+        if thread.history_mode == "legacy" {
+            if let Some(path) = thread
+                .path
+                .as_deref()
+                .filter(|p| std::path::Path::new(p).is_file())
+            {
+                return crate::summary::auto_summarize_session(path, previous_summary);
+            }
+        }
+        let excerpt = api.read_excerpt(&thread.id)?;
+        crate::summary::summarize_excerpt(&excerpt, previous_summary)
     }
 }

@@ -12,6 +12,7 @@ export function useSessionData() {
   const [codexCliMissing, setCodexCliMissing] = useState(false);
   const [codexStatus, setCodexStatus] = useState<CodexStatus | null>(null);
   const [codexStatusLoading, setCodexStatusLoading] = useState(false);
+  const [refreshError, setRefreshError] = useState<string | null>(null);
   const refreshInFlight = useRef<Promise<void> | null>(null);
   const refreshQueued = useRef(false);
 
@@ -41,11 +42,13 @@ export function useSessionData() {
             ]);
             if (refreshQueued.current) continue;
             setSessions(list);
+            setRefreshError(null);
             setConfig(cfg);
             const savedLocale = cfg.settings.locale;
             if (savedLocale === "en" || savedLocale === "ko") setLocale(savedLocale);
           } catch (err) {
             console.error(err);
+            if (!refreshQueued.current) setRefreshError(String(err));
           }
         }
       } finally {
@@ -81,6 +84,7 @@ export function useSessionData() {
     sessions,
     setSessions,
     loading,
+    refreshError,
     config,
     locale,
     codexCliMissing,

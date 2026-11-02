@@ -7,7 +7,9 @@ use crate::application::ports::{
 };
 use crate::application::session_service::SessionService;
 use crate::application::system_service::SystemService;
-use crate::types::{Config, DeleteSessionResult, DeleteSessionStatus, DeleteSessionTarget, Session, SessionMeta, Settings};
+use crate::types::{
+    Config, DeleteSessionResult, DeleteSessionTarget, DeletionPlan, Session, SessionMeta, Settings,
+};
 
 fn to_str<E: std::fmt::Display>(e: E) -> String {
     e.to_string()
@@ -55,17 +57,36 @@ pub fn save_session_meta(session_id: String, patch: SessionMeta) -> Result<(), S
 }
 
 #[tauri::command]
-pub async fn delete_session(session_id: String, file_path: String) -> Result<DeleteSessionStatus, String> {
-    tokio::task::spawn_blocking(move || session_service().delete_session(&session_id, &file_path))
+pub async fn prepare_session_deletion(
+    targets: Vec<DeleteSessionTarget>,
+) -> Result<DeletionPlan, String> {
+    tokio::task::spawn_blocking(move || session_service().prepare_session_deletion(&targets))
         .await
         .map_err(to_str)?
         .map_err(to_str)
 }
 
 #[tauri::command]
-pub async fn delete_sessions(targets: Vec<DeleteSessionTarget>) -> Result<Vec<DeleteSessionResult>, String> {
-    tokio::task::spawn_blocking(move || session_service().delete_sessions(targets))
+pub async fn delete_session(
+    session_id: String,
+    approved_ids: Vec<String>,
+) -> Result<DeleteSessionResult, String> {
+    tokio::task::spawn_blocking(move || {
+        session_service().delete_session(&session_id, &approved_ids)
+    })
+    .await
+    .map_err(to_str)?
+    .map_err(to_str)
+}
+
+#[tauri::command]
+pub async fn delete_sessions(
+    targets: Vec<DeleteSessionTarget>,
+    approved_ids: Vec<String>,
+) -> Result<Vec<DeleteSessionResult>, String> {
+    tokio::task::spawn_blocking(move || session_service().delete_sessions(targets, &approved_ids))
         .await
+        .map_err(to_str)?
         .map_err(to_str)
 }
 
@@ -122,8 +143,11 @@ pub fn upload_to_cloud(session: Session) -> Result<(), String> {
 }
 
 #[tauri::command]
-pub fn checkout_session(session: Session) -> Result<String, String> {
-    session_service().checkout_session(&session).map_err(to_str)
+pub async fn checkout_session(session: Session) -> Result<String, String> {
+    tokio::task::spawn_blocking(move || session_service().checkout_session(&session))
+        .await
+        .map_err(to_str)?
+        .map_err(to_str)
 }
 
 #[tauri::command]
@@ -158,8 +182,8 @@ pub async fn check_update_cmd() -> Result<UpdateInfo, String> {
 }
 
 #[tauri::command]
-pub async fn generate_summary_cmd(session_id: String, file_path: String) -> Result<String, String> {
-    tokio::task::spawn_blocking(move || session_service().generate_summary(&session_id, &file_path))
+pub async fn generate_summary_cmd(session_id: String) -> Result<String, String> {
+    tokio::task::spawn_blocking(move || session_service().generate_summary(&session_id))
         .await
         .map_err(to_str)?
         .map_err(to_str)

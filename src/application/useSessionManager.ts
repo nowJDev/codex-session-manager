@@ -9,6 +9,7 @@ import { useSettingsActions } from "@/application/useSettingsActions";
 
 export function useSessionManager() {
   const [query, setQuery] = useState("");
+  const [showHidden, setShowHidden] = useState(false);
   const [settingsOpen, setSettingsOpen] = useState(false);
   const data = useSessionData();
   const selection = useSessionSelection(data.sessions);
@@ -24,13 +25,13 @@ export function useSessionManager() {
   const t = useMemo(() => createT(data.locale), [data.locale]);
 
   const filtered = useMemo(
-    () => filterSessionsWithAncestors(data.sessions, query),
-    [data.sessions, query],
+    () => filterSessionsWithAncestors(data.sessions.filter((session) => showHidden || !session.hidden), query),
+    [data.sessions, query, showHidden],
   );
 
   const total = data.sessions.length;
   const localCount = data.sessions.filter(
-    (s) => s.storageType !== "cloud" && s.storageType !== "cloud-only",
+    (s) => s.registered,
   ).length;
   const cloudCount = data.sessions.filter(
     (s) => s.storageType === "cloud" || s.storageType === "cloud-only",
@@ -40,7 +41,10 @@ export function useSessionManager() {
     t,
     query,
     setQuery,
+    showHidden,
+    setShowHidden,
     loading: data.loading,
+    refreshError: data.refreshError,
     locale: data.locale,
     config: data.config,
     selectedId: selection.selectedId,
@@ -55,6 +59,7 @@ export function useSessionManager() {
     selectedForDeleteIds: selection.selectedForDeleteIds,
     pendingDelete: commands.pendingDelete,
     deleting: commands.deleting,
+    preparingDelete: commands.preparingDelete,
     deleteReport: commands.deleteReport,
     dismissDeleteReport: commands.dismissDeleteReport,
     filtered,

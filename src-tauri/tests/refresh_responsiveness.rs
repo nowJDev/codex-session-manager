@@ -6,6 +6,7 @@ fn refresh_commands_are_async() {
         "list_sessions",
         "check_environment_cmd",
         "get_codex_status_cmd",
+        "checkout_session",
     ] {
         assert!(
             source.contains(&format!("pub async fn {command}(")),
@@ -35,6 +36,42 @@ fn listing_sessions_yields_while_the_blocking_worker_is_busy() {
     let home = tempfile::tempdir().unwrap();
     let previous_home = std::env::var_os("CODEX_HOME");
     let previous_session_home = std::env::var_os("CODEX_SESSION_HOME");
+    let previous_cli = std::env::var_os("CODEX_CLI");
+    let script = home.path().join("server.mjs");
+    std::fs::write(
+        &script,
+        r#"// 조회 응답을 반환하는 격리된 테스트 서버이다.
+import readline from 'node:readline';
+for await (const line of readline.createInterface({input:process.stdin})) {
+  const request=JSON.parse(line);
+  if (request.id===undefined) continue;
+  const result=request.method==='thread/list' ? {data:[],nextCursor:null} : {};
+  process.stdout.write(JSON.stringify({id:request.id,result})+'\n');
+}
+"#,
+    )
+    .unwrap();
+    #[cfg(target_os = "windows")]
+    let fake = home.path().join("codex.cmd");
+    #[cfg(not(target_os = "windows"))]
+    let fake = home.path().join("codex");
+    #[cfg(target_os = "windows")]
+    std::fs::write(
+        &fake,
+        format!("@echo off\r\nnode \"{}\"\r\n", script.display()),
+    )
+    .unwrap();
+    #[cfg(not(target_os = "windows"))]
+    {
+        use std::os::unix::fs::PermissionsExt;
+        std::fs::write(
+            &fake,
+            format!("#!/bin/sh\nexec node '{}'\n", script.display()),
+        )
+        .unwrap();
+        std::fs::set_permissions(&fake, std::fs::Permissions::from_mode(0o755)).unwrap();
+    }
+    std::env::set_var("CODEX_CLI", fake);
     std::env::set_var("CODEX_HOME", home.path().join(".codex"));
     std::env::set_var("CODEX_SESSION_HOME", home.path());
     let runtime = tokio::runtime::Builder::new_current_thread()
@@ -68,6 +105,7 @@ fn listing_sessions_yields_while_the_blocking_worker_is_busy() {
     for (key, previous) in [
         ("CODEX_HOME", previous_home),
         ("CODEX_SESSION_HOME", previous_session_home),
+        ("CODEX_CLI", previous_cli),
     ] {
         if let Some(value) = previous {
             std::env::set_var(key, value);

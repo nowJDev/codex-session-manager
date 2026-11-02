@@ -170,11 +170,32 @@ pub fn set_cloud_root(root: &str) -> Result<PathBuf> {
     Ok(folder)
 }
 
+fn require_complete_legacy(session: &Session) -> Result<()> {
+    if session.session_id.is_empty() || !session.session_id.bytes().all(|b| b.is_ascii_alphanumeric() || b == b'-') {
+        return Err(anyhow!("세션 ID가 올바르지 않습니다."));
+    }
+    let path = session.file_path.as_deref().ok_or_else(|| anyhow!("완전한 대화 파일이 없습니다."))?;
+    let meta = crate::scanner::read_jsonl_meta(std::path::Path::new(path))?;
+    if session.history_mode != "legacy" || meta.history_mode != "legacy"
+        || meta.session_id.as_deref() != Some(session.session_id.as_str()) {
+        return Err(anyhow!("DB 방식 세션의 JSONL은 완전한 백업이 아니므로 업로드할 수 없습니다."));
+    }
+    use std::io::BufRead;
+    for line in std::io::BufReader::new(fs::File::open(path)?).lines() {
+        let line = line?;
+        if !line.trim().is_empty() {
+            let _: serde_json::Value = serde_json::from_str(&line)?;
+        }
+    }
+    Ok(())
+}
+
 pub fn upload_session(cloud: &PathBuf, s: &Session) -> Result<()> {
+    require_complete_legacy(s)?;
     fs::create_dir_all(&cloud)?;
 
     let dest = cloud.join(format!("{}.jsonl", s.session_id));
-    fs::copy(&s.file_path, &dest)?;
+    fs::copy(s.file_path.as_deref().ok_or_else(|| anyhow!("완전한 대화 파일이 없습니다."))?, &dest)?;
 
     let meta = CloudMeta {
         session_id: s.session_id.clone(),
@@ -186,7 +207,7 @@ pub fn upload_session(cloud: &PathBuf, s: &Session) -> Result<()> {
         auto_summary: s.auto_summary.clone(),
         project: s.project.clone(),
         project_dir: s.project_dir.clone(),
-        rollout_relative_path: rollout_relative_path(&PathBuf::from(&s.file_path)),
+        rollout_relative_path: s.file_path.as_ref().and_then(|p| rollout_relative_path(&PathBuf::from(p))),
         uploaded_at: chrono::Utc::now().to_rfc3339(),
     };
     fs::write(
@@ -327,8 +348,12 @@ pub fn list_cloud_sessions(cloud: Option<PathBuf>) -> Result<Vec<Session>> {
             auto_summary: meta.auto_summary,
             project: meta.project,
             project_dir: meta.project_dir,
-            file_path: jsonl.to_string_lossy().to_string(),
-            size: stat.as_ref().map(|s| s.len()).unwrap_or(0),
+            file_path: stat.as_ref().map(|_| jsonl.to_string_lossy().to_string()),
+            size: stat.as_ref().map(|s| s.len()),
+            preview: None,
+            history_mode: crate::scanner::read_jsonl_meta(&jsonl).map(|m| m.history_mode).unwrap_or_else(|_| "unknown".into()),
+            registered: false,
+            hidden: false,
             total_lines: 0,
             first_timestamp: None,
             last_timestamp: Some(meta.uploaded_at),
@@ -349,14 +374,21 @@ pub fn checkout(cloud: &PathBuf, session: &Session) -> Result<String> {
     if !src.exists() {
         return Err(anyhow!("session not found in cloud"));
     }
-    // 락 획득 (다른 PC에서 사용 중이면 실패)
-    acquire_lock(cloud, &session.session_id)?;
-
+    let mut source = session.clone();
+    source.file_path = Some(src.to_string_lossy().to_string());
+    require_complete_legacy(&source)?;
     let meta = read_cloud_meta(&cloud, &session.session_id);
     let local_path = meta
         .as_ref()
         .and_then(|m| m.rollout_relative_path.as_deref())
-        .map(|rel| sessions_dir().join(rel.replace('/', std::path::MAIN_SEPARATOR_STR)))
+        .map(|rel| {
+            let relative = std::path::Path::new(rel);
+            if relative.components().any(|c| !matches!(c, std::path::Component::Normal(_))) {
+                return Err(anyhow!("클라우드 복원 경로가 올바르지 않습니다."));
+            }
+            Ok(sessions_dir().join(rel.replace('/', std::path::MAIN_SEPARATOR_STR)))
+        })
+        .transpose()?
         .unwrap_or_else(|| {
             let file_name = src
                 .file_name()
@@ -369,7 +401,24 @@ pub fn checkout(cloud: &PathBuf, session: &Session) -> Result<String> {
         .parent()
         .ok_or_else(|| anyhow!("invalid local checkout path"))?;
     fs::create_dir_all(&local_dir)?;
-    fs::copy(&src, &local_path)?;
+    if local_path.exists() {
+        return Err(anyhow!("로컬 파일이 이미 존재하여 덮어쓰지 않았습니다."));
+    }
+    acquire_lock(cloud, &session.session_id)?;
+    let copy = (|| -> Result<()> {
+        let mut source = fs::File::open(&src)?;
+        let mut target = fs::OpenOptions::new().write(true).create_new(true).open(&local_path)?;
+        if let Err(error) = std::io::copy(&mut source, &mut target) {
+            drop(target);
+            let _ = fs::remove_file(&local_path);
+            return Err(error.into());
+        }
+        Ok(())
+    })();
+    if let Err(error) = copy {
+        let _ = release_lock(cloud, &session.session_id);
+        return Err(error);
+    }
     Ok(local_path.to_string_lossy().to_string())
 }
 
@@ -380,9 +429,10 @@ pub fn checkin(cloud: Option<PathBuf>, session: &Session) -> Result<()> {
     // 로컬 jsonl 위치 — file_path가 실제 로컬 파일이면 그걸 우선 사용.
     // (클라우드 폴더 안의 경로일 수도 있으니 그건 제외.) 못 찾으면 project_dir 기반으로 폴백.
     let cloud_root = cloud.to_string_lossy().to_string();
-    let file_path_pb = PathBuf::from(&session.file_path);
-    let local_path = if !session.file_path.is_empty()
-        && !session.file_path.starts_with(&cloud_root)
+    let file_path = session.file_path.as_deref().unwrap_or("");
+    let file_path_pb = PathBuf::from(file_path);
+    let local_path = if !file_path.is_empty()
+        && !file_path.starts_with(&cloud_root)
         && file_path_pb.exists()
     {
         file_path_pb
@@ -400,9 +450,14 @@ pub fn checkin(cloud: Option<PathBuf>, session: &Session) -> Result<()> {
     };
 
     if local_path.exists() {
+        let mut local = session.clone();
+        local.file_path = Some(local_path.to_string_lossy().to_string());
+        require_complete_legacy(&local)?;
         let dest = cloud.join(format!("{}.jsonl", session.session_id));
         fs::copy(&local_path, &dest)?;
         // 로컬 보존 — single source of truth 폐기 (활성 세션 데이터 분리 방지)
+    } else {
+        return Err(anyhow!("동기화할 로컬 대화 파일이 없습니다."));
     }
 
     let meta_path = meta_path(&cloud, &session.session_id);

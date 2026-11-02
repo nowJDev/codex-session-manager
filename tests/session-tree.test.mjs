@@ -21,7 +21,7 @@ const state = loadModule("../src/lib/sessionTableState.ts");
 const session = (sessionId, parentId = null, extra = {}) => ({
   sessionId, parentId, isSubagent: !!parentId, agentNickname: null,
   name: sessionId, description: null, autoSummary: null, firstUserMessage: null,
-  project: "project", storageType: "local-only", favorite: false, size: 1,
+  project: "project", storageType: "local-only", favorite: false, size: 1, registered:true, historyMode:"legacy",filePath:"session.jsonl",
   lastTimestamp: "2026-10-08T00:00:00Z", ...extra,
 });
 const rows = (sessions, expanded = new Set()) => {
@@ -66,6 +66,16 @@ test("search includes every existing ancestor of a matching agent", () => {
     [["parent",0],["child",1],["leaf",2]]);
   assert.equal(state.filterSessionsWithAncestors(sessions," "),sessions);
   assert.deepEqual(state.filterSessionsWithAncestors(sessions,"unmatched"),[]);
+});
+
+test("preview is searchable and unknown sizes sort last in either direction", () => {
+  const sessions = [session("unknown", null, {size:null,favorite:true}), session("large", null, {size:20}),
+    session("small", null, {size:2,preview:"database preview"})];
+  assert.deepEqual(state.filterSessionsWithAncestors(sessions,"database preview").map(s=>s.sessionId),["small"]);
+  for (const dir of ["asc","desc"]) {
+    assert.deepEqual([...sessions].sort((a,b)=>state.compareSessions(a,b,{key:"size",dir})).map(s=>s.sessionId),
+      dir === "asc" ? ["small","large","unknown"] : ["large","small","unknown"]);
+  }
 });
 
 test("cycles and self references neither lose rows nor loop", () => {
@@ -152,6 +162,7 @@ test("table disclosure, search expansion and select-all use actual visible rows"
   const selectAll = (nodes) => nodes.find(node=>node.type==="input");
   const disclosure = (nodes,expanded) => nodes.find(node=>node.type==="button" && node.props["aria-expanded"]===expanded);
   let nodes=render();
+  assert.equal(selectAll(nodes).props["aria-label"],"action.deselectVisible");
   assert.equal(displayed(nodes).length,2,"children must start collapsed");
   assert.equal(selectAll(nodes).props.checked,true,"hidden unchecked children must not affect select-all");
   selectAll(nodes).props.onChange({currentTarget:{checked:true}});
@@ -174,4 +185,13 @@ test("table disclosure, search expansion and select-all use actual visible rows"
   disclosure(nodes,true).props.onClick({stopPropagation:noop});
   nodes=render();
   assert.equal(displayed(nodes).length,1,"search results can be collapsed again");
+  props.sessions=[session("extra",null,{registered:false,historyMode:"paginated",filePath:null,size:null,preview:"api preview"})];
+  nodes=render();
+  const menu = nodes.filter(node=>node.type==="DropdownMenuItem");
+  for(const action of ["action.resumeNew","action.generateSummary","Archive","action.syncToCloud","action.delete"]) {
+    assert.equal(menu.find(node=>node.props.children===action)?.props.disabled,true,action+" must be disabled for unregistered rows");
+  }
+  assert.equal(nodes.find(node=>node.type==="input" && node.props["aria-label"]==="action.selectSession").props.disabled,true);
+  assert.ok(nodes.some(node=>node.props.children==="api preview"),"preview must be rendered separately");
+  assert.ok(nodes.some(node=>node.props.children==="—"),"unknown size must display a dash");
 });

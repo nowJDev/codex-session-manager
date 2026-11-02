@@ -1,3 +1,4 @@
+// 세션 미리보기와 첫 메시지를 구분하여 상세 정보와 이어하기를 표시한다.
 import { Archive, Cloud, HardDrive, Play } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { CodexStatusPanel } from "@/components/CodexStatusPanel";
@@ -45,6 +46,7 @@ export function SessionDetail({
   }
 
   const isCloud = session.storageType === "cloud" || session.storageType === "cloud-only";
+  const resumeDisabled = isCloud ? session.historyMode !== "legacy" : !session.registered;
 
   return (
     <div className="flex h-full flex-col">
@@ -61,7 +63,7 @@ export function SessionDetail({
               )}
               <span>{session.archived ? "archived" : isCloud ? "cloud" : "local"}</span>
               <span>•</span>
-              <span>{formatBytes(session.size)}</span>
+              <span>{session.size === null ? "—" : formatBytes(session.size)}</span>
               {session.lastTimestamp && (
                 <>
                   <span>•</span>
@@ -77,7 +79,7 @@ export function SessionDetail({
             )}
           </div>
 
-          <Button onClick={() => onResume(session)} className="self-start">
+          <Button disabled={resumeDisabled} title={resumeDisabled ? t(isCloud ? "action.legacyRequired" : "action.registeredRequired") : undefined} onClick={() => onResume(session)} className="self-start">
             <Play className="h-4 w-4" />
             {t("action.resumeNew")}
           </Button>
@@ -86,6 +88,7 @@ export function SessionDetail({
             {session.description && (
               <Field label={t("list.description")} value={session.description} />
             )}
+            {session.preview && <Field label={t("detail.preview")} value={session.preview} />}
             {session.autoSummary &&
               session.autoSummary !== session.description &&
               !isAutoSummaryStatus(session.autoSummary) && (

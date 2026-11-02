@@ -1,10 +1,10 @@
 // 세션에 대한 사용자 명령 workflow를 관리한다.
 import { useRef, useState, type Dispatch, type SetStateAction } from "react";
 import { tauriGateway } from "@/adapters/tauriGateway";
-import type { DeleteSessionResult, Session } from "@/types";
+import type { DeleteSessionResult, DeleteSessionTarget, Session } from "@/types";
 
 type EditMode = "rename" | "describe" | null;
-type PendingDelete = { sessions: Pick<Session, "sessionId" | "filePath">[] } | null;
+type PendingDelete = { sessions: DeleteSessionTarget[]; affectedIds: string[] } | null;
 
 interface UseSessionCommandsParams {
   refresh: () => Promise<void>;
@@ -25,15 +25,20 @@ export function useSessionCommands({
   const [editTarget, setEditTarget] = useState<Session | null>(null);
   const [pendingDelete, setPendingDelete] = useState<PendingDelete>(null);
   const [deleting, setDeleting] = useState(false);
+  const [preparingDelete, setPreparingDelete] = useState(false);
   const deletingRef = useRef(false);
   const [deleteReport, setDeleteReport] = useState<{
     results: DeleteSessionResult[];
     error: string | null;
+    phase: "prepare" | "delete";
   } | null>(null);
 
   async function handleResume(s: Session) {
+    const cloudOnly = s.storageType === "cloud" || s.storageType === "cloud-only";
+    if (!s.registered && !cloudOnly) return;
+    if (cloudOnly && s.historyMode !== "legacy") return;
     try {
-      if (s.storageType === "cloud") {
+      if (cloudOnly) {
         await tauriGateway.checkoutSession(s);
       }
       await tauriGateway.resumeSession(s.sessionId, s.cwd);
@@ -43,20 +48,39 @@ export function useSessionCommands({
     }
   }
 
-  function handleDelete(s: Session) {
-    if (deletingRef.current) return;
-    setPendingDelete({ sessions: [s] });
+  async function prepareDelete(targets: DeleteSessionTarget[], refreshFirst = false) {
+    if (targets.length === 0 || deletingRef.current) return;
+    deletingRef.current = true;
+    setPreparingDelete(true);
+    setPendingDelete(null);
+    setDeleteReport(null);
+    try {
+      if (refreshFirst) await refresh();
+      const plan = await tauriGateway.prepareSessionDeletion(targets);
+      setPendingDelete({ sessions: plan.targets, affectedIds: plan.affectedIds });
+    } catch (err) {
+      console.error(err);
+      setDeleteReport({ results: [], error: String(err), phase: "prepare" });
+    } finally {
+      deletingRef.current = false;
+      setPreparingDelete(false);
+    }
   }
 
-  function handleBulkDelete() {
-    if (selectedForDelete.length === 0 || deletingRef.current) return;
-    setPendingDelete({ sessions: selectedForDelete });
+  async function handleDelete(s: Session) {
+    if (!s.registered) return;
+    await prepareDelete([{ sessionId: s.sessionId }]);
   }
 
-  function handleRetryFailedDelete() {
-    if (deletingRef.current) return;
-    const sessions = deleteReport?.results.filter((result) => result.status === "failed") ?? [];
-    if (sessions.length > 0) setPendingDelete({ sessions });
+  async function handleBulkDelete() {
+    await prepareDelete(selectedForDelete.filter((s) => s.registered).map((s) => ({ sessionId: s.sessionId })));
+  }
+
+  async function handleRetryFailedDelete() {
+    const targets = deleteReport?.results
+      .filter((result) => result.status === "failed" || result.status === "unconfirmed" || result.warning)
+      .map((result) => ({ sessionId: result.sessionId })) ?? [];
+    await prepareDelete(targets, true);
   }
 
   async function confirmDelete() {
@@ -66,25 +90,23 @@ export function useSessionCommands({
     setDeleting(true);
     setDeleteReport(null);
     try {
-      const results = await tauriGateway.deleteSessions(
-        targets.map((s) => ({ sessionId: s.sessionId, filePath: s.filePath })),
-      );
-      setDeleteReport({ results, error: null });
+      const results = await tauriGateway.deleteSessions(targets, pendingDelete!.affectedIds);
+      setDeleteReport({ results, error: null, phase: "delete" });
       const deletedIds = new Set(
-        results.filter((result) => result.status !== "failed").map((result) => result.sessionId),
+        results.filter((result) => result.status === "deleted" || result.status === "alreadyMissing").map((result) => result.sessionId),
       );
       setSelectedId((cur) => (cur && deletedIds.has(cur) ? null : cur));
       setSelectedForDeleteIds((cur) => {
         const next = new Set(cur);
         for (const id of deletedIds) next.delete(id);
         for (const result of results) {
-          if (result.status === "failed") next.add(result.sessionId);
+          if (result.status === "failed" || result.status === "unconfirmed") next.add(result.sessionId);
         }
         return next;
       });
     } catch (err) {
       console.error(err);
-      setDeleteReport({ results: [], error: String(err) });
+      setDeleteReport({ results: [], error: String(err), phase: "delete" });
     } finally {
       setPendingDelete(null);
       try {
@@ -102,6 +124,7 @@ export function useSessionCommands({
   }
 
   async function handleToggleArchive(s: Session) {
+    if (!s.registered) return;
     try {
       if (s.archived) {
         await tauriGateway.unarchiveSession(s.sessionId);
@@ -117,6 +140,7 @@ export function useSessionCommands({
   }
 
   async function handleToggleCloud(s: Session) {
+    if (s.historyMode !== "legacy" || !s.filePath) return;
     try {
       const st = s.storageType;
       if (st === "cloud-only" || st === "cloud") {
@@ -132,8 +156,9 @@ export function useSessionCommands({
   }
 
   async function handleGenerateSummary(s: Session) {
+    if (!s.registered) return;
     try {
-      await tauriGateway.generateSummary(s.sessionId, s.filePath);
+      await tauriGateway.generateSummary(s.sessionId);
       await refresh();
     } catch (err) {
       alert(String(err));
@@ -171,6 +196,7 @@ export function useSessionCommands({
     editTarget,
     pendingDelete,
     deleting,
+    preparingDelete,
     deleteReport,
     dismissDeleteReport: () => setDeleteReport(null),
     handleResume,

@@ -1,3 +1,4 @@
+// 세션과 설정 및 삭제 API의 프런트엔드 계약을 정의한다.
 export interface Session {
   sessionId: string;
   parentId: string | null;
@@ -8,8 +9,12 @@ export interface Session {
   autoSummary: string | null;
   project: string;
   projectDir: string;
-  filePath: string;
-  size: number;
+  filePath: string | null;
+  size: number | null;
+  preview: string | null;
+  historyMode: string;
+  registered: boolean;
+  hidden: boolean;
   totalLines: number;
   firstTimestamp: string | null;
   lastTimestamp: string | null;
@@ -32,14 +37,19 @@ export interface SessionMeta {
 
 export interface DeleteSessionTarget {
   sessionId: string;
-  filePath: string;
 }
 
-export type DeleteSessionStatus = "deleted" | "alreadyMissing";
+export type DeleteSessionStatus = "deleted" | "alreadyMissing" | "failed" | "unconfirmed";
+
+export interface DeletionPlan {
+  targets: DeleteSessionTarget[];
+  affectedIds: string[];
+}
 
 export interface DeleteSessionResult extends DeleteSessionTarget {
-  status: DeleteSessionStatus | "failed";
+  status: DeleteSessionStatus;
   error: string | null;
+  warning: string | null;
 }
 
 export interface Settings {

@@ -1,3 +1,4 @@
+// 등록 상태와 트리 관계를 유지하며 세션 목록과 작업을 표시한다.
 import { memo, useCallback, useEffect, useMemo, useRef, useState } from "react";
 import {
   ArrowDown,
@@ -208,7 +209,7 @@ function SessionTableInner({
     [sessions, sort]
   );
   const treeRows = useMemo(() => buildSessionTreeRows(sortedSessions, expandedIds), [sortedSessions, expandedIds]);
-  const visibleSessions = useMemo(() => treeRows.map((row) => row.session), [treeRows]);
+  const visibleSessions = useMemo(() => treeRows.map((row) => row.session).filter((s) => s.registered), [treeRows]);
   const tableWidth = useMemo(() => totalColumnWidth(widths), [widths]);
   const visibleSelectedCount = visibleSessions.filter((s) => selectedSessionIds.has(s.sessionId)).length;
   const allVisibleSelected = visibleSessions.length > 0 && visibleSelectedCount === visibleSessions.length;
@@ -252,8 +253,9 @@ function SessionTableInner({
               type="checkbox"
               checked={allVisibleSelected}
               onChange={(e) => onToggleVisibleSelection(visibleSessions, e.currentTarget.checked)}
-              aria-label={allVisibleSelected ? t("action.deselectAll") : t("action.selectAll")}
-              title={allVisibleSelected ? t("action.deselectAll") : t("action.selectAll")}
+              disabled={visibleSessions.length === 0}
+              aria-label={allVisibleSelected ? t("action.deselectVisible") : t("action.selectVisible")}
+              title={allVisibleSelected ? t("action.deselectVisible") : t("action.selectVisible")}
               className="h-4 w-4 min-w-4 shrink-0 rounded border-border accent-primary"
             />
           </ResizableHead>
@@ -352,6 +354,11 @@ function SessionTableInner({
           const desc = sessionDescriptionText(s);
           const expanded = expandedIds.has(s.sessionId);
           const displayName = s.name || s.agentNickname || t("list.noName");
+          const cloudOnly = s.storageType === "cloud" || s.storageType === "cloud-only";
+          const resumeDisabled = cloudOnly ? s.historyMode !== "legacy" : !s.registered;
+          const cloudDisabled = s.historyMode !== "legacy" || !s.filePath;
+          const cloudReason = cloudDisabled ? t("action.legacyRequired") : undefined;
+          const apiReason = !s.registered ? t("action.registeredRequired") : undefined;
           // ponytail: 들여쓰기는 6단계까지 표시하며 더 깊은 트리는 이름 열 폭과 상한을 함께 늘린다.
           return (
             <TableRow
@@ -359,7 +366,7 @@ function SessionTableInner({
               data-depth={depth}
               data-state={selected ? "selected" : undefined}
               onClick={() => onSelect(s)}
-              onDoubleClick={() => onResume(s)}
+              onDoubleClick={() => !resumeDisabled && onResume(s)}
               className="cursor-pointer"
             >
               <TableCell
@@ -370,6 +377,7 @@ function SessionTableInner({
                 <input
                   type="checkbox"
                   checked={checked}
+                  disabled={!s.registered}
                   onChange={() => onToggleSelected(s)}
                   aria-label={checked ? t("action.deselectSession") : t("action.selectSession")}
                   title={checked ? t("action.deselectSession") : t("action.selectSession")}
@@ -440,13 +448,14 @@ function SessionTableInner({
               </TableCell>
               <TableCell style={cellStyle("desc")} title={desc || undefined}>
                 <span className="block truncate text-sm text-foreground/80">{desc || "—"}</span>
+                {s.preview && <span className="block truncate text-xs text-muted-foreground"><span>{t("detail.preview")} · </span><span>{s.preview}</span></span>}
               </TableCell>
               <TableCell
                 style={cellStyle("size")}
                 className="text-right tabular-nums text-sm text-muted-foreground"
-                title={`${s.size} bytes`}
+                title={s.size === null ? undefined : `${s.size} bytes`}
               >
-                {formatBytes(s.size)}
+                {s.size === null ? "—" : formatBytes(s.size)}
               </TableCell>
               <TableCell style={cellStyle("project")} title={s.project}>
                 <span className="block truncate font-mono text-xs text-muted-foreground">
@@ -522,8 +531,9 @@ function SessionTableInner({
                             e.stopPropagation();
                             onToggleCloud(s);
                           }}
-                          title={syncTooltip}
-                          aria-label={syncTooltip}
+                          disabled={cloudDisabled}
+                          title={cloudReason ?? syncTooltip}
+                          aria-label={cloudReason ?? syncTooltip}
                           className="ml-0.5 inline-flex h-5 w-5 items-center justify-center rounded text-muted-foreground/70 hover:bg-muted/40 hover:text-foreground transition-colors"
                         >
                           <SyncIcon className="h-3 w-3" />
@@ -545,7 +555,7 @@ function SessionTableInner({
                     </Button>
                   </DropdownMenuTrigger>
                   <DropdownMenuContent align="end">
-                    <DropdownMenuItem onSelect={() => onResume(s)}>
+                    <DropdownMenuItem disabled={resumeDisabled} title={resumeDisabled ? (cloudOnly ? cloudReason : apiReason) : undefined} onSelect={() => onResume(s)}>
                       {t("action.resumeNew")}
                     </DropdownMenuItem>
                     <DropdownMenuItem onSelect={() => onRename(s)}>
@@ -554,11 +564,11 @@ function SessionTableInner({
                     <DropdownMenuItem onSelect={() => onDescribe(s)}>
                       {t("action.describe")}
                     </DropdownMenuItem>
-                    <DropdownMenuItem onSelect={() => onGenerateSummary(s)}>
+                    <DropdownMenuItem disabled={!s.registered} title={apiReason} onSelect={() => onGenerateSummary(s)}>
                       {t("action.generateSummary")}
                     </DropdownMenuItem>
                     <DropdownMenuSeparator />
-                    <DropdownMenuItem onSelect={() => onToggleArchive(s)}>
+                    <DropdownMenuItem disabled={!s.registered} title={apiReason} onSelect={() => onToggleArchive(s)}>
                       {s.archived
                         ? t("action.unarchive") !== "action.unarchive"
                           ? t("action.unarchive")
@@ -567,7 +577,7 @@ function SessionTableInner({
                         ? t("action.archive")
                         : "Archive"}
                     </DropdownMenuItem>
-                    <DropdownMenuItem onSelect={() => onToggleCloud(s)}>
+                    <DropdownMenuItem disabled={cloudDisabled} title={cloudReason} onSelect={() => onToggleCloud(s)}>
                       {s.storageType === "cloud-only" || s.storageType === "cloud"
                         ? t("action.syncFromCloud")
                         : s.storageType === "synced"
@@ -577,7 +587,7 @@ function SessionTableInner({
                         : t("action.syncToCloud")}
                     </DropdownMenuItem>
                     <DropdownMenuSeparator />
-                    <DropdownMenuItem destructive onSelect={() => onDelete(s)}>
+                    <DropdownMenuItem disabled={!s.registered} title={apiReason} destructive onSelect={() => onDelete(s)}>
                       {t("action.delete")}
                     </DropdownMenuItem>
                   </DropdownMenuContent>

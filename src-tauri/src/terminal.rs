@@ -364,26 +364,57 @@ pub fn build_custom_resume_command(
     session_id: &str,
     cwd: Option<&str>,
     flags: Option<&str>,
+    codex_program: &str,
+    codex_home: &str,
 ) -> ResumePlan {
     let work_dir = cwd.filter(|p| Path::new(p).exists()).unwrap_or("");
     let flags_str = flags
         .map(|s| s.trim())
         .filter(|s| !s.is_empty())
         .unwrap_or("");
-    let codex_invoke = if flags_str.is_empty() {
-        format!("codex resume {}", session_id)
+    let shell = format!("{} {}", program, args_template).to_ascii_lowercase();
+    let kind = if shell.contains("bash")
+        || shell.contains("mintty")
+        || shell.contains("zsh")
+        || shell.contains(" sh ")
+    {
+        TerminalKind::LinuxDefault
+    } else if shell.contains("cmd.exe") || program.eq_ignore_ascii_case("cmd") {
+        TerminalKind::Cmd
+    } else if cfg!(windows) {
+        TerminalKind::PowerShell
     } else {
-        format!("codex resume {} {}", flags_str, session_id)
+        TerminalKind::LinuxDefault
+    };
+    let invoke = codex_invoke_for_terminal(kind, codex_program, session_id, Some(flags_str));
+    let codex_invoke = match kind {
+        TerminalKind::Cmd => format!("set \"CODEX_HOME={}\" && {}", codex_home, invoke),
+        TerminalKind::PowerShell => format!(
+            "$env:CODEX_HOME={}; {}",
+            quote_powershell_single(codex_home),
+            invoke
+        ),
+        _ => format!(
+            "export CODEX_HOME={}; {}",
+            quote_posix_single(codex_home),
+            invoke
+        ),
     };
 
-    let substituted = args_template
-        .replace("{cwd}", work_dir)
-        .replace("{id}", session_id)
-        .replace("{flags}", flags_str)
-        .replace("{claude_invoke}", &codex_invoke)
-        .replace("{codex_invoke}", &codex_invoke);
-
-    let args = split_args(&substituted);
+    let args = split_args(args_template)
+        .into_iter()
+        .flat_map(|arg| {
+            if arg == "{flags}" {
+                return split_args(flags_str);
+            }
+            vec![arg
+                .replace("{cwd}", work_dir)
+                .replace("{id}", session_id)
+                .replace("{flags}", flags_str)
+                .replace("{claude_invoke}", &codex_invoke)
+                .replace("{codex_invoke}", &codex_invoke)]
+        })
+        .collect();
     ResumePlan {
         program: program.to_string(),
         args,
@@ -411,4 +442,65 @@ fn split_args(s: &str) -> Vec<String> {
         out.push(cur);
     }
     out
+}
+
+#[cfg(test)]
+mod custom_tests {
+    #[test]
+    fn standalone_flags_expand_and_empty_flags_add_no_argument() {
+        let make = |flags| {
+            super::build_custom_resume_command(
+                "mintty.exe",
+                "-e codex resume {flags} {id}",
+                "sid",
+                None,
+                flags,
+                "codex",
+                "home",
+            )
+        };
+        assert_eq!(
+            make(Some("--model x --sandbox workspace-write")).args,
+            vec![
+                "-e",
+                "codex",
+                "resume",
+                "--model",
+                "x",
+                "--sandbox",
+                "workspace-write",
+                "sid"
+            ]
+        );
+        assert_eq!(make(None).args, vec!["-e", "codex", "resume", "sid"]);
+    }
+    #[test]
+    fn mintty_bash_template_keeps_posix_syntax() {
+        let plan = super::build_custom_resume_command(
+            "mintty.exe",
+            "-e bash -c \"{codex_invoke}; exec bash\"",
+            "sid",
+            None,
+            None,
+            "C:/Program Files/codex.exe",
+            "C:/home",
+        );
+        assert_eq!(&plan.args[..3], &["-e", "bash", "-c"]);
+        assert!(plan.args[3].starts_with("export CODEX_HOME="));
+        assert!(!plan.args[3].contains("$env:"));
+    }
+    #[test]
+    fn cmd_template_preserves_quoted_executable_in_one_argument() {
+        let plan = super::build_custom_resume_command(
+            "cmd.exe",
+            "/k \"{codex_invoke}\"",
+            "sid",
+            None,
+            None,
+            "C:/Program Files/codex.exe",
+            "C:/home",
+        );
+        assert_eq!(plan.args.len(), 2);
+        assert!(plan.args[1].contains("\"C:/Program Files/codex.exe\" resume sid"));
+    }
 }

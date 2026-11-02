@@ -8,10 +8,10 @@ OpenAI Codex CLI 세션을 데스크톱에서 빠르게 찾고, 이름을 붙이
 
 ## What It Does
 
-- `~/.codex/sessions/YYYY/MM/DD/*.jsonl`과 `~/.codex/archived_sessions`에서 Codex 세션을 스캔합니다.
+- Codex app-server API로 미보관·보관 세션을 조회합니다. JSONL 없이 DB에 저장된 세션도 표시합니다.
 - 세션에 이름, 설명, 즐겨찾기, 자동 요약을 붙여 다시 찾기 쉽게 만듭니다.
 - 부모 세션 아래에 서브 세션을 트리로 묶고 이름 앞 화살표로 펼치거나 접습니다.
-- 이름, 설명, 프로젝트, 세션 ID, 첫 사용자 메시지로 검색하고 컬럼별로 정렬합니다.
+- 이름, 설명, 프로젝트, 세션 ID, 대화 미리보기로 검색하고 컬럼별로 정렬합니다.
 - 세션을 더블클릭하거나 메뉴에서 `codex resume <session-id>`로 새 터미널에서 이어갑니다.
 - 체크박스로 여러 세션을 선택해 한 번에 삭제할 수 있습니다.
 - Google Drive 같은 로컬 동기화 폴더에 세션 JSONL과 메타데이터를 동기화합니다.
@@ -33,34 +33,41 @@ Current release: [Codex Session Manager v0.5.11](https://github.com/nowJDev/code
 ## Requirements
 
 - [OpenAI Codex CLI](https://github.com/openai/codex)가 `PATH`에 있어야 합니다.
+- app-server 목록·삭제·대화 조회 API가 필요하며 Codex CLI `0.166.0`에서 검증했습니다. 호환되지 않는 CLI에서는 조회 오류를 표시하고 파일 스캔 결과로 대체하지 않습니다.
 - 소스에서 빌드하려면 Node.js 24+, pnpm, Rust toolchain, Tauri 2 platform prerequisites가 필요합니다.
 
 ## Core Features
 
 ### Session Management
 
-- Codex JSONL의 `session_meta`, `turn_context`, `event_msg`, `response_item` 레코드를 관대하게 파싱합니다.
+- API의 모든 지원 세션 종류와 페이지를 조회합니다. 등록된 세션은 파일 유무나 메시지 파싱 결과 때문에 제외하지 않습니다. JSONL 스캐너는 추가 디렉터리와 구형 파일 정보에 사용합니다.
 - 서브 세션은 부모 ID로 연결하며 에이전트 이름과 서브 표시를 제공합니다. 부모가 없는 기록은 최상위에 표시합니다.
-- 트리는 처음에 접혀 있으며 검색 결과에는 일치한 서브 세션의 부모도 함께 표시하고 자동으로 펼칩니다. 기존 정렬은 부모끼리와 같은 부모의 자식끼리 적용됩니다. 전체 선택은 현재 표시된 행만 선택하며 부모의 개별 삭제는 자식에게 전파되지 않습니다.
+- 트리는 처음에 접혀 있으며 검색 결과에는 일치한 서브 세션의 부모도 함께 표시하고 자동으로 펼칩니다. 기존 정렬은 부모끼리와 같은 부모의 자식끼리 적용됩니다. 전체 선택은 현재 표시된 등록 세션만 선택합니다.
+- 부모 삭제는 Codex의 연쇄 삭제 동작을 따릅니다. 확인창에 선택한 수·전체 영향 수·추가 자손 수를 표시하고, 확인 이후 영향 범위가 늘어나면 새 확인을 요구합니다. 다른 프로세스와의 원자적 스냅샷은 보장하지 않습니다.
+- 등록 수·표시 수·선택 수를 구분합니다. 제외 경로와 내부 기록은 표시 필터이며, `숨긴 세션 포함`으로 확인할 수 있습니다. 미확인 파일 크기는 `—`, API 미등록 파일은 제한된 작업으로 표시합니다.
 - 클라우드 동기화에서도 부모 관계를 보존합니다. 예전 클라우드 메타데이터는 저장된 JSONL에서 관계를 읽습니다.
 - 앱 전용 메타데이터는 `~/.codex-sessions/config.json`에 저장합니다.
 - Archive / Unarchive 메뉴는 `codex archive <session-id>`와 `codex unarchive <session-id>`를 사용합니다.
-- 삭제는 `codex delete --force <session-id>`를 사용하며, 한 건이 실패해도 나머지 항목을 계속 처리합니다.
-- 결과에 삭제·이미 없음·실패 수를 표시하고 항상 목록을 갱신합니다. 실패 항목은 결과 패널에서 다시 확인 후 재시도할 수 있습니다.
-- CLI 실패를 파일 강제 삭제로 우회하지 않습니다. 파일·인덱스·최신 Codex 상태 DB의 등록이 모두 없을 때만 남은 앱 메타데이터를 정리합니다. 조회 오류는 실패로 남깁니다.
+- 삭제는 ID로 `thread/delete`를 요청한 뒤 미보관·보관 목록에서 부재를 확인합니다. 명확한 개별 실패는 나머지 작업과 분리하고, 통신 실패 뒤에는 후속 삭제를 자동 전송하지 않습니다.
+- 결과에 삭제·이미 없음·실패·확인 안 됨 수를 표시하고 항상 목록을 갱신합니다. 메타데이터 정리 경고는 삭제 결과와 별도로 표시하며 결과 패널에서 새 조회 후 재시도할 수 있습니다.
+- API 실패를 파일 강제 삭제로 우회하지 않습니다. SQLite·세션 인덱스를 직접 수정하지 않고 부재가 확인된 세션의 앱 메타데이터만 정리합니다. 조회 실패 시 이전 목록과 오류 안내를 유지합니다.
 - 새로고침과 시작 시 환경·상태 조회는 백그라운드에서 실행하며, 겹치는 목록 갱신 요청을 병합합니다.
 
 ### Resume And Terminal
 
 - Windows Terminal, PowerShell, cmd, Git Bash 등을 감지합니다.
 - 설정에서 선호 터미널과 custom terminal command를 지정할 수 있습니다.
+- 기본 터미널과 custom `{codex_invoke}` 토큰은 목록과 같은 CLI 경로와 `CODEX_HOME`을 사용합니다. custom 명령은 Bash·Cmd·PowerShell 문법을 구분합니다.
 - `--dangerously-bypass-approvals-and-sandbox`, `--debug`, `--verbose`와 자유 입력 resume flags를 지원합니다.
 
 ### Sync And Summary
 
 - Google Drive 등 로컬 동기화 폴더 아래 `Codex Sessions` 폴더를 사용합니다.
 - 로컬 세션 업로드, 클라우드 세션 체크아웃, 재동기화를 지원합니다.
+- 파일 동기화는 실제 메타와 ID가 일치하는 온전한 legacy JSONL만 허용합니다. paginated 잔여 파일·미확인 형식은 기존 백업을 덮어쓰지 않습니다. DB 대화의 새 백업 형식은 제공하지 않습니다.
+- 클라우드 복원은 기존 로컬 파일을 덮어쓰지 않으며 복사 후 Codex 등록을 확인합니다. 등록을 확인하지 못하면 복사 파일을 보존하고 미확인 상태를 알립니다.
 - 로컬 `codex exec`를 사용해 이름과 설명을 자동 생성합니다. 이 기능은 Codex CLI 인증 상태에 의존합니다.
+- 수동 요약은 ID로 대화 내용을 읽습니다. 새로 발견된 과거 paginated 세션을 자동 일괄 요약하지 않으며 기존 legacy 자동 요약만 유지합니다.
 
 ## Configuration
 
@@ -122,6 +129,9 @@ pnpm build
 # 삭제·새로고침·세션 트리 프런트엔드 회귀 검사.
 node scripts/check-delete-workflow.mjs
 node --test tests/*.test.mjs
+
+# 실제 Codex API와 격리된 테스트 세션의 삭제·재조회 검사. 모델 요청 없음.
+python scripts/check-codex-api.py --manager <session-cli-path>
 ```
 
 `session-cli`는 GUI 없이 백엔드 동작을 확인하는 하네스입니다.
@@ -175,7 +185,7 @@ Installers are written to `src-tauri/target/release/bundle/`.
 
 문제가 생기면 앱의 설정 화면에서 로그 마지막 부분을 복사한 뒤 [GitHub Issues](https://github.com/nowJDev/codex-session-manager/issues/new)에 등록해 주세요.
 
-삭제 명령 실패 시 CLI 경로·버전·종료 상태·오류가 이 로그에 기록됩니다. Codex 상태 DB는 읽기 전용으로 조회하며, 호환되지 않는 형식이나 읽기 오류를 자동 복구하거나 삭제하지 않습니다.
+app-server 오류에는 RPC 오류나 제한된 stderr 진단이 포함됩니다. 상태 DB·대화 DB·세션 인덱스는 Codex가 관리하며 Manager가 직접 복구하거나 삭제하지 않습니다. 목록 API가 실패하면 기존 목록이 최신 결과가 아님을 오류 안내로 구분합니다.
 
 ## Fork Lineage
 

@@ -57,7 +57,13 @@ pub struct Config {
 #[serde(rename_all = "camelCase")]
 pub struct DeleteSessionTarget {
     pub session_id: String,
-    pub file_path: String,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct DeletionPlan {
+    pub targets: Vec<DeleteSessionTarget>,
+    pub affected_ids: Vec<String>,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
@@ -66,15 +72,16 @@ pub enum DeleteSessionStatus {
     Deleted,
     AlreadyMissing,
     Failed,
+    Unconfirmed,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct DeleteSessionResult {
     pub session_id: String,
-    pub file_path: String,
     pub status: DeleteSessionStatus,
     pub error: Option<String>,
+    pub warning: Option<String>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -92,8 +99,16 @@ pub struct Session {
     pub auto_summary: Option<String>,
     pub project: String,
     pub project_dir: String,
-    pub file_path: String,
-    pub size: u64,
+    pub file_path: Option<String>,
+    pub size: Option<u64>,
+    #[serde(default)]
+    pub preview: Option<String>,
+    #[serde(default)]
+    pub history_mode: String,
+    #[serde(default)]
+    pub registered: bool,
+    #[serde(default)]
+    pub hidden: bool,
     pub total_lines: usize,
     pub first_timestamp: Option<String>,
     pub last_timestamp: Option<String>,

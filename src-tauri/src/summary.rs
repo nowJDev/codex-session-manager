@@ -12,8 +12,7 @@ use std::process::{Command, Stdio};
 /// Isolated cwd for `codex exec` summary runs.
 /// The scanner skips projects whose path contains this marker.
 pub fn isolation_cwd() -> PathBuf {
-    let base = dirs::home_dir().unwrap_or_else(|| PathBuf::from("."));
-    base.join(".codex-sessions").join(".summary-runs")
+    crate::config::config_dir().join(".summary-runs")
 }
 
 pub const ISOLATION_MARKER: &str = "summary-runs";
@@ -150,6 +149,7 @@ pub fn run_codex_headless(prompt: &str) -> Result<String> {
 
     let mut cmd = Command::new(&invocation.program);
     cmd.args(&invocation.args)
+        .env("CODEX_HOME", crate::scanner::codex_home())
         .current_dir(&cwd)
         .stdin(Stdio::piped())
         .stdout(Stdio::piped())
@@ -292,6 +292,10 @@ pub fn auto_summarize_session(
     previous_summary: Option<&str>,
 ) -> Result<(String, String)> {
     let excerpt = collect_excerpt(file_path, 80, 40)?;
+    summarize_excerpt(&excerpt, previous_summary)
+}
+
+pub(crate) fn summarize_excerpt(excerpt: &str, previous_summary: Option<&str>) -> Result<(String, String)> {
     if excerpt.trim().is_empty() {
         return Err(anyhow!("세션이 비어 있습니다."));
     }

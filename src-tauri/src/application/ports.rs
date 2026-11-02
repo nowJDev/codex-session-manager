@@ -1,5 +1,7 @@
 // 애플리케이션 use case가 외부 시스템에 기대는 기능 계약이다.
-use crate::types::{Config, DeleteSessionStatus, Session, SessionMeta, Settings};
+use crate::types::{
+    Config, DeleteSessionResult, DeleteSessionTarget, DeletionPlan, Session, SessionMeta, Settings,
+};
 use anyhow::Result;
 use std::collections::HashMap;
 use std::future::Future;
@@ -11,7 +13,12 @@ pub trait SessionScanPort {
 }
 
 pub trait SessionCommandPort {
-    fn delete_session(&self, session_id: &str, file_path: &str) -> Result<DeleteSessionStatus>;
+    fn prepare_session_deletion(&self, targets: &[DeleteSessionTarget]) -> Result<DeletionPlan>;
+    fn delete_sessions(
+        &self,
+        targets: &[DeleteSessionTarget],
+        approved_ids: &[String],
+    ) -> Result<Vec<DeleteSessionResult>>;
     fn archive_session(&self, session_id: &str) -> Result<()>;
     fn unarchive_session(&self, session_id: &str) -> Result<()>;
 }

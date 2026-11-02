@@ -9,6 +9,45 @@ use std::sync::Mutex;
 
 static ENV_LOCK: Mutex<()> = Mutex::new(());
 
+#[test]
+fn custom_resume_uses_the_selected_cli_and_codex_home() {
+    let home = setup_temp_home();
+    let previous_cli = std::env::var_os("CODEX_CLI");
+    let cli = home._dir.path().join("selected-codex.cmd");
+    fs::write(&cli,"@echo off\r\n").unwrap();
+    std::env::set_var("CODEX_CLI", &cli);
+    config::update_settings(Settings {
+        preferred_terminal: Some("custom".into()),
+        custom_terminal_program: Some("powershell.exe".into()),
+        custom_terminal_args: Some("-NoExit -Command \"{codex_invoke}\"".into()),
+        ..Default::default()
+    }).unwrap();
+    let plan = resume::build_resume_plan("sid",None,"windows");
+    if let Some(value)=previous_cli {std::env::set_var("CODEX_CLI",value);} else {std::env::remove_var("CODEX_CLI");}
+    let command=plan.args.join(" ");
+    assert!(command.contains(cli.to_str().unwrap()),"custom terminal must reuse chosen CLI: {command}");
+    assert!(command.contains("CODEX_HOME"),"custom terminal must set the same home: {command}");
+}
+
+#[test]
+fn cloud_checkin_validates_the_actual_local_file_before_overwriting_backup() {
+    let home = setup_temp_home();
+    let root = home._dir.path().join("backup"); fs::create_dir(&root).unwrap();
+    let id = "bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb";
+    let backup = root.join(format!("{id}.jsonl"));
+    let complete = serde_json::json!({"type":"session_meta","payload":{"id":id,"history_mode":"legacy"}}).to_string();
+    fs::write(&backup,&complete).unwrap();
+    fs::write(root.join(format!("{id}.meta.json")),serde_json::json!({
+        "sessionId":id,"project":"test","projectDir":"test","rolloutRelativePath":"cloud/local.jsonl","uploadedAt":"2026-11-02T00:00:00Z"
+    }).to_string()).unwrap();
+    let local = scanner::sessions_dir().join("cloud/local.jsonl");
+    fs::create_dir_all(local.parent().unwrap()).unwrap();
+    fs::write(&local,serde_json::json!({"type":"session_meta","payload":{"id":id,"history_mode":"paginated"}}).to_string()).unwrap();
+    let session = cloud::list_cloud_sessions(Some(root.clone())).unwrap().remove(0);
+    assert!(cloud::checkin(Some(root),&session).is_err());
+    assert_eq!(fs::read_to_string(backup).unwrap(),complete);
+}
+
 struct TempHome {
     _dir: tempfile::TempDir,
     _guard: std::sync::MutexGuard<'static, ()>,

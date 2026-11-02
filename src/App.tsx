@@ -1,3 +1,4 @@
+// 세션 목록의 상태와 API 삭제 확인 및 결과 화면을 조립한다.
 import { AlertTriangle, RefreshCw, Search, Settings as SettingsIcon, Trash2 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -14,7 +15,10 @@ function App() {
     t,
     query,
     setQuery,
+    showHidden,
+    setShowHidden,
     loading,
+    refreshError,
     locale,
     config,
     selectedId,
@@ -29,12 +33,12 @@ function App() {
     selectedForDeleteIds,
     pendingDelete,
     deleting,
+    preparingDelete,
     deleteReport,
     dismissDeleteReport,
     filtered,
     selected,
     selectedForDeleteCount,
-    total,
     localCount,
     cloudCount,
     refresh,
@@ -83,7 +87,7 @@ function App() {
         <div className="flex flex-col">
           <h1 className="text-base font-semibold leading-tight">{t("app.title")}</h1>
           <p className="text-[11px] text-muted-foreground">
-            {t("list.total", { count: total })} · local {localCount} / cloud {cloudCount}
+            {t("list.counts", { registered: localCount, displayed: filtered.length, selected: selectedForDeleteCount })} · cloud {cloudCount}
           </p>
         </div>
         <div className="relative ml-6 flex-1 max-w-md">
@@ -95,13 +99,17 @@ function App() {
             className="pl-8"
           />
         </div>
+        <label className="flex shrink-0 items-center gap-1.5 text-xs text-muted-foreground">
+          <input type="checkbox" checked={showHidden} onChange={(e) => setShowHidden(e.currentTarget.checked)} />
+          {t("list.showHidden")}
+        </label>
         <div className="flex items-center gap-1.5">
           {selectedForDeleteCount > 0 && (
             <Button
               variant="destructive"
               size="sm"
               onClick={handleBulkDelete}
-              disabled={deleting}
+              disabled={deleting || preparingDelete}
               title={t("action.deleteSelected", { count: selectedForDeleteCount })}
             >
               <Trash2 className="h-4 w-4" />
@@ -128,21 +136,25 @@ function App() {
         </div>
       </header>
 
+      {refreshError && <p role="alert" className="border-b border-destructive/40 bg-destructive/10 px-5 py-2 text-sm text-destructive">{t("error.refreshFailed", { error: refreshError })}</p>}
+      {preparingDelete && <p role="status" className="border-b border-border px-5 py-2 text-sm">{t("delete.preparing")}</p>}
+
       {deleteReport && (
         <section className="border-b border-border bg-muted/40 px-5 py-3 text-sm" aria-label={t("delete.resultTitle")}>
           <div className="flex items-start justify-between gap-3">
             <p role="status">
               {deleteReport.error
-                ? t("delete.resultUnknown")
+                ? t(deleteReport.phase === "prepare" ? "delete.prepareFailed" : "delete.resultUnknown")
                 : t("delete.resultSummary", {
                     deleted: deleteReport.results.filter((result) => result.status === "deleted").length,
                     missing: deleteReport.results.filter((result) => result.status === "alreadyMissing").length,
                     failed: deleteReport.results.filter((result) => result.status === "failed").length,
+                    unconfirmed: deleteReport.results.filter((result) => result.status === "unconfirmed").length,
                   })}
             </p>
             <div className="flex shrink-0 gap-2">
-              {deleteReport.results.some((result) => result.status === "failed") && (
-                <Button variant="outline" size="sm" disabled={deleting} onClick={handleRetryFailedDelete}>
+              {deleteReport.results.some((result) => result.status === "failed" || result.status === "unconfirmed" || result.warning) && (
+                <Button variant="outline" size="sm" disabled={deleting || preparingDelete} onClick={handleRetryFailedDelete}>
                   {t("delete.retryFailed")}
                 </Button>
               )}
@@ -152,11 +164,11 @@ function App() {
             </div>
           </div>
           {deleteReport.error && <p className="break-all text-destructive">{deleteReport.error}</p>}
-          {deleteReport.results.some((result) => result.status === "failed") && (
+          {deleteReport.results.some((result) => result.status === "failed" || result.status === "unconfirmed") && (
             <details className="mt-1">
               <summary className="cursor-pointer">{t("delete.failureDetails")}</summary>
               <ul className="mt-2 max-h-40 space-y-1 overflow-auto">
-                {deleteReport.results.filter((result) => result.status === "failed").map((result) => (
+                {deleteReport.results.filter((result) => result.status === "failed" || result.status === "unconfirmed").map((result) => (
                   <li key={result.sessionId} className="break-all text-destructive">
                     {result.sessionId} — {result.error}
                   </li>
@@ -164,6 +176,9 @@ function App() {
               </ul>
             </details>
           )}
+          {deleteReport.results.filter((result) => result.warning).map((result) => (
+            <p key={result.sessionId} className="mt-1 break-all text-amber-500">{t("delete.warning")} · {result.sessionId} — {result.warning}</p>
+          ))}
         </section>
       )}
 
@@ -246,9 +261,11 @@ function App() {
             : t("delete.titleBulk", { count: pendingDelete?.sessions.length ?? 0 })
         }
         description={
-          pendingDelete?.sessions.length === 1
-            ? t("prompt.confirmDelete")
-            : t("prompt.confirmBulkDelete", { count: pendingDelete?.sessions.length ?? 0 })
+          t("delete.scope", {
+            selected: pendingDelete?.sessions.length ?? 0,
+            affected: pendingDelete?.affectedIds.length ?? 0,
+            descendants: pendingDelete?.affectedIds.filter((id) => !pendingDelete.sessions.some((s) => s.sessionId === id)).length ?? 0,
+          })
         }
         confirmLabel={t("delete.confirm")}
         cancelLabel={t("settings.cancel")}
