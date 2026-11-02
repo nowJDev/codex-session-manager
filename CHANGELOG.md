@@ -4,8 +4,26 @@ All notable changes to this project are documented here.
 
 ## [Unreleased]
 
+## [0.5.12] — 2026-11-02
+
 ### Changed
 - Release workflow가 Windows 설치 exe와 portable zip 중심으로 산출물을 줄이도록 변경.
+- 세션 목록을 Codex app-server 등록 정보 기준으로 조회하고, 등록·표시·선택 수와 숨긴 세션 표시를 구분.
+
+### Fixed
+- JSONL 파일이 없는 등록 세션이 Manager 목록에서 누락되는 문제를 수정.
+- ID 기준 삭제 전 부모·하위 세션의 영향 범위를 확인하고, 삭제 후 API에서 부재를 재확인하도록 보강.
+- 통신 실패나 삭제 결과 미확인을 성공으로 표시하지 않고 재확인·재시도 대상을 유지.
+- 요약·legacy 클라우드 파일 검증·사용자 지정 터미널의 CLI와 CODEX_HOME 전달을 새 세션 계약에 맞게 보강.
+
+### Verified
+- Windows Rust 122개, 프런트엔드 18개, 삭제 회귀 4개와 production build 통과.
+- 격리된 실제 Codex API 조회·보관·부모/자식 삭제·부재 재확인·재삭제 검사와 네이티브 목록 화면 확인.
+- 기존 부모·서브 세션 트리를 유지하며 사용자가 수정 빌드의 정상 작동을 확인.
+
+### Compatibility
+- Codex CLI 0.166.0의 app-server API를 기준으로 검증. paginated 세션의 클라우드 파일 백업은 지원하지 않으며 검증된 legacy JSONL만 백업.
+- 실제 JSONL-free 사용자 세션 삭제, 실제 모델 요약과 계정 간 클라우드 동기화는 수행하지 않음.
 
 ## [0.5.11] — 2026-10-08
 

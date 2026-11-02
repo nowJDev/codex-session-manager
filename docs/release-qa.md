@@ -2,7 +2,11 @@
 
 This document records release-level checks that are not fully covered by unit or integration tests.
 
-## Current Release
+## v0.5.12 Release Preparation
+
+The user approved publishing the registered-session fixes as v0.5.12. The existing Windows Release workflow will produce the NSIS installer, portable ZIP, updater signature and latest.json. Publication and asset verification remain pending until the workflow and downloaded digests are checked. The execution record is `superpowers/plans/2026-11-02-v0.5.12-release.md`.
+
+## Previous Release v0.5.11
 
 - Current installer release: `v0.5.11`.
 - Release page: <https://github.com/nowJDev/codex-session-manager/releases/tag/v0.5.11>.
