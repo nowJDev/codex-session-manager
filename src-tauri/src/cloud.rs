@@ -385,48 +385,61 @@ pub fn list_cloud_sessions_with_budget(
         if !budget.record_timeout(&mut snapshot) {
             break;
         }
-        snapshot.sessions.push(Session {
-            session_id: meta.session_id.clone(),
-            parent_id: meta
-                .parent_id
-                .or_else(|| jsonl_meta.as_ref().and_then(|m| m.parent_id.clone())),
-            is_subagent: jsonl_meta
-                .as_ref()
-                .is_some_and(|m| m.session_kind == crate::types::SessionKind::Worker),
-            agent_nickname: meta
-                .agent_nickname
-                .or_else(|| jsonl_meta.as_ref().and_then(|m| m.agent_nickname.clone())),
-            name: meta.name,
-            description: meta.description,
-            auto_summary: meta.auto_summary,
-            project: meta.project,
-            project_dir: meta.project_dir,
-            file_path: stat.as_ref().map(|_| jsonl.to_string_lossy().to_string()),
-            size: stat.as_ref().map(|s| s.len()),
-            preview: None,
-            history_mode: crate::scanner::read_jsonl_meta(&jsonl)
-                .map(|m| m.history_mode)
-                .unwrap_or_else(|_| "unknown".into()),
-            registered: false,
-            session_kind: jsonl_meta
-                .as_ref()
-                .map(|m| m.session_kind)
-                .unwrap_or_default(),
-            is_summary_run: jsonl_meta.as_ref().is_some_and(|m| m.is_summary_run),
-            total_lines: 0,
-            first_timestamp: None,
-            last_timestamp: Some(meta.uploaded_at),
-            cwd: None,
-            version: None,
-            first_user_message: None,
-            storage_type: "cloud-only".into(),
-            archived: false,
-            favorite: false,
-            locked_by,
-        });
+        snapshot
+            .sessions
+            .push(map_cloud_session(meta, &jsonl, stat, jsonl_meta, locked_by));
     }
     budget.record_timeout(&mut snapshot);
     Ok(snapshot)
+}
+
+fn map_cloud_session(
+    meta: CloudMeta,
+    jsonl: &PathBuf,
+    stat: Option<fs::Metadata>,
+    jsonl_meta: Option<crate::scanner::JsonlMeta>,
+    locked_by: Option<String>,
+) -> Session {
+    Session {
+        session_id: meta.session_id.clone(),
+        parent_id: meta
+            .parent_id
+            .or_else(|| jsonl_meta.as_ref().and_then(|m| m.parent_id.clone())),
+        is_subagent: jsonl_meta
+            .as_ref()
+            .is_some_and(|m| m.session_kind == crate::types::SessionKind::Worker),
+        agent_nickname: meta
+            .agent_nickname
+            .or_else(|| jsonl_meta.as_ref().and_then(|m| m.agent_nickname.clone())),
+        name: meta.name,
+        description: meta.description,
+        auto_summary: meta.auto_summary,
+        project: meta.project,
+        project_dir: meta.project_dir,
+        file_path: stat.as_ref().map(|_| jsonl.to_string_lossy().to_string()),
+        size: stat.as_ref().map(|s| s.len()),
+        preview: None,
+        history_mode: jsonl_meta
+            .as_ref()
+            .map(|m| m.history_mode.clone())
+            .unwrap_or_else(|| "unknown".into()),
+        registered: false,
+        session_kind: jsonl_meta
+            .as_ref()
+            .map(|m| m.session_kind)
+            .unwrap_or_default(),
+        is_summary_run: jsonl_meta.as_ref().is_some_and(|m| m.is_summary_run),
+        total_lines: 0,
+        first_timestamp: None,
+        last_timestamp: Some(meta.uploaded_at),
+        cwd: None,
+        version: None,
+        first_user_message: None,
+        storage_type: "cloud-only".into(),
+        archived: false,
+        favorite: false,
+        locked_by,
+    }
 }
 
 pub fn checkout(cloud: &PathBuf, session: &Session) -> Result<String> {
@@ -546,4 +559,33 @@ pub fn checkin(cloud: Option<PathBuf>, session: &Session) -> Result<()> {
     // 락 해제
     let _ = release_lock(&cloud, &session.session_id);
     Ok(())
+}
+
+#[cfg(test)]
+mod budget_history_tests {
+    use super::*;
+    thread_local! {static CLOCK:std::cell::Cell<Option<std::time::Instant>>=const{std::cell::Cell::new(None)};}
+    fn now() -> std::time::Instant {
+        CLOCK.with(|c| c.get().unwrap())
+    }
+    #[test]
+    fn fix_round_2_cloud_reuses_cached_history_after_deadline() {
+        let dir = tempfile::tempdir().unwrap();
+        let file = dir.path().join("cached.jsonl");
+        fs::write(&file,r#"{"type":"session_meta","payload":{"id":"cached","history_mode":"legacy","source":"cli"}}"#).unwrap();
+        CLOCK.with(|c| c.set(Some(std::time::Instant::now())));
+        let budget = RefreshBudget::new(now);
+        let cached = crate::scanner::read_jsonl_meta_with_budget(&file, budget).unwrap();
+        let stat = fs::metadata(&file).unwrap();
+        CLOCK.with(|c| c.set(c.get().map(|t| t + std::time::Duration::from_secs(61))));
+        fs::remove_file(&file).unwrap();
+        assert!(budget.check().is_err());
+        let meta:CloudMeta=serde_json::from_value(serde_json::json!({"sessionId":"cached","project":"test","projectDir":"test","uploadedAt":"now"})).unwrap();
+        let row = map_cloud_session(meta, &file, Some(stat), Some(cached), None);
+        assert_eq!(
+            row.history_mode, "legacy",
+            "cached metadata must survive expiry without reopening the JSONL"
+        );
+        assert_eq!(row.session_kind, crate::types::SessionKind::Main);
+    }
 }

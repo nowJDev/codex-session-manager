@@ -21,25 +21,13 @@ pub(crate) fn list_sessions(budget: RefreshBudget) -> Result<SessionSnapshot> {
         return Ok(out);
     }
     let snapshot = AppServer::connect()?.collect_threads(budget.deadline());
-    out.errors = snapshot.errors;
-    out.missing_count = snapshot.missing_count;
-    out.complete = out.errors.is_empty() && out.missing_count == 0;
-    if !budget.record_timeout(&mut out) {
-        out.missing_count += snapshot.threads.len();
-        return Ok(out);
-    }
-    let config = crate::config::load_config();
+    let config = if budget.check().is_ok() {
+        crate::config::load_config()
+    } else {
+        Config::default()
+    };
     let ids: HashSet<_> = snapshot.threads.iter().map(|t| t.id.clone()).collect();
-    let mut remaining = snapshot.threads.into_iter();
-    while let Some(thread) = remaining.next() {
-        if !budget.record_timeout(&mut out) {
-            out.missing_count += 1 + remaining.len();
-            break;
-        }
-        if !thread.ephemeral {
-            out.sessions.push(map_thread(thread, &config));
-        }
-    }
+    out = map_collected_threads(snapshot, &config, budget);
     if budget.record_timeout(&mut out) {
         match crate::scanner::scan_extra_sessions(budget) {
             Ok(extra) => {
@@ -62,6 +50,44 @@ pub(crate) fn list_sessions(budget: RefreshBudget) -> Result<SessionSnapshot> {
     Ok(out)
 }
 
+fn map_collected_threads(
+    snapshot: super::full_catalog::ThreadSnapshot,
+    config: &Config,
+    budget: RefreshBudget,
+) -> SessionSnapshot {
+    let mut out = SessionSnapshot {
+        sessions: vec![],
+        complete: true,
+        missing_count: 0,
+        errors: vec![],
+    };
+    out.errors = snapshot.errors;
+    out.missing_count = snapshot.missing_count;
+    out.complete = out.errors.is_empty() && out.missing_count == 0;
+    budget.record_timeout(&mut out);
+    for thread in snapshot.threads {
+        if thread.ephemeral {
+            continue;
+        }
+        let path = thread.path.clone();
+        let mut session = map_thread(thread, config);
+        // API 메타의 순수 변환은 항상 보존하고, 확인이 필요한 파일 I/O만 남은 예산에서 수행한다.
+        if budget.record_timeout(&mut out) {
+            if let Some(path) = path {
+                if let Ok(metadata) = std::fs::metadata(&path) {
+                    if metadata.is_file() {
+                        session.file_path = Some(path);
+                        session.size = Some(metadata.len());
+                    }
+                }
+            }
+        }
+        out.sessions.push(session);
+        budget.record_timeout(&mut out);
+    }
+    out
+}
+
 fn parent_id(thread: &RegisteredThread) -> Option<&str> {
     thread
         .parent_thread_id
@@ -78,15 +104,6 @@ fn parent_id(thread: &RegisteredThread) -> Option<&str> {
 
 fn map_thread(thread: RegisteredThread, config: &Config) -> Session {
     let meta = config.sessions.get(&thread.id).cloned().unwrap_or_default();
-    let path = thread
-        .path
-        .as_ref()
-        .filter(|p| Path::new(p).is_file())
-        .cloned();
-    let size = path
-        .as_ref()
-        .and_then(|p| std::fs::metadata(p).ok())
-        .map(|m| m.len());
     let parent = parent_id(&thread).map(str::to_owned);
     let session_kind = crate::types::SessionKind::from_source(&thread.source);
     let is_subagent = session_kind == crate::types::SessionKind::Worker;
@@ -123,8 +140,8 @@ fn map_thread(thread: RegisteredThread, config: &Config) -> Session {
         project,
         project_dir: thread.cwd.clone(),
         cwd: Some(thread.cwd),
-        file_path: path,
-        size,
+        file_path: None,
+        size: None,
         preview,
         history_mode: thread.history_mode,
         registered: true,
@@ -366,6 +383,81 @@ mod tests {
                 session_id: (*id).into(),
             })
             .collect()
+    }
+    thread_local! {static MAP_CLOCK:std::cell::Cell<Option<(std::time::Instant,usize,usize)>>=const{std::cell::Cell::new(None)};}
+    fn mapping_now() -> std::time::Instant {
+        MAP_CLOCK.with(|c| {
+            let (base, calls, expire) = c.get().unwrap();
+            c.set(Some((base, calls + 1, expire)));
+            base + std::time::Duration::from_secs(if calls >= expire { 61 } else { 0 })
+        })
+    }
+    fn acquired_snapshot(file: &Path) -> super::super::full_catalog::ThreadSnapshot {
+        let mut worker = thread(C, Some(P));
+        worker.source = json!({"subAgent":{"thread_spawn":{"parent_thread_id":P}}});
+        let mut guardian = thread(O, None);
+        guardian.source = json!({"subAgent":{"other":"guardian"}});
+        let mut threads = vec![thread(P, None), worker, guardian];
+        for row in &mut threads {
+            row.path = Some(file.to_string_lossy().into_owned());
+        }
+        super::super::full_catalog::ThreadSnapshot {
+            threads,
+            missing_count: 2,
+            errors: vec!["existing RPC timeout".into()],
+        }
+    }
+    #[test]
+    fn fix_round_2_preserves_all_collected_rows_when_budget_already_expired() {
+        let dir = tempfile::tempdir().unwrap();
+        let file = dir.path().join("record.jsonl");
+        std::fs::write(&file, "record").unwrap();
+        MAP_CLOCK.with(|c| c.set(Some((std::time::Instant::now(), 0, 1))));
+        let budget = RefreshBudget::new(mapping_now);
+        let out = map_collected_threads(acquired_snapshot(&file), &Config::default(), budget);
+        assert_eq!(
+            out.sessions.len(),
+            3,
+            "expired API collection must preserve every acquired row"
+        );
+        assert_eq!(out.missing_count, 2);
+        assert!(!out.complete);
+        assert!(out.errors.contains(&"existing RPC timeout".into()));
+        assert_eq!(out.sessions[1].parent_id.as_deref(), Some(P));
+        assert_eq!(
+            out.sessions[1].session_kind,
+            crate::types::SessionKind::Worker
+        );
+        assert_eq!(
+            out.sessions[2].session_kind,
+            crate::types::SessionKind::Guardian
+        );
+        assert!(out
+            .sessions
+            .iter()
+            .all(|s| s.file_path.is_none() && s.size.is_none()));
+    }
+    #[test]
+    fn fix_round_2_preserves_remaining_rows_when_mapping_budget_expires() {
+        let dir = tempfile::tempdir().unwrap();
+        let file = dir.path().join("record.jsonl");
+        std::fs::write(&file, "record").unwrap();
+        MAP_CLOCK.with(|c| c.set(Some((std::time::Instant::now(), 0, 3))));
+        let budget = RefreshBudget::new(mapping_now);
+        let out = map_collected_threads(acquired_snapshot(&file), &Config::default(), budget);
+        assert_eq!(
+            out.sessions.len(),
+            3,
+            "mapping expiry must not discard remaining metadata"
+        );
+        assert!(!out.complete);
+        assert_eq!(out.missing_count, 2);
+        assert!(out.errors.contains(&"existing RPC timeout".into()));
+        assert!(out
+            .sessions
+            .iter()
+            .any(|s| s.file_path.is_none() && s.size.is_none()));
+        assert_eq!(out.sessions[1].parent_id.as_deref(), Some(P));
     }
     #[test]
     fn mapping_distinguishes_guardian_worker_unknown_and_summary_without_hidden() {
