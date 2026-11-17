@@ -8,6 +8,7 @@ from pathlib import Path
 import queue
 import shutil
 import sqlite3
+import stat
 import subprocess
 import tempfile
 import threading
@@ -197,6 +198,8 @@ def clean(root):
         if path.is_dir():
             path.rmdir()
         else:
+            if os.name == "nt" and path.stat().st_file_attributes & stat.FILE_ATTRIBUTE_READONLY:
+                path.chmod(stat.S_IWRITE)
             path.unlink()
     root.rmdir()
 
