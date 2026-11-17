@@ -1,16 +1,13 @@
 // Codex 세션 JSONL 파일을 찾아 앱 표시용 메타데이터로 변환한다.
 use crate::config::load_config;
-use crate::domain::session::{
-    encode_scan_match_text, is_internal_summary_run, scan_exclusion_matches,
-    should_include_scanned_session,
-};
+use crate::domain::session::is_internal_summary_run;
 use crate::domain::transcript::{
     compact_whitespace, extract_user_message_text, first_user_message_name, truncate,
     TranscriptContent, TranscriptPart, TranscriptPartKind,
 };
-use crate::types::Session;
 #[cfg(test)]
 use crate::types::DeleteSessionStatus;
+use crate::types::Session;
 use anyhow::{anyhow, Result};
 use serde_json::Value;
 use std::collections::HashMap;
@@ -71,7 +68,8 @@ pub(crate) struct JsonlMeta {
     pub(crate) parent_id: Option<String>,
     pub(crate) is_subagent: bool,
     pub(crate) agent_nickname: Option<String>,
-    is_guardian: bool,
+    pub(crate) session_kind: crate::types::SessionKind,
+    pub(crate) is_summary_run: bool,
     pub(crate) history_mode: String,
     first_timestamp: Option<String>,
     last_timestamp: Option<String>,
@@ -116,7 +114,7 @@ pub(crate) fn read_jsonl_meta(path: &Path) -> Result<JsonlMeta> {
     let mut parent_id = None;
     let mut is_subagent = false;
     let mut agent_nickname = None;
-    let mut is_guardian = false;
+    let mut session_kind = crate::types::SessionKind::Unknown;
     let mut history_mode = "unknown".to_string();
     let mut first_ts = None;
     let mut last_ts = None;
@@ -151,22 +149,34 @@ pub(crate) fn read_jsonl_meta(path: &Path) -> Result<JsonlMeta> {
         let payload = val.get("payload").unwrap_or(&Value::Null);
         match item_type {
             "session_meta" => {
-                history_mode = payload.get("history_mode").and_then(Value::as_str).unwrap_or("legacy").to_string();
+                history_mode = payload
+                    .get("history_mode")
+                    .and_then(Value::as_str)
+                    .unwrap_or("legacy")
+                    .to_string();
                 if session_id.is_none() {
                     session_id = payload.get("id").and_then(|v| v.as_str()).map(String::from);
                     let subagent = payload.pointer("/source/subagent").filter(|v| !v.is_null());
-                    is_subagent = subagent.is_some();
+                    session_kind = crate::types::SessionKind::from_source(
+                        payload.get("source").unwrap_or(&Value::Null),
+                    );
+                    is_subagent = session_kind == crate::types::SessionKind::Worker;
+                    parent_id = payload
+                        .get("parent_thread_id")
+                        .and_then(Value::as_str)
+                        .filter(|s| !s.trim().is_empty())
+                        .map(str::to_owned);
                     if let Some(subagent) = subagent {
                         let spawned = subagent.get("thread_spawn").unwrap_or(&Value::Null);
                         let other = subagent.get("other").and_then(|v| v.as_str());
-                        is_guardian = other == Some("guardian");
-                        parent_id = payload
-                            .get("parent_thread_id")
-                            .and_then(|v| v.as_str())
-                            .filter(|s| !s.trim().is_empty())
-                            .or_else(|| spawned.get("parent_thread_id").and_then(|v| v.as_str()))
-                            .filter(|s| !s.trim().is_empty())
-                            .map(String::from);
+
+                        parent_id = parent_id.or_else(|| {
+                            spawned
+                                .get("parent_thread_id")
+                                .and_then(Value::as_str)
+                                .filter(|s| !s.trim().is_empty())
+                                .map(str::to_owned)
+                        });
                         agent_nickname = payload
                             .get("agent_nickname")
                             .and_then(|v| v.as_str())
@@ -226,7 +236,8 @@ pub(crate) fn read_jsonl_meta(path: &Path) -> Result<JsonlMeta> {
         parent_id,
         is_subagent,
         agent_nickname,
-        is_guardian,
+        session_kind,
+        is_summary_run: is_internal_summary_run(cwd.as_deref()),
         history_mode,
         first_timestamp: first_ts,
         last_timestamp: last_ts,
@@ -310,8 +321,13 @@ pub fn scan_local_sessions() -> Result<Vec<Session>> {
 }
 
 pub fn scan_extra_sessions() -> Result<Vec<Session>> {
-    let roots = load_config().settings.extra_project_dirs.unwrap_or_default()
-        .into_iter().map(PathBuf::from).collect();
+    let roots = load_config()
+        .settings
+        .extra_project_dirs
+        .unwrap_or_default()
+        .into_iter()
+        .map(PathBuf::from)
+        .collect();
     scan_sessions_in_roots(roots)
 }
 
@@ -341,23 +357,8 @@ fn scan_sessions_in_roots(roots: Vec<PathBuf>) -> Result<Vec<Session>> {
     let saved = cfg_full.sessions;
     let index_names = load_session_index_names();
 
-    let excluded_raw: Vec<String> = cfg_full
-        .settings
-        .excluded_scan_paths
-        .clone()
-        .unwrap_or_default()
-        .into_iter()
-        .filter(|s| !s.trim().is_empty())
-        .collect();
-    let excluded_encoded: Vec<String> = excluded_raw
-        .iter()
-        .map(|p| encode_scan_match_text(p))
-        .filter(|s| !s.is_empty())
-        .collect();
-
     let mut total_found = 0usize;
     let mut total_pushed = 0usize;
-    let mut total_excluded = 0usize;
     let mut meta_fail = 0usize;
     let mut stem_fail = 0usize;
     let mut stat_fail = 0usize;
@@ -399,27 +400,6 @@ fn scan_sessions_in_roots(roots: Vec<PathBuf>) -> Result<Vec<Session>> {
                 .and_then(|m| m.session_id.clone())
                 .unwrap_or(fallback_session_id);
             let cwd = meta.as_ref().and_then(|m| m.cwd.clone());
-            let file_path_text = path.to_string_lossy().to_string();
-            if is_internal_summary_run(cwd.as_deref()) {
-                total_excluded += 1;
-                if let Some(f) = log.as_mut() {
-                    let _ = writeln!(f, "[internal-summary-run] {}", path.display());
-                }
-                continue;
-            }
-            if scan_exclusion_matches(
-                &file_path_text,
-                cwd.as_deref(),
-                &excluded_raw,
-                &excluded_encoded,
-            ) {
-                total_excluded += 1;
-                if let Some(f) = log.as_mut() {
-                    let _ = writeln!(f, "[excluded] {}", path.display());
-                }
-                continue;
-            }
-
             if !seen_session_ids.insert(stem.clone()) {
                 if let Some(f) = log.as_mut() {
                     let _ = writeln!(f, "[dup-skip] {} ({})", stem, path.display());
@@ -428,20 +408,6 @@ fn scan_sessions_in_roots(roots: Vec<PathBuf>) -> Result<Vec<Session>> {
             }
 
             let saved_meta = saved.get(&stem).cloned().unwrap_or_default();
-            if !meta.as_ref().is_some_and(|m| m.is_subagent && !m.is_guardian)
-                && !should_include_scanned_session(
-                    saved_meta.name.as_deref(),
-                    saved_meta.description.as_deref(),
-                    saved_meta.auto_summary.as_deref(),
-                    meta.as_ref().and_then(|m| m.first_user_message.as_deref()),
-                )
-            {
-                total_excluded += 1;
-                if let Some(f) = log.as_mut() {
-                    let _ = writeln!(f, "[no-real-user-message] {}", path.display());
-                }
-                continue;
-            }
             let inferred_name = index_names.get(&stem).cloned().or_else(|| {
                 meta.as_ref()
                     .and_then(|m| m.first_user_message.as_deref())
@@ -455,11 +421,22 @@ fn scan_sessions_in_roots(roots: Vec<PathBuf>) -> Result<Vec<Session>> {
 
             total_pushed += 1;
             out.push(Session {
-                session_id: stem,
+                session_id: stem.clone(),
                 parent_id: meta.as_ref().and_then(|m| m.parent_id.clone()),
                 is_subagent: meta.as_ref().is_some_and(|m| m.is_subagent),
                 agent_nickname: meta.as_ref().and_then(|m| m.agent_nickname.clone()),
-                name: saved_meta.name.or(inferred_name),
+                name: saved_meta
+                    .name
+                    .or_else(|| meta.as_ref().and_then(|m| m.agent_nickname.clone()))
+                    .or(inferred_name)
+                    .or_else(|| {
+                        Some(
+                            meta.as_ref()
+                                .map(|m| m.session_kind)
+                                .unwrap_or_default()
+                                .fallback_name(&stem),
+                        )
+                    }),
                 description: saved_meta.description,
                 auto_summary: saved_meta.auto_summary,
                 favorite,
@@ -468,9 +445,13 @@ fn scan_sessions_in_roots(roots: Vec<PathBuf>) -> Result<Vec<Session>> {
                 file_path: Some(path.to_string_lossy().to_string()),
                 size: Some(stat.len()),
                 preview: None,
-                history_mode: meta.as_ref().map(|m| m.history_mode.clone()).unwrap_or_else(|| "unknown".into()),
+                history_mode: meta
+                    .as_ref()
+                    .map(|m| m.history_mode.clone())
+                    .unwrap_or_else(|| "unknown".into()),
                 registered: false,
-                hidden: false,
+                session_kind: meta.as_ref().map(|m| m.session_kind).unwrap_or_default(),
+                is_summary_run: meta.as_ref().is_some_and(|m| m.is_summary_run),
                 total_lines: meta.as_ref().map(|m| m.total_lines).unwrap_or(0),
                 first_timestamp: meta.as_ref().and_then(|m| m.first_timestamp.clone()),
                 last_timestamp: meta.as_ref().and_then(|m| m.last_timestamp.clone()),
@@ -488,7 +469,6 @@ fn scan_sessions_in_roots(roots: Vec<PathBuf>) -> Result<Vec<Session>> {
         let _ = writeln!(f, "---");
         let _ = writeln!(f, "TOTAL found    = {}", total_found);
         let _ = writeln!(f, "TOTAL pushed   = {}", total_pushed);
-        let _ = writeln!(f, "TOTAL excluded = {}", total_excluded);
         let _ = writeln!(f, "stat_fail      = {}", stat_fail);
         let _ = writeln!(f, "stem_fail      = {}", stem_fail);
         let _ = writeln!(f, "meta_fail      = {}", meta_fail);

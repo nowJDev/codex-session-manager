@@ -34,6 +34,11 @@ fn listing_sessions_yields_while_the_blocking_worker_is_busy() {
     use std::time::Duration;
 
     let home = tempfile::tempdir().unwrap();
+    std::fs::create_dir(home.path().join(".codex")).unwrap();
+    let db = rusqlite::Connection::open(home.path().join(".codex/state_5.sqlite")).unwrap();
+    db.execute_batch("CREATE TABLE threads(id TEXT, archived INTEGER, source TEXT);")
+        .unwrap();
+    drop(db);
     let previous_home = std::env::var_os("CODEX_HOME");
     let previous_session_home = std::env::var_os("CODEX_SESSION_HOME");
     let previous_cli = std::env::var_os("CODEX_CLI");
@@ -99,7 +104,9 @@ for await (const line of readline.createInterface({input:process.stdin})) {
         .await;
         tokio::time::sleep(Duration::from_millis(1)).await;
         release_tx.send(()).unwrap();
-        assert!(listing.await.unwrap().is_empty());
+        let snapshot = listing.await.unwrap();
+        assert!(snapshot.sessions.is_empty());
+        assert!(snapshot.complete, "{:?}", snapshot.errors);
         blocker.await.unwrap();
     });
     for (key, previous) in [

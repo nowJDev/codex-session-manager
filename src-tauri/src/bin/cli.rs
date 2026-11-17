@@ -56,6 +56,7 @@ fn find_session(
 ) -> Result<Session> {
     service
         .list_sessions()?
+        .sessions
         .into_iter()
         .find(|session| session.session_id == session_id)
         .ok_or_else(|| anyhow!("session not found: {}", session_id))
@@ -135,11 +136,19 @@ fn main() -> ExitCode {
         "delete" => {
             let service = session_service();
             let id = required_arg(&args, 1, "session-id")?;
-            let targets = vec![codex_session_manager_lib::types::DeleteSessionTarget { session_id: id.clone() }];
+            let targets = vec![codex_session_manager_lib::types::DeleteSessionTarget {
+                session_id: id.clone(),
+            }];
             let plan = service.prepare_session_deletion(&targets)?;
             let results = service.delete_sessions(targets, &plan.affected_ids)?;
             println!("{}", serde_json::to_string_pretty(&results)?);
-            if results.iter().any(|r| matches!(r.status, codex_session_manager_lib::types::DeleteSessionStatus::Failed | codex_session_manager_lib::types::DeleteSessionStatus::Unconfirmed)) {
+            if results.iter().any(|r| {
+                matches!(
+                    r.status,
+                    codex_session_manager_lib::types::DeleteSessionStatus::Failed
+                        | codex_session_manager_lib::types::DeleteSessionStatus::Unconfirmed
+                )
+            }) {
                 return Err(anyhow!("삭제 미완료 항목이 있습니다."));
             }
             Ok(())

@@ -83,7 +83,7 @@ class AppServer:
                 raise RpcError(f"{method}: {response['error']}")
             return response["result"]
 
-    def list_threads(self, db_only=True, limit=100):
+    def list_branch(self, db_only=True, limit=100, ancestor=None):
         threads = {}
         for archived in (False, True):
             cursor = None
@@ -91,6 +91,7 @@ class AppServer:
             while True:
                 page = self.request("thread/list", {
                     "archived": archived, "cursor": cursor, "limit": limit,
+                    **({"ancestorThreadId": ancestor} if ancestor else {}),
                     "sortKey": "created_at", "sortDirection": "desc",
                     "modelProviders": [], "sourceKinds": SOURCES, "useStateDbOnly": db_only,
                 })
@@ -101,6 +102,33 @@ class AppServer:
                     break
                 assert cursor not in seen, "Repeated thread/list cursor"
                 seen.add(cursor)
+        return threads
+
+    def list_threads(self, db_only=True, limit=100):
+        threads = self.list_branch(db_only, limit)
+        # 독립적인 읽기 전용 DB ID 집합을 실제 API 조회 검증의 기대값으로 사용한다.
+        database = sqlite3.connect((self.root / ".codex/state_5.sqlite").as_uri() + "?mode=ro", uri=True)
+        try:
+            records = {row[0]: (row[1], row[2]) for row in database.execute("SELECT id, archived, source FROM threads")}
+        finally:
+            database.close()
+        queried = set()
+        for thread_id, (archived, raw_source) in records.items():
+            if thread_id in threads:
+                continue
+            try:
+                source = json.loads(raw_source)
+            except json.JSONDecodeError:
+                source = {}
+            parent = source.get("subagent", {}).get("thread_spawn", {}).get("parent_thread_id") if isinstance(source, dict) else None
+            if parent and parent not in queried:
+                queried.add(parent)
+                threads.update(self.list_branch(db_only, limit, parent))
+            if thread_id not in threads:
+                metadata = self.request("thread/read", {"threadId": thread_id, "includeTurns": False})["thread"]
+                assert metadata["id"] == thread_id and not metadata["ephemeral"]
+                threads[thread_id] = {**metadata, "archived": bool(archived)}
+        assert set(records).issubset(threads), "API omitted registered IDs"
         return threads
 
     def close(self):
@@ -269,7 +297,8 @@ def main():
             assert "CSM API fixture question" in json.dumps(legacy)
             print("PASS actual API pagination, archived listing, metadata, paginated items and legacy read", flush=True)
             listed = json.loads(run([args.manager, "list"], root, env))
-            sessions = {session["sessionId"]: session for session in listed}
+            assert listed["complete"] and listed["missingCount"] == 0 and not listed["errors"], listed
+            sessions = {session["sessionId"]: session for session in listed["sessions"]}
             for name in ("parent", "child", "archived"):
                 session = sessions[created[name]]
                 assert session["registered"] and session["historyMode"] == "paginated", session

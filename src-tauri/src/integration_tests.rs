@@ -14,38 +14,59 @@ fn custom_resume_uses_the_selected_cli_and_codex_home() {
     let home = setup_temp_home();
     let previous_cli = std::env::var_os("CODEX_CLI");
     let cli = home._dir.path().join("selected-codex.cmd");
-    fs::write(&cli,"@echo off\r\n").unwrap();
+    fs::write(&cli, "@echo off\r\n").unwrap();
     std::env::set_var("CODEX_CLI", &cli);
     config::update_settings(Settings {
         preferred_terminal: Some("custom".into()),
         custom_terminal_program: Some("powershell.exe".into()),
         custom_terminal_args: Some("-NoExit -Command \"{codex_invoke}\"".into()),
         ..Default::default()
-    }).unwrap();
-    let plan = resume::build_resume_plan("sid",None,"windows");
-    if let Some(value)=previous_cli {std::env::set_var("CODEX_CLI",value);} else {std::env::remove_var("CODEX_CLI");}
-    let command=plan.args.join(" ");
-    assert!(command.contains(cli.to_str().unwrap()),"custom terminal must reuse chosen CLI: {command}");
-    assert!(command.contains("CODEX_HOME"),"custom terminal must set the same home: {command}");
+    })
+    .unwrap();
+    let plan = resume::build_resume_plan("sid", None, "windows");
+    if let Some(value) = previous_cli {
+        std::env::set_var("CODEX_CLI", value);
+    } else {
+        std::env::remove_var("CODEX_CLI");
+    }
+    let command = plan.args.join(" ");
+    assert!(
+        command.contains(cli.to_str().unwrap()),
+        "custom terminal must reuse chosen CLI: {command}"
+    );
+    assert!(
+        command.contains("CODEX_HOME"),
+        "custom terminal must set the same home: {command}"
+    );
 }
 
 #[test]
 fn cloud_checkin_validates_the_actual_local_file_before_overwriting_backup() {
     let home = setup_temp_home();
-    let root = home._dir.path().join("backup"); fs::create_dir(&root).unwrap();
+    let root = home._dir.path().join("backup");
+    fs::create_dir(&root).unwrap();
     let id = "bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb";
     let backup = root.join(format!("{id}.jsonl"));
-    let complete = serde_json::json!({"type":"session_meta","payload":{"id":id,"history_mode":"legacy"}}).to_string();
-    fs::write(&backup,&complete).unwrap();
+    let complete =
+        serde_json::json!({"type":"session_meta","payload":{"id":id,"history_mode":"legacy"}})
+            .to_string();
+    fs::write(&backup, &complete).unwrap();
     fs::write(root.join(format!("{id}.meta.json")),serde_json::json!({
         "sessionId":id,"project":"test","projectDir":"test","rolloutRelativePath":"cloud/local.jsonl","uploadedAt":"2026-11-02T00:00:00Z"
     }).to_string()).unwrap();
     let local = scanner::sessions_dir().join("cloud/local.jsonl");
     fs::create_dir_all(local.parent().unwrap()).unwrap();
-    fs::write(&local,serde_json::json!({"type":"session_meta","payload":{"id":id,"history_mode":"paginated"}}).to_string()).unwrap();
-    let session = cloud::list_cloud_sessions(Some(root.clone())).unwrap().remove(0);
-    assert!(cloud::checkin(Some(root),&session).is_err());
-    assert_eq!(fs::read_to_string(backup).unwrap(),complete);
+    fs::write(
+        &local,
+        serde_json::json!({"type":"session_meta","payload":{"id":id,"history_mode":"paginated"}})
+            .to_string(),
+    )
+    .unwrap();
+    let session = cloud::list_cloud_sessions(Some(root.clone()))
+        .unwrap()
+        .remove(0);
+    assert!(cloud::checkin(Some(root), &session).is_err());
+    assert_eq!(fs::read_to_string(backup).unwrap(), complete);
 }
 
 struct TempHome {
@@ -298,7 +319,7 @@ fn settings_update_persists_excluded_scan_paths() {
 }
 
 #[test]
-fn scanner_skips_excluded_scan_paths() {
+fn scanner_displays_formerly_excluded_scan_paths() {
     let h = setup_temp_home();
     let excluded_session = "aaaaaaaa-1111-2222-3333-444444444444";
     let f1 = codex_rollout_path(&h, "2026-04-01", excluded_session);
@@ -329,8 +350,8 @@ fn scanner_skips_excluded_scan_paths() {
     let sessions = scanner::scan_local_sessions().unwrap();
     let ids: Vec<&str> = sessions.iter().map(|s| s.session_id.as_str()).collect();
     assert!(
-        !ids.contains(&excluded_session),
-        "excluded session should not appear, got {:?}",
+        ids.contains(&excluded_session),
+        "excluded session should appear, got {:?}",
         ids
     );
     assert!(
@@ -341,7 +362,7 @@ fn scanner_skips_excluded_scan_paths() {
 }
 
 #[test]
-fn scanner_skips_internal_summary_run_sessions() {
+fn scanner_displays_internal_summary_run_sessions() {
     let h = setup_temp_home();
     let summary_id = "abababab-9999-8888-7777-666666666666";
     let file = codex_rollout_path(&h, "2026-04-01", summary_id);
@@ -356,8 +377,8 @@ fn scanner_skips_internal_summary_run_sessions() {
     let sessions = scanner::scan_local_sessions().unwrap();
     let ids: Vec<&str> = sessions.iter().map(|s| s.session_id.as_str()).collect();
     assert!(
-        !ids.contains(&summary_id),
-        "internal summary run session should not appear, got {:?}",
+        ids.contains(&summary_id),
+        "internal summary run session should appear, got {:?}",
         ids
     );
 }
@@ -682,7 +703,7 @@ fn scanner_ignores_environment_context_and_skill_injections() {
 }
 
 #[test]
-fn scanner_hides_sessions_without_real_user_messages() {
+fn scanner_displays_persistent_sessions_without_real_user_messages() {
     let h = setup_temp_home();
     let session_id = "bdbdbdbd-1111-2222-3333-444444444444";
     let file = codex_rollout_path(&h, "2026-04-01", session_id);
@@ -697,8 +718,8 @@ fn scanner_hides_sessions_without_real_user_messages() {
     let sessions = scanner::scan_local_sessions().unwrap();
     let ids: Vec<&str> = sessions.iter().map(|s| s.session_id.as_str()).collect();
     assert!(
-        !ids.contains(&session_id),
-        "session without a real user message should be hidden, got {:?}",
+        ids.contains(&session_id),
+        "persistent session without a real user message should remain visible, got {:?}",
         ids
     );
 }
@@ -1236,11 +1257,17 @@ fn session_tree_lists_subagents_without_user_messages() {
     let session_id = "a1000000-1111-2222-3333-444444444444";
     write_jsonl(
         &codex_rollout_path(&h, "2026-10-08", session_id),
-        &[r#"{"type":"session_meta","payload":{"id":"a1000000-1111-2222-3333-444444444444","source":{"subagent":{"thread_spawn":{"parent_thread_id":"parent","agent_nickname":"worker"}}}}}"#],
+        &[
+            r#"{"type":"session_meta","payload":{"id":"a1000000-1111-2222-3333-444444444444","source":{"subagent":{"thread_spawn":{"parent_thread_id":"parent","agent_nickname":"worker"}}}}}"#,
+        ],
     );
 
     let sessions = scanner::scan_local_sessions().unwrap();
-    assert_eq!(sessions.len(), 1, "a spawned subagent must remain visible without user messages");
+    assert_eq!(
+        sessions.len(),
+        1,
+        "a spawned subagent must remain visible without user messages"
+    );
     let value = serde_json::to_value(&sessions[0]).unwrap();
     assert_eq!(value["parentId"].as_str(), Some("parent"));
     assert_eq!(value["isSubagent"].as_bool(), Some(true));
@@ -1267,13 +1294,15 @@ fn session_tree_prefers_payload_relationship_metadata() {
 }
 
 #[test]
-fn session_tree_retains_guardian_visibility_policy() {
+fn session_tree_displays_guardian_without_user_messages() {
     let h = setup_temp_home();
     let hidden_id = "a3000000-1111-2222-3333-444444444444";
     let visible_id = "a4000000-1111-2222-3333-444444444444";
     write_jsonl(
         &codex_rollout_path(&h, "2026-10-08", hidden_id),
-        &[r#"{"type":"session_meta","payload":{"id":"a3000000-1111-2222-3333-444444444444","parent_thread_id":"parent","source":{"subagent":{"other":"guardian"}}}}"#],
+        &[
+            r#"{"type":"session_meta","payload":{"id":"a3000000-1111-2222-3333-444444444444","parent_thread_id":"parent","source":{"subagent":{"other":"guardian"}}}}"#,
+        ],
     );
     write_jsonl(
         &codex_rollout_path(&h, "2026-10-08", visible_id),
@@ -1284,12 +1313,15 @@ fn session_tree_retains_guardian_visibility_policy() {
     );
 
     let sessions = scanner::scan_local_sessions().unwrap();
-    assert_eq!(sessions.len(), 1, "guardian records must still use the existing visibility policy");
-    assert_eq!(sessions[0].session_id, visible_id);
-    let value = serde_json::to_value(&sessions[0]).unwrap();
+    assert_eq!(sessions.len(), 2, "guardian records must remain visible");
+    let guardian = sessions
+        .iter()
+        .find(|s| s.session_id == visible_id)
+        .unwrap();
+    let value = serde_json::to_value(guardian).unwrap();
     assert_eq!(value["parentId"].as_str(), Some("parent"));
-    assert_eq!(value["isSubagent"].as_bool(), Some(true));
-    assert_eq!(value["agentNickname"].as_str(), Some("guardian"));
+    assert_eq!(value["isSubagent"].as_bool(), Some(false));
+    assert_eq!(value["sessionKind"], "guardian");
 }
 
 #[test]
@@ -1329,7 +1361,9 @@ fn session_tree_preserves_cloud_relationship_metadata() {
     cloud::upload_session(&cloud_folder, &session).unwrap();
     scanner::delete_session_file(file.to_str().unwrap()).unwrap();
 
-    let cloud_session = cloud::list_cloud_sessions(Some(cloud_folder.clone())).unwrap().remove(0);
+    let cloud_session = cloud::list_cloud_sessions(Some(cloud_folder.clone()))
+        .unwrap()
+        .remove(0);
     let value = serde_json::to_value(&cloud_session).unwrap();
     assert_eq!(value["parentId"].as_str(), Some("parent"));
     assert_eq!(value["isSubagent"].as_bool(), Some(true));
@@ -1337,7 +1371,10 @@ fn session_tree_preserves_cloud_relationship_metadata() {
     let checked_out = cloud::checkout(&cloud_folder, &cloud_session).unwrap();
     assert_eq!(std::path::PathBuf::from(checked_out), file);
     let local_session = scanner::scan_local_sessions().unwrap().remove(0);
-    assert_eq!(serde_json::to_value(local_session).unwrap()["parentId"], value["parentId"]);
+    assert_eq!(
+        serde_json::to_value(local_session).unwrap()["parentId"],
+        value["parentId"]
+    );
 }
 
 #[test]
@@ -1348,7 +1385,9 @@ fn session_tree_reads_relationships_from_legacy_cloud_jsonl() {
     let cloud_folder = cloud::set_cloud_root(cloud_root.path().to_str().unwrap()).unwrap();
     write_jsonl(
         &cloud_folder.join(format!("{session_id}.jsonl")),
-        &[r#"{"type":"session_meta","payload":{"id":"a7000000-1111-2222-3333-444444444444","source":{"subagent":{"thread_spawn":{"parent_thread_id":"parent","agent_nickname":"legacy-worker"}}}}}"#],
+        &[
+            r#"{"type":"session_meta","payload":{"id":"a7000000-1111-2222-3333-444444444444","source":{"subagent":{"thread_spawn":{"parent_thread_id":"parent","agent_nickname":"legacy-worker"}}}}}"#,
+        ],
     );
     fs::write(
         cloud_folder.join(format!("{session_id}.meta.json")),
@@ -1358,8 +1397,10 @@ fn session_tree_reads_relationships_from_legacy_cloud_jsonl() {
             "project": "Agent",
             "projectDir": "C:/Agent",
             "uploadedAt": "2026-10-08T10:00:00Z"
-        }).to_string(),
-    ).unwrap();
+        })
+        .to_string(),
+    )
+    .unwrap();
 
     let sessions = cloud::list_cloud_sessions(Some(cloud_folder)).unwrap();
     assert_eq!(sessions.len(), 1);
@@ -1367,4 +1408,40 @@ fn session_tree_reads_relationships_from_legacy_cloud_jsonl() {
     assert_eq!(value["parentId"].as_str(), Some("parent"));
     assert_eq!(value["isSubagent"].as_bool(), Some(true));
     assert_eq!(value["agentNickname"].as_str(), Some("legacy-worker"));
+}
+
+#[test]
+fn legacy_cloud_subagent_boolean_does_not_turn_guardian_into_worker() {
+    let _home = setup_temp_home();
+    let dir = tempfile::tempdir().unwrap();
+    let cloud = dir.path().to_path_buf();
+    fs::write(cloud.join("guardian.meta.json"),serde_json::json!({"sessionId":"guardian","isSubagent":true,"project":"internal","projectDir":"project","uploadedAt":"2026-11-17"}).to_string()).unwrap();
+    write_jsonl(
+        &cloud.join("guardian.jsonl"),
+        &[
+            r#"{"type":"session_meta","payload":{"id":"guardian","source":{"subagent":{"other":"guardian"}},"cwd":"C:/summary-runs"}}"#,
+        ],
+    );
+    let sessions = cloud::list_cloud_sessions(Some(cloud)).unwrap();
+    let value = serde_json::to_value(&sessions[0]).unwrap();
+    assert_eq!(value["sessionKind"], "guardian");
+    assert_eq!(value["isSubagent"], false);
+    assert_eq!(value["isSummaryRun"], true);
+    assert!(value.get("hidden").is_none());
+}
+
+#[test]
+fn session_tree_preserves_direct_parent_for_non_worker_metadata() {
+    let h = setup_temp_home();
+    let id = "a8000000-1111-2222-3333-444444444444";
+    write_jsonl(
+        &codex_rollout_path(&h, "2026-11-17", id),
+        &[
+            r#"{"type":"session_meta","payload":{"id":"a8000000-1111-2222-3333-444444444444","parent_thread_id":"actual-parent","source":"cli"}}"#,
+            r#"{"type":"event_msg","payload":{"type":"user_message","message":"persistent main session"}}"#,
+        ],
+    );
+    let session = scanner::scan_local_sessions().unwrap().remove(0);
+    assert_eq!(session.parent_id.as_deref(), Some("actual-parent"));
+    assert!(!session.is_subagent);
 }

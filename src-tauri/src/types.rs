@@ -108,7 +108,9 @@ pub struct Session {
     #[serde(default)]
     pub registered: bool,
     #[serde(default)]
-    pub hidden: bool,
+    pub session_kind: SessionKind,
+    #[serde(default)]
+    pub is_summary_run: bool,
     pub total_lines: usize,
     pub first_timestamp: Option<String>,
     pub last_timestamp: Option<String>,
@@ -122,4 +124,54 @@ pub struct Session {
     pub favorite: bool,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub locked_by: Option<String>,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, Default)]
+#[serde(rename_all = "camelCase")]
+pub enum SessionKind {
+    Main,
+    Worker,
+    Guardian,
+    OtherInternal,
+    #[default]
+    Unknown,
+}
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct SessionSnapshot {
+    pub sessions: Vec<Session>,
+    pub complete: bool,
+    pub missing_count: usize,
+    pub errors: Vec<String>,
+}
+
+impl SessionKind {
+    pub(crate) fn fallback_name(self, id: &str) -> String {
+        let label = match self {
+            Self::Main | Self::Unknown => "세션",
+            Self::Worker => "작업자",
+            Self::Guardian => "Guardian",
+            Self::OtherInternal => "내부 기록",
+        };
+        format!("{label} · {}", id.chars().take(8).collect::<String>())
+    }
+    pub(crate) fn from_source(source: &serde_json::Value) -> Self {
+        use crate::types::SessionKind;
+        if let Some(sub) = source.get("subAgent").or_else(|| source.get("subagent")) {
+            if sub.get("other").and_then(serde_json::Value::as_str) == Some("guardian") {
+                SessionKind::Guardian
+            } else if sub.get("thread_spawn").is_some() {
+                SessionKind::Worker
+            } else {
+                SessionKind::OtherInternal
+            }
+        } else if matches!(
+            source.as_str(),
+            Some("cli" | "vscode" | "exec" | "appServer" | "app_server")
+        ) {
+            SessionKind::Main
+        } else {
+            SessionKind::Unknown
+        }
+    }
 }

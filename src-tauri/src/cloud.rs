@@ -171,14 +171,26 @@ pub fn set_cloud_root(root: &str) -> Result<PathBuf> {
 }
 
 fn require_complete_legacy(session: &Session) -> Result<()> {
-    if session.session_id.is_empty() || !session.session_id.bytes().all(|b| b.is_ascii_alphanumeric() || b == b'-') {
+    if session.session_id.is_empty()
+        || !session
+            .session_id
+            .bytes()
+            .all(|b| b.is_ascii_alphanumeric() || b == b'-')
+    {
         return Err(anyhow!("세션 ID가 올바르지 않습니다."));
     }
-    let path = session.file_path.as_deref().ok_or_else(|| anyhow!("완전한 대화 파일이 없습니다."))?;
+    let path = session
+        .file_path
+        .as_deref()
+        .ok_or_else(|| anyhow!("완전한 대화 파일이 없습니다."))?;
     let meta = crate::scanner::read_jsonl_meta(std::path::Path::new(path))?;
-    if session.history_mode != "legacy" || meta.history_mode != "legacy"
-        || meta.session_id.as_deref() != Some(session.session_id.as_str()) {
-        return Err(anyhow!("DB 방식 세션의 JSONL은 완전한 백업이 아니므로 업로드할 수 없습니다."));
+    if session.history_mode != "legacy"
+        || meta.history_mode != "legacy"
+        || meta.session_id.as_deref() != Some(session.session_id.as_str())
+    {
+        return Err(anyhow!(
+            "DB 방식 세션의 JSONL은 완전한 백업이 아니므로 업로드할 수 없습니다."
+        ));
     }
     use std::io::BufRead;
     for line in std::io::BufReader::new(fs::File::open(path)?).lines() {
@@ -195,7 +207,12 @@ pub fn upload_session(cloud: &PathBuf, s: &Session) -> Result<()> {
     fs::create_dir_all(&cloud)?;
 
     let dest = cloud.join(format!("{}.jsonl", s.session_id));
-    fs::copy(s.file_path.as_deref().ok_or_else(|| anyhow!("완전한 대화 파일이 없습니다."))?, &dest)?;
+    fs::copy(
+        s.file_path
+            .as_deref()
+            .ok_or_else(|| anyhow!("완전한 대화 파일이 없습니다."))?,
+        &dest,
+    )?;
 
     let meta = CloudMeta {
         session_id: s.session_id.clone(),
@@ -207,7 +224,10 @@ pub fn upload_session(cloud: &PathBuf, s: &Session) -> Result<()> {
         auto_summary: s.auto_summary.clone(),
         project: s.project.clone(),
         project_dir: s.project_dir.clone(),
-        rollout_relative_path: s.file_path.as_ref().and_then(|p| rollout_relative_path(&PathBuf::from(p))),
+        rollout_relative_path: s
+            .file_path
+            .as_ref()
+            .and_then(|p| rollout_relative_path(&PathBuf::from(p))),
         uploaded_at: chrono::Utc::now().to_rfc3339(),
     };
     fs::write(
@@ -325,11 +345,7 @@ pub fn list_cloud_sessions(cloud: Option<PathBuf>) -> Result<Vec<Session>> {
         };
         let jsonl = cloud.join(format!("{}.jsonl", meta.session_id));
         let stat = fs::metadata(&jsonl).ok();
-        let jsonl_meta = if meta.is_subagent.is_none() {
-            crate::scanner::read_jsonl_meta(&jsonl).ok()
-        } else {
-            None
-        };
+        let jsonl_meta = crate::scanner::read_jsonl_meta(&jsonl).ok();
         let lock = read_lock(&cloud, &meta.session_id);
         let locked_by = lock.map(|l| l.hostname);
         out.push(Session {
@@ -337,9 +353,9 @@ pub fn list_cloud_sessions(cloud: Option<PathBuf>) -> Result<Vec<Session>> {
             parent_id: meta
                 .parent_id
                 .or_else(|| jsonl_meta.as_ref().and_then(|m| m.parent_id.clone())),
-            is_subagent: meta
-                .is_subagent
-                .unwrap_or_else(|| jsonl_meta.as_ref().is_some_and(|m| m.is_subagent)),
+            is_subagent: jsonl_meta
+                .as_ref()
+                .is_some_and(|m| m.session_kind == crate::types::SessionKind::Worker),
             agent_nickname: meta
                 .agent_nickname
                 .or_else(|| jsonl_meta.as_ref().and_then(|m| m.agent_nickname.clone())),
@@ -351,9 +367,15 @@ pub fn list_cloud_sessions(cloud: Option<PathBuf>) -> Result<Vec<Session>> {
             file_path: stat.as_ref().map(|_| jsonl.to_string_lossy().to_string()),
             size: stat.as_ref().map(|s| s.len()),
             preview: None,
-            history_mode: crate::scanner::read_jsonl_meta(&jsonl).map(|m| m.history_mode).unwrap_or_else(|_| "unknown".into()),
+            history_mode: crate::scanner::read_jsonl_meta(&jsonl)
+                .map(|m| m.history_mode)
+                .unwrap_or_else(|_| "unknown".into()),
             registered: false,
-            hidden: false,
+            session_kind: jsonl_meta
+                .as_ref()
+                .map(|m| m.session_kind)
+                .unwrap_or_default(),
+            is_summary_run: jsonl_meta.as_ref().is_some_and(|m| m.is_summary_run),
             total_lines: 0,
             first_timestamp: None,
             last_timestamp: Some(meta.uploaded_at),
@@ -383,7 +405,10 @@ pub fn checkout(cloud: &PathBuf, session: &Session) -> Result<String> {
         .and_then(|m| m.rollout_relative_path.as_deref())
         .map(|rel| {
             let relative = std::path::Path::new(rel);
-            if relative.components().any(|c| !matches!(c, std::path::Component::Normal(_))) {
+            if relative
+                .components()
+                .any(|c| !matches!(c, std::path::Component::Normal(_)))
+            {
                 return Err(anyhow!("클라우드 복원 경로가 올바르지 않습니다."));
             }
             Ok(sessions_dir().join(rel.replace('/', std::path::MAIN_SEPARATOR_STR)))
@@ -407,7 +432,10 @@ pub fn checkout(cloud: &PathBuf, session: &Session) -> Result<String> {
     acquire_lock(cloud, &session.session_id)?;
     let copy = (|| -> Result<()> {
         let mut source = fs::File::open(&src)?;
-        let mut target = fs::OpenOptions::new().write(true).create_new(true).open(&local_path)?;
+        let mut target = fs::OpenOptions::new()
+            .write(true)
+            .create_new(true)
+            .open(&local_path)?;
         if let Err(error) = std::io::copy(&mut source, &mut target) {
             drop(target);
             let _ = fs::remove_file(&local_path);
@@ -431,23 +459,22 @@ pub fn checkin(cloud: Option<PathBuf>, session: &Session) -> Result<()> {
     let cloud_root = cloud.to_string_lossy().to_string();
     let file_path = session.file_path.as_deref().unwrap_or("");
     let file_path_pb = PathBuf::from(file_path);
-    let local_path = if !file_path.is_empty()
-        && !file_path.starts_with(&cloud_root)
-        && file_path_pb.exists()
-    {
-        file_path_pb
-    } else {
-        read_cloud_meta(&cloud, &session.session_id)
-            .and_then(|m| {
-                m.rollout_relative_path
-                    .map(|rel| sessions_dir().join(rel.replace('/', std::path::MAIN_SEPARATOR_STR)))
-            })
-            .unwrap_or_else(|| {
-                sessions_dir()
-                    .join("cloud")
-                    .join(format!("{}.jsonl", session.session_id))
-            })
-    };
+    let local_path =
+        if !file_path.is_empty() && !file_path.starts_with(&cloud_root) && file_path_pb.exists() {
+            file_path_pb
+        } else {
+            read_cloud_meta(&cloud, &session.session_id)
+                .and_then(|m| {
+                    m.rollout_relative_path.map(|rel| {
+                        sessions_dir().join(rel.replace('/', std::path::MAIN_SEPARATOR_STR))
+                    })
+                })
+                .unwrap_or_else(|| {
+                    sessions_dir()
+                        .join("cloud")
+                        .join(format!("{}.jsonl", session.session_id))
+                })
+        };
 
     if local_path.exists() {
         let mut local = session.clone();

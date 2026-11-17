@@ -3,10 +3,10 @@ use anyhow::{anyhow, Context, Result};
 use serde::Deserialize;
 use serde_json::{json, Value};
 use std::collections::{HashSet, VecDeque};
-use std::path::Path;
+use std::path::{Path, PathBuf};
 use std::process::Stdio;
 use std::sync::{Arc, Mutex};
-use std::time::Duration;
+use std::time::{Duration, Instant};
 use tokio::io::{AsyncBufReadExt, AsyncReadExt, AsyncWriteExt, BufReader, Lines};
 use tokio::process::{Child, ChildStdin, ChildStdout, Command};
 use tokio::runtime::Runtime;
@@ -59,6 +59,7 @@ struct Page<T> {
 }
 
 pub(crate) struct AppServer {
+    home: PathBuf,
     runtime: Runtime,
     child: Child,
     stdin: Option<ChildStdin>,
@@ -127,6 +128,7 @@ impl AppServer {
             }
         });
         let mut server = Self {
+            home: home.to_path_buf(),
             runtime,
             child,
             stdin: Some(stdin),
@@ -232,6 +234,30 @@ impl AppServer {
         result
     }
 
+    pub(crate) fn collect_threads(
+        &mut self,
+        deadline: Instant,
+    ) -> super::full_catalog::ThreadSnapshot {
+        let home = self.home.clone();
+        let timeout = self.request_timeout;
+        let snapshot = super::full_catalog::collect(
+            || crate::session_state::registered_inventory(&home),
+            |method, params| {
+                self.request_timeout =
+                    timeout.min(deadline.saturating_duration_since(Instant::now()));
+                self.request(method, params)
+            },
+            deadline,
+        );
+        self.request_timeout = timeout;
+        snapshot
+    }
+    pub(crate) fn complete_threads(&mut self) -> Result<Vec<RegisteredThread>> {
+        self.collect_threads(Instant::now() + Duration::from_secs(60))
+            .require_complete()
+    }
+
+    #[cfg(test)]
     pub(crate) fn list_threads(&mut self) -> Result<Vec<RegisteredThread>> {
         let mut threads = Vec::new();
         let mut ids = HashSet::new();
@@ -459,6 +485,49 @@ Set-Content -LiteralPath (Join-Path $env:CODEX_HOME 'closed') -Value 'yes'
     fn thread(id: &str) -> Value {
         json!({"id":id,"parentThreadId":null,"agentNickname":null,"cwd":"C:/project", "path":null,
           "cliVersion":"0.166.0","createdAt":1,"updatedAt":2,"source":"cli","ephemeral":false})
+    }
+
+    #[test]
+    #[cfg(windows)]
+    fn full_collection_reuses_one_connection_with_db_inventory_and_metadata_only_read() {
+        let mut child = thread("child");
+        child["parentThreadId"] = "parent".into();
+        let (dir, mut server) = fixture(
+            steps(vec![
+                json!({"method":"thread/list","result":{"data":[thread("parent")],"nextCursor":null}}),
+                json!({"method":"thread/list","result":{"data":[],"nextCursor":null}}),
+                json!({"method":"thread/list","result":{"data":[child],"nextCursor":null}}),
+                json!({"method":"thread/list","result":{"data":[],"nextCursor":null}}),
+                json!({"method":"thread/read","result":{"thread":thread("orphan")}}),
+            ]),
+            Duration::from_secs(5),
+        );
+        let db = rusqlite::Connection::open(dir.path().join("state_5.sqlite")).unwrap();
+        db.execute_batch(r#"CREATE TABLE threads(id TEXT,archived INTEGER,source TEXT);INSERT INTO threads VALUES ('parent',0,'cli'),('child',0,'{"subagent":{"thread_spawn":{"parent_thread_id":"parent"}}}'),('orphan',1,'unknown');"#).unwrap();
+        drop(db);
+        let threads = server
+            .collect_threads(Instant::now() + Duration::from_secs(5))
+            .require_complete()
+            .unwrap();
+        assert_eq!(threads.len(), 3);
+        assert!(threads.iter().find(|t| t.id == "orphan").unwrap().archived);
+        drop(server);
+        let log = std::fs::read_to_string(dir.path().join("requests.jsonl")).unwrap();
+        let requests: Vec<Value> = log
+            .lines()
+            .map(|s| serde_json::from_str(s.trim_start_matches('﻿')).unwrap())
+            .collect();
+        assert_eq!(
+            requests
+                .iter()
+                .filter(|r| r["method"] == "initialize")
+                .count(),
+            1
+        );
+        assert_eq!(requests[4]["params"]["ancestorThreadId"], "parent");
+        assert_eq!(requests[5]["params"]["archived"], true);
+        assert_eq!(requests[6]["params"]["includeTurns"], false);
+        assert!(requests.iter().all(|r| r["method"] != "turn/start"));
     }
 
     #[test]

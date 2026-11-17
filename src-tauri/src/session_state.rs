@@ -1,11 +1,17 @@
 // 세션 파일과 Codex 등록 정보를 읽기 전용으로 확인한다.
-use anyhow::{anyhow, Context, Result};
+#[cfg(test)]
+use anyhow::anyhow;
+use anyhow::{Context, Result};
 use rusqlite::{Connection, OpenFlags};
 use serde_json::Value;
 use std::fs;
+#[cfg(test)]
 use std::io::{BufRead, BufReader};
-use std::path::{Path, PathBuf};
+use std::path::Path;
+#[cfg(test)]
+use std::path::PathBuf;
 
+#[cfg(test)]
 pub(crate) fn is_session_absent(
     home: &Path,
     roots: &[PathBuf],
@@ -154,4 +160,102 @@ mod tests {
         assert!(!is_session_absent(temp.path(), &[root], "renamed", &missing).unwrap());
         assert!(!is_session_absent(temp.path(), &[], "other", &duplicate).unwrap());
     }
+}
+
+#[cfg(test)]
+mod inventory_tests {
+    use super::*;
+    #[test]
+    fn inventory_reads_supported_db_without_writes_and_preserves_parent_and_archive() {
+        let dir = tempfile::tempdir().unwrap();
+        let file = dir.path().join("state_5.sqlite");
+        let db = Connection::open(&file).unwrap();
+        db.execute_batch(r#"CREATE TABLE threads(id TEXT PRIMARY KEY, archived INTEGER NOT NULL, source TEXT NOT NULL); INSERT INTO threads VALUES ('p',0,'"cli"'), ('c',1,'{"subagent":{"thread_spawn":{"parent_thread_id":"p"}}}');"#).unwrap();
+        drop(db);
+        let before = fs::read(&file).unwrap();
+        let records = registered_inventory(dir.path()).unwrap();
+        assert_eq!(records.len(), 2);
+        assert_eq!(records["c"].parent_id.as_deref(), Some("p"));
+        assert!(records["c"].archived);
+        assert_eq!(fs::read(&file).unwrap(), before);
+        fs::write(dir.path().join("state_99.sqlite"), "future").unwrap();
+        assert!(
+            registered_inventory(dir.path()).is_err(),
+            "unknown active state must not fall back to old rows"
+        );
+    }
+    #[test]
+    fn inventory_missing_corrupt_schema_and_locked_db_never_mean_empty_registration() {
+        let dir = tempfile::tempdir().unwrap();
+        assert!(registered_inventory(dir.path()).is_err());
+        let file = dir.path().join("state_5.sqlite");
+        let db = Connection::open(&file).unwrap();
+        db.execute_batch("CREATE TABLE threads(id TEXT); INSERT INTO threads VALUES ('p');")
+            .unwrap();
+        assert!(registered_inventory(dir.path()).is_err());
+        db.execute_batch("DROP TABLE threads; CREATE TABLE threads(id TEXT, archived INTEGER, source TEXT); BEGIN EXCLUSIVE;").unwrap();
+        assert!(registered_inventory(dir.path()).is_err());
+        db.execute_batch("ROLLBACK;").unwrap();
+        drop(db);
+        fs::write(file, "corrupt").unwrap();
+        assert!(registered_inventory(dir.path()).is_err());
+    }
+}
+pub(crate) fn registered_inventory(
+    home: &Path,
+) -> Result<crate::adapters::outbound::full_catalog::Registry> {
+    use crate::adapters::outbound::full_catalog::{Registration, Registry};
+    // Codex 0.166/0.169의 활성 상태 형식은 state_5이다. 미래 번호를 이전 DB로 대체하지 않는다.
+    for entry in fs::read_dir(home).context("Codex 홈 등록 목록 접근 실패")? {
+        let entry = entry?;
+        let name = entry.file_name();
+        if let Some(version) = name
+            .to_str()
+            .and_then(|n| n.strip_prefix("state_"))
+            .and_then(|n| n.strip_suffix(".sqlite"))
+        {
+            let version: u64 = version.parse().context("알 수 없는 Codex 상태 DB 이름")?;
+            if version > 5 {
+                anyhow::bail!("지원하지 않는 Codex 상태 DB 버전: {version}");
+            }
+        }
+    }
+    let mut connection = Connection::open_with_flags(
+        home.join("state_5.sqlite"),
+        OpenFlags::SQLITE_OPEN_READ_ONLY,
+    )
+    .context("Codex state_5 DB 읽기 전용 열기 실패")?;
+    connection.busy_timeout(std::time::Duration::ZERO)?;
+    let transaction = connection.transaction()?;
+    let mut query = transaction
+        .prepare("SELECT id, archived, source FROM threads")
+        .context("지원하지 않는 Codex threads 스키마")?;
+    let mut records = Registry::new();
+    let mut rows = query.query([])?;
+    while let Some(row) = rows.next()? {
+        let id: String = row.get(0)?;
+        let archived: i64 = row.get(1)?;
+        if id.trim().is_empty() || !matches!(archived, 0 | 1) {
+            anyhow::bail!("잘못된 Codex 등록 메타데이터");
+        }
+        let source: String = row.get(2)?;
+        let source: Value = serde_json::from_str(&source).unwrap_or(Value::String(source));
+        let parent_id = source
+            .pointer("/subagent/thread_spawn/parent_thread_id")
+            .or_else(|| source.pointer("/subAgent/thread_spawn/parent_thread_id"))
+            .and_then(Value::as_str)
+            .filter(|s| !s.trim().is_empty())
+            .map(str::to_owned);
+        records.insert(
+            id,
+            Registration {
+                archived: archived == 1,
+                parent_id,
+            },
+        );
+    }
+    drop(rows);
+    drop(query);
+    transaction.commit()?;
+    Ok(records)
 }

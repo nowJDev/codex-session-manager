@@ -4,3 +4,5 @@ pub mod session_ports;
 pub mod system_ports;
 
 pub(crate) mod registered_sessions;
+
+pub(crate) mod full_catalog;

@@ -8,7 +8,8 @@ use crate::application::ports::{
 use crate::application::session_service::SessionService;
 use crate::application::system_service::SystemService;
 use crate::types::{
-    Config, DeleteSessionResult, DeleteSessionTarget, DeletionPlan, Session, SessionMeta, Settings,
+    Config, DeleteSessionResult, DeleteSessionTarget, DeletionPlan, Session, SessionMeta,
+    SessionSnapshot, Settings,
 };
 
 fn to_str<E: std::fmt::Display>(e: E) -> String {
@@ -37,7 +38,7 @@ pub fn start_auto_summary(app: tauri::AppHandle) -> Result<bool, String> {
 }
 
 #[tauri::command]
-pub async fn list_sessions() -> Result<Vec<Session>, String> {
+pub async fn list_sessions() -> Result<SessionSnapshot, String> {
     tokio::task::spawn_blocking(|| session_service().list_sessions())
         .await
         .map_err(to_str)?

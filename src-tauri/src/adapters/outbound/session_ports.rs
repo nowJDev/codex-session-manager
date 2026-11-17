@@ -4,7 +4,8 @@ use crate::application::ports::{
     SessionMetadataPort, SessionScanPort, SummaryPort,
 };
 use crate::types::{
-    Config, DeleteSessionResult, DeleteSessionTarget, DeletionPlan, Session, SessionMeta, Settings,
+    Config, DeleteSessionResult, DeleteSessionTarget, DeletionPlan, Session, SessionMeta,
+    SessionSnapshot, Settings,
 };
 use anyhow::Result;
 use std::collections::HashMap;
@@ -21,7 +22,7 @@ fn cloud_path() -> Option<PathBuf> {
 }
 
 impl SessionScanPort for DefaultSessionPorts {
-    fn scan_local_sessions(&self) -> Result<Vec<Session>> {
+    fn scan_local_sessions(&self) -> Result<SessionSnapshot> {
         super::registered_sessions::list_sessions()
     }
 }
@@ -88,7 +89,7 @@ impl CloudSyncPort for DefaultSessionPorts {
     fn checkout_session(&self, session: &Session) -> Result<String> {
         let cloud = cloud_path().ok_or_else(|| anyhow::anyhow!("cloud not configured"))?;
         let mut api = super::codex_app_server::AppServer::connect()?;
-        let before = api.list_threads()?;
+        let before = api.complete_threads()?;
         if before.iter().any(|t| t.id == session.session_id) {
             anyhow::bail!("이미 로컬에 등록된 세션입니다. 새로고침 후 재개해 주세요.");
         }
@@ -99,7 +100,7 @@ impl CloudSyncPort for DefaultSessionPorts {
                 "sourceKinds":["cli","vscode","exec","appServer","subAgent","subAgentReview","subAgentCompact","subAgentThreadSpawn","subAgentOther","unknown"]
             }))?;
             if !api
-                .list_threads()?
+                .complete_threads()?
                 .iter()
                 .any(|t| t.id == session.session_id)
             {

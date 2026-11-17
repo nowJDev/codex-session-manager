@@ -1,9 +1,9 @@
 // 세션 관리 use case를 조율하는 애플리케이션 서비스이다.
 use crate::application::ports::{ResumePlan, SessionPorts};
-use crate::domain::session::{classify_storage_state, is_retryable_auto_summary, StorageState};
+use crate::domain::session::{classify_storage_state, StorageState};
 use crate::types::{
     Config, DeleteSessionResult, DeleteSessionStatus, DeleteSessionTarget, DeletionPlan, Session,
-    SessionMeta, Settings,
+    SessionMeta, SessionSnapshot, Settings,
 };
 use anyhow::Result;
 use std::collections::HashMap;
@@ -19,10 +19,20 @@ impl<P: SessionPorts> SessionService<P> {
         Self { ports }
     }
 
-    pub fn list_sessions(&self) -> Result<Vec<Session>> {
-        let local = self.ports.scan_local_sessions()?;
-        let cloud_all = self.ports.list_cloud_sessions().unwrap_or_default();
-        Ok(merge_local_and_cloud_sessions(local, cloud_all))
+    pub fn list_sessions(&self) -> Result<SessionSnapshot> {
+        let mut snapshot = self.ports.scan_local_sessions()?;
+        let cloud = match self.ports.list_cloud_sessions() {
+            Ok(rows) => rows,
+            Err(error) => {
+                snapshot.complete = false;
+                snapshot
+                    .errors
+                    .push(format!("클라우드 조회 실패: {error:#}"));
+                Vec::new()
+            }
+        };
+        snapshot.sessions = merge_local_and_cloud_sessions(snapshot.sessions, cloud);
+        Ok(snapshot)
     }
 
     pub fn get_config(&self) -> Config {
@@ -138,18 +148,15 @@ impl<P: SessionPorts> SessionService<P> {
     }
 
     pub fn pending_auto_summary_batch(&self, batch_size: usize) -> Result<Vec<(String, String)>> {
-        Ok(self
-            .ports
-            .scan_local_sessions()?
+        let snapshot = self.ports.scan_local_sessions()?;
+        if !snapshot.complete {
+            anyhow::bail!("전체 조회를 완료하지 못해 자동요약을 시작하지 않았습니다.");
+        }
+        let config = self.ports.load_config();
+        Ok(snapshot
+            .sessions
             .into_iter()
-            .filter(|session| {
-                session.registered
-                    && !session.hidden
-                    && session.history_mode == "legacy"
-                    && session.file_path.is_some()
-                    && session.description.as_deref().unwrap_or("").is_empty()
-                    && is_retryable_auto_summary(session.auto_summary.as_deref())
-            })
+            .filter(|session| should_auto_summarize(session, &config.settings))
             .take(batch_size)
             .filter_map(|session| session.file_path.map(|path| (session.session_id, path)))
             .collect())
@@ -255,7 +262,7 @@ mod tests {
     };
     use crate::types::{
         Config, DeleteSessionResult, DeleteSessionStatus, DeleteSessionTarget, DeletionPlan,
-        Session, SessionMeta, Settings,
+        Session, SessionMeta, SessionSnapshot, Settings,
     };
     use anyhow::Result;
     use std::cell::RefCell;
@@ -286,8 +293,13 @@ mod tests {
     }
 
     impl SessionScanPort for FakePorts {
-        fn scan_local_sessions(&self) -> Result<Vec<Session>> {
-            Ok(self.state.borrow().local.clone())
+        fn scan_local_sessions(&self) -> Result<SessionSnapshot> {
+            Ok(SessionSnapshot {
+                sessions: self.state.borrow().local.clone(),
+                complete: true,
+                missing_count: 0,
+                errors: vec![],
+            })
         }
     }
 
@@ -455,7 +467,8 @@ mod tests {
             preview: None,
             history_mode: "legacy".into(),
             registered: true,
-            hidden: false,
+            session_kind: crate::types::SessionKind::Main,
+            is_summary_run: false,
             total_lines: 1,
             first_timestamp: None,
             last_timestamp: None,
@@ -484,7 +497,7 @@ mod tests {
             ];
         }
 
-        let sessions = SessionService::new(ports).list_sessions().unwrap();
+        let sessions = SessionService::new(ports).list_sessions().unwrap().sessions;
         let by_id = sessions
             .iter()
             .map(|session| (session.session_id.as_str(), session.storage_type.as_str()))
@@ -704,4 +717,86 @@ mod tests {
             assert_eq!(std::fs::read_to_string(&backup).unwrap(), "keep");
         }
     }
+    #[test]
+    fn empty_registered_legacy_record_does_not_enter_auto_summary_queue() {
+        let ports = FakePorts::default();
+        let mut empty = session("empty", "meta-only.jsonl");
+        empty.first_user_message = None;
+        ports.state.borrow_mut().local = vec![empty, session("usable", "complete.jsonl")];
+        assert_eq!(
+            SessionService::new(ports)
+                .pending_auto_summary_batch(5)
+                .unwrap(),
+            vec![("usable".into(), "complete.jsonl".into())]
+        );
+    }
+    #[test]
+    fn displayed_internal_summary_and_excluded_sessions_do_not_expand_auto_summary_queue() {
+        let ports = FakePorts::default();
+        let mut items = vec![];
+        for (id, kind, summary, cwd) in [
+            ("guardian", "guardian", false, "project"),
+            ("summary", "worker", true, "project"),
+            ("excluded", "main", false, "C:/keep-out"),
+            ("valid", "worker", false, "project"),
+        ] {
+            let mut value = serde_json::to_value(session(id, "complete.jsonl")).unwrap();
+            value["sessionKind"] = kind.into();
+            value["isSummaryRun"] = summary.into();
+            value["cwd"] = cwd.into();
+            items.push(serde_json::from_value(value).unwrap());
+        }
+        ports.state.borrow_mut().local = items;
+        ports.state.borrow_mut().config.settings.excluded_scan_paths =
+            Some(vec!["keep-out".into()]);
+        assert_eq!(
+            SessionService::new(ports)
+                .pending_auto_summary_batch(10)
+                .unwrap(),
+            vec![("valid".into(), "complete.jsonl".into())]
+        );
+    }
+}
+
+fn should_auto_summarize(
+    session: &crate::types::Session,
+    settings: &crate::types::Settings,
+) -> bool {
+    use crate::domain::session::{
+        encode_scan_match_text, is_internal_summary_run, is_retryable_auto_summary,
+        scan_exclusion_matches,
+    };
+    let exclusions: Vec<_> = settings
+        .excluded_scan_paths
+        .as_deref()
+        .unwrap_or_default()
+        .iter()
+        .filter(|s| !s.trim().is_empty())
+        .cloned()
+        .collect();
+    let encoded: Vec<_> = exclusions
+        .iter()
+        .map(|s| encode_scan_match_text(s))
+        .collect();
+    session.registered
+        && session.session_kind != crate::types::SessionKind::Guardian
+        && !session.is_summary_run
+        && !is_internal_summary_run(session.cwd.as_deref())
+        && !scan_exclusion_matches(
+            session.file_path.as_deref().unwrap_or(""),
+            session.cwd.as_deref().or(Some(&session.project_dir)),
+            &exclusions,
+            &encoded,
+        )
+        && [
+            session.first_user_message.as_deref(),
+            session.preview.as_deref(),
+        ]
+        .into_iter()
+        .flatten()
+        .any(|text| crate::domain::transcript::first_user_message_name(text).is_some())
+        && session.history_mode == "legacy"
+        && session.file_path.is_some()
+        && session.description.as_deref().unwrap_or("").is_empty()
+        && is_retryable_auto_summary(session.auto_summary.as_deref())
 }

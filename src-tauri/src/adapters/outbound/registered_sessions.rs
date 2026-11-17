@@ -2,14 +2,18 @@
 use super::codex_app_server::{AppServer, RegisteredThread, RpcError};
 use crate::types::{
     Config, DeleteSessionResult, DeleteSessionStatus, DeleteSessionTarget, DeletionPlan, Session,
+    SessionSnapshot,
 };
 use anyhow::{bail, Result};
 use serde_json::json;
 use std::collections::{HashMap, HashSet};
 use std::path::Path;
 
-pub(crate) fn list_sessions() -> Result<Vec<Session>> {
-    let threads = AppServer::connect()?.list_threads()?;
+pub(crate) fn list_sessions() -> Result<SessionSnapshot> {
+    let deadline = std::time::Instant::now() + std::time::Duration::from_secs(60);
+    let snapshot = AppServer::connect()?.collect_threads(deadline);
+    let threads = snapshot.threads;
+    let mut errors = snapshot.errors;
     let config = crate::config::load_config();
     let ids: HashSet<_> = threads.iter().map(|t| t.id.clone()).collect();
     let mut sessions: Vec<_> = threads
@@ -17,21 +21,38 @@ pub(crate) fn list_sessions() -> Result<Vec<Session>> {
         .filter(|t| !t.ephemeral)
         .map(|t| map_thread(t, &config))
         .collect();
-    for session in crate::scanner::scan_extra_sessions()? {
+    let extra = match crate::scanner::scan_extra_sessions() {
+        Ok(rows) => rows,
+        Err(error) => {
+            errors.push(format!("추가 파일 조회 실패: {error:#}"));
+            Vec::new()
+        }
+    };
+    for session in extra {
         if !ids.contains(&session.session_id) {
             sessions.push(session);
         }
     }
-    Ok(sessions)
+    Ok(SessionSnapshot {
+        sessions,
+        complete: errors.is_empty() && snapshot.missing_count == 0,
+        missing_count: snapshot.missing_count,
+        errors,
+    })
 }
 
 fn parent_id(thread: &RegisteredThread) -> Option<&str> {
-    thread.parent_thread_id.as_deref().or_else(|| {
-        thread
-            .source
-            .pointer("/subAgent/thread_spawn/parent_thread_id")
-            .and_then(serde_json::Value::as_str)
-    })
+    thread
+        .parent_thread_id
+        .as_deref()
+        .filter(|s| !s.trim().is_empty())
+        .or_else(|| {
+            thread
+                .source
+                .pointer("/subAgent/thread_spawn/parent_thread_id")
+                .and_then(serde_json::Value::as_str)
+                .filter(|s| !s.trim().is_empty())
+        })
 }
 
 fn map_thread(thread: RegisteredThread, config: &Config) -> Session {
@@ -45,29 +66,10 @@ fn map_thread(thread: RegisteredThread, config: &Config) -> Session {
         .as_ref()
         .and_then(|p| std::fs::metadata(p).ok())
         .map(|m| m.len());
-    let exclusions = config
-        .settings
-        .excluded_scan_paths
-        .clone()
-        .unwrap_or_default();
-    let encoded: Vec<_> = exclusions
-        .iter()
-        .map(|p| crate::domain::session::encode_scan_match_text(p))
-        .collect();
-    let hidden = crate::domain::session::is_internal_summary_run(Some(&thread.cwd))
-        || thread
-            .source
-            .pointer("/subAgent/other")
-            .and_then(serde_json::Value::as_str)
-            == Some("guardian")
-        || crate::domain::session::scan_exclusion_matches(
-            thread.path.as_deref().unwrap_or(""),
-            Some(&thread.cwd),
-            &exclusions,
-            &encoded,
-        );
     let parent = parent_id(&thread).map(str::to_owned);
-    let is_subagent = parent.is_some() || thread.source.get("subAgent").is_some();
+    let session_kind = crate::types::SessionKind::from_source(&thread.source);
+    let is_subagent = session_kind == crate::types::SessionKind::Worker;
+    let is_summary_run = crate::domain::session::is_internal_summary_run(Some(&thread.cwd));
     let project = Path::new(&thread.cwd)
         .file_name()
         .and_then(|p| p.to_str())
@@ -75,11 +77,20 @@ fn map_thread(thread: RegisteredThread, config: &Config) -> Session {
         .to_owned();
     let timestamp = |seconds| chrono::DateTime::from_timestamp(seconds, 0).map(|d| d.to_rfc3339());
     let preview = (!thread.preview.trim().is_empty()).then_some(thread.preview);
-    let name = meta.name.or(thread.name).or_else(|| {
-        preview
-            .as_deref()
-            .and_then(crate::domain::transcript::first_user_message_name)
-    });
+    let name = meta
+        .name
+        .filter(|s| !s.trim().is_empty())
+        .or(thread.name.filter(|s| !s.trim().is_empty()))
+        .or(thread
+            .agent_nickname
+            .clone()
+            .filter(|s| !s.trim().is_empty()))
+        .or_else(|| {
+            preview
+                .as_deref()
+                .and_then(crate::domain::transcript::first_user_message_name)
+        })
+        .or_else(|| Some(session_kind.fallback_name(&thread.id)));
     Session {
         session_id: thread.id,
         parent_id: parent,
@@ -96,7 +107,8 @@ fn map_thread(thread: RegisteredThread, config: &Config) -> Session {
         preview,
         history_mode: thread.history_mode,
         registered: true,
-        hidden,
+        session_kind,
+        is_summary_run,
         total_lines: 0,
         first_timestamp: timestamp(thread.created_at),
         last_timestamp: timestamp(thread.updated_at),
@@ -110,7 +122,10 @@ fn map_thread(thread: RegisteredThread, config: &Config) -> Session {
 }
 
 pub(crate) fn prepare_deletion(targets: &[DeleteSessionTarget]) -> Result<DeletionPlan> {
-    let threads = AppServer::connect()?.list_threads()?;
+    let deadline = std::time::Instant::now() + std::time::Duration::from_secs(60);
+    let threads = AppServer::connect()?
+        .collect_threads(deadline)
+        .require_complete()?;
     deletion_plan(&threads, targets)
 }
 
@@ -171,7 +186,7 @@ trait RegistryApi {
 }
 impl RegistryApi for AppServer {
     fn list(&mut self) -> Result<Vec<RegisteredThread>> {
-        self.list_threads()
+        self.complete_threads()
     }
     fn delete(&mut self, id: &str) -> Result<()> {
         self.request("thread/delete", json!({"threadId":id}))
@@ -332,6 +347,51 @@ mod tests {
             .collect()
     }
     #[test]
+    fn mapping_distinguishes_guardian_worker_unknown_and_summary_without_hidden() {
+        for (source, parent, kind, worker) in [
+            (
+                json!({"subAgent":{"other":"guardian"}}),
+                Some(P),
+                "guardian",
+                false,
+            ),
+            (
+                json!({"subAgent":{"thread_spawn":{"parent_thread_id":P}}}),
+                Some(P),
+                "worker",
+                true,
+            ),
+            (json!({"subAgent":"review"}), None, "otherInternal", false),
+            (json!("cli"), None, "main", false),
+            (json!("future"), None, "unknown", false),
+        ] {
+            let mut item = thread(C, parent);
+            item.source = source;
+            item.cwd = "C:/summary-runs".into();
+            let mapped = serde_json::to_value(map_thread(item, &Config::default())).unwrap();
+            assert_eq!(mapped["sessionKind"], kind);
+            assert_eq!(mapped["isSubagent"], worker);
+            assert_eq!(mapped["isSummaryRun"], true);
+            assert!(mapped.get("hidden").is_none());
+        }
+    }
+    #[test]
+    fn mapping_uses_nickname_before_preview_and_ignores_blank_parent_field() {
+        let mut child = thread(C, Some(""));
+        child.agent_nickname = Some("Builder".into());
+        child.source = json!({"subAgent":{"thread_spawn":{"parent_thread_id":P}}});
+        let mapped = map_thread(child, &Config::default());
+        assert_eq!(mapped.parent_id.as_deref(), Some(P));
+        assert_eq!(mapped.name.as_deref(), Some("Builder"));
+        let mut guardian = thread(O, None);
+        guardian.preview.clear();
+        guardian.source = json!({"subAgent":{"other":"guardian"}});
+        assert_eq!(
+            map_thread(guardian, &Config::default()).name.as_deref(),
+            Some("Guardian · 33333333")
+        );
+    }
+    #[test]
     fn db_only_mapping_preserves_registration_and_separates_preview() {
         let mapped = map_thread(thread(P, None), &Config::default());
         assert!(mapped.registered);
@@ -339,7 +399,7 @@ mod tests {
         assert!(mapped.size.is_none());
         assert_eq!(mapped.preview.as_deref(), Some("preview only"));
         assert!(mapped.first_user_message.is_none());
-        assert!(!mapped.hidden);
+        assert_eq!(mapped.session_kind, crate::types::SessionKind::Main);
     }
     #[test]
     fn scope_includes_descendants_and_validates_uuid_before_commands() {

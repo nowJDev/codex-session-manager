@@ -10,7 +10,7 @@ use std::path::PathBuf;
 use std::process::{Command, Stdio};
 
 /// Isolated cwd for `codex exec` summary runs.
-/// The scanner skips projects whose path contains this marker.
+/// 이 경로의 세션은 표시하되 자동요약 큐에서는 제외한다.
 pub fn isolation_cwd() -> PathBuf {
     crate::config::config_dir().join(".summary-runs")
 }
@@ -295,7 +295,10 @@ pub fn auto_summarize_session(
     summarize_excerpt(&excerpt, previous_summary)
 }
 
-pub(crate) fn summarize_excerpt(excerpt: &str, previous_summary: Option<&str>) -> Result<(String, String)> {
+pub(crate) fn summarize_excerpt(
+    excerpt: &str,
+    previous_summary: Option<&str>,
+) -> Result<(String, String)> {
     if excerpt.trim().is_empty() {
         return Err(anyhow!("세션이 비어 있습니다."));
     }
