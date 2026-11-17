@@ -1,5 +1,6 @@
+use crate::application::refresh_budget::RefreshBudget;
 use crate::scanner::sessions_dir;
-use crate::types::Session;
+use crate::types::{Session, SessionSnapshot};
 use anyhow::{anyhow, Result};
 use serde::{Deserialize, Serialize};
 use std::fs;
@@ -320,15 +321,39 @@ pub fn release_lock(cloud: &PathBuf, session_id: &str) -> Result<()> {
     Ok(())
 }
 
+#[cfg(test)]
 pub fn list_cloud_sessions(cloud: Option<PathBuf>) -> Result<Vec<Session>> {
+    list_cloud_sessions_with_budget(cloud, RefreshBudget::new(std::time::Instant::now))
+        .map(|s| s.sessions)
+}
+pub fn list_cloud_sessions_with_budget(
+    cloud: Option<PathBuf>,
+    budget: RefreshBudget,
+) -> Result<SessionSnapshot> {
+    let mut snapshot = SessionSnapshot {
+        sessions: vec![],
+        complete: true,
+        missing_count: 0,
+        errors: vec![],
+    };
+    if !budget.record_timeout(&mut snapshot) {
+        return Ok(snapshot);
+    }
     let Some(cloud) = cloud else {
-        return Ok(vec![]);
+        budget.record_timeout(&mut snapshot);
+        return Ok(snapshot);
     };
     if !cloud.exists() {
-        return Ok(vec![]);
+        budget.record_timeout(&mut snapshot);
+        return Ok(snapshot);
     }
-    let mut out = Vec::new();
+    if !budget.record_timeout(&mut snapshot) {
+        return Ok(snapshot);
+    }
     for entry in fs::read_dir(&cloud)? {
+        if !budget.record_timeout(&mut snapshot) {
+            break;
+        }
         let Ok(entry) = entry else { continue };
         let path = entry.path();
         let Some(name) = path.file_name().and_then(|s| s.to_str()) else {
@@ -340,15 +365,27 @@ pub fn list_cloud_sessions(cloud: Option<PathBuf>) -> Result<Vec<Session>> {
         let Ok(body) = fs::read_to_string(&path) else {
             continue;
         };
+        if !budget.record_timeout(&mut snapshot) {
+            break;
+        }
         let Ok(meta) = serde_json::from_str::<CloudMeta>(&body) else {
             continue;
         };
         let jsonl = cloud.join(format!("{}.jsonl", meta.session_id));
         let stat = fs::metadata(&jsonl).ok();
-        let jsonl_meta = crate::scanner::read_jsonl_meta(&jsonl).ok();
+        if !budget.record_timeout(&mut snapshot) {
+            break;
+        }
+        let jsonl_meta = crate::scanner::read_jsonl_meta_with_budget(&jsonl, budget).ok();
+        if !budget.record_timeout(&mut snapshot) {
+            break;
+        }
         let lock = read_lock(&cloud, &meta.session_id);
         let locked_by = lock.map(|l| l.hostname);
-        out.push(Session {
+        if !budget.record_timeout(&mut snapshot) {
+            break;
+        }
+        snapshot.sessions.push(Session {
             session_id: meta.session_id.clone(),
             parent_id: meta
                 .parent_id
@@ -388,7 +425,8 @@ pub fn list_cloud_sessions(cloud: Option<PathBuf>) -> Result<Vec<Session>> {
             locked_by,
         });
     }
-    Ok(out)
+    budget.record_timeout(&mut snapshot);
+    Ok(snapshot)
 }
 
 pub fn checkout(cloud: &PathBuf, session: &Session) -> Result<String> {

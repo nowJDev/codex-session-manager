@@ -3,6 +3,7 @@ use crate::application::ports::{
     CloudSyncPort, ResumePlan, ResumePort, SessionCommandPort, SessionMessagePort,
     SessionMetadataPort, SessionScanPort, SummaryPort,
 };
+use crate::application::refresh_budget::RefreshBudget;
 use crate::types::{
     Config, DeleteSessionResult, DeleteSessionTarget, DeletionPlan, Session, SessionMeta,
     SessionSnapshot, Settings,
@@ -22,8 +23,8 @@ fn cloud_path() -> Option<PathBuf> {
 }
 
 impl SessionScanPort for DefaultSessionPorts {
-    fn scan_local_sessions(&self) -> Result<SessionSnapshot> {
-        super::registered_sessions::list_sessions()
+    fn scan_local_sessions(&self, budget: RefreshBudget) -> Result<SessionSnapshot> {
+        super::registered_sessions::list_sessions(budget)
     }
 }
 
@@ -73,8 +74,8 @@ impl SessionMetadataPort for DefaultSessionPorts {
 }
 
 impl CloudSyncPort for DefaultSessionPorts {
-    fn list_cloud_sessions(&self) -> Result<Vec<Session>> {
-        crate::cloud::list_cloud_sessions(cloud_path())
+    fn list_cloud_sessions(&self, budget: RefreshBudget) -> Result<SessionSnapshot> {
+        crate::cloud::list_cloud_sessions_with_budget(cloud_path(), budget)
     }
 
     fn set_cloud_folder(&self, root: &str) -> Result<PathBuf> {

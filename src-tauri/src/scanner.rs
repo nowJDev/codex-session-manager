@@ -1,4 +1,5 @@
 // Codex 세션 JSONL 파일을 찾아 앱 표시용 메타데이터로 변환한다.
+use crate::application::refresh_budget::RefreshBudget;
 use crate::config::load_config;
 use crate::domain::session::is_internal_summary_run;
 use crate::domain::transcript::{
@@ -7,7 +8,7 @@ use crate::domain::transcript::{
 };
 #[cfg(test)]
 use crate::types::DeleteSessionStatus;
-use crate::types::Session;
+use crate::types::{Session, SessionSnapshot};
 use anyhow::{anyhow, Result};
 use serde_json::Value;
 use std::collections::HashMap;
@@ -107,6 +108,15 @@ fn transcript_content_from_json(value: &Value) -> Option<TranscriptContent> {
 }
 
 pub(crate) fn read_jsonl_meta(path: &Path) -> Result<JsonlMeta> {
+    read_jsonl_meta_using(path, None)
+}
+pub(crate) fn read_jsonl_meta_with_budget(path: &Path, budget: RefreshBudget) -> Result<JsonlMeta> {
+    read_jsonl_meta_using(path, Some(budget))
+}
+fn read_jsonl_meta_using(path: &Path, budget: Option<RefreshBudget>) -> Result<JsonlMeta> {
+    if let Some(budget) = budget {
+        budget.check()?;
+    }
     let file = fs::File::open(path)?;
     let reader = BufReader::new(file);
 
@@ -124,7 +134,15 @@ pub(crate) fn read_jsonl_meta(path: &Path) -> Result<JsonlMeta> {
     let mut total = 0usize;
     let mut head_seen = 0usize;
 
-    for line_res in reader.lines() {
+    let mut lines = reader.lines();
+    loop {
+        if let Some(budget) = budget {
+            budget.check()?;
+        }
+        let Some(line_res) = lines.next() else { break };
+        if let Some(budget) = budget {
+            budget.check()?;
+        }
         let Ok(line) = line_res else { continue };
         total += 1;
         let val: Value = match serde_json::from_str(&line) {
@@ -231,6 +249,9 @@ pub(crate) fn read_jsonl_meta(path: &Path) -> Result<JsonlMeta> {
         }
     }
 
+    if let Some(budget) = budget {
+        budget.check()?;
+    }
     Ok(JsonlMeta {
         session_id,
         parent_id,
@@ -248,7 +269,10 @@ pub(crate) fn read_jsonl_meta(path: &Path) -> Result<JsonlMeta> {
     })
 }
 
-fn load_session_index_names() -> HashMap<String, String> {
+fn load_session_index_names(budget: RefreshBudget) -> HashMap<String, String> {
+    if budget.check().is_err() {
+        return HashMap::new();
+    }
     let path = codex_home().join("session_index.jsonl");
     let Ok(file) = fs::File::open(path) else {
         return HashMap::new();
@@ -256,6 +280,9 @@ fn load_session_index_names() -> HashMap<String, String> {
     let reader = BufReader::new(file);
     let mut names = HashMap::new();
     for line in reader.lines().map_while(Result::ok) {
+        if budget.check().is_err() {
+            break;
+        }
         let Ok(val) = serde_json::from_str::<Value>(&line) else {
             continue;
         };
@@ -296,14 +323,20 @@ fn session_id_from_filename(path: &Path) -> Option<String> {
     }
 }
 
-fn collect_jsonl_files(root: &Path) -> Vec<PathBuf> {
+fn collect_jsonl_files(root: &Path, budget: RefreshBudget) -> Vec<PathBuf> {
     let mut out = Vec::new();
     let mut stack = vec![root.to_path_buf()];
-    while let Some(dir) = stack.pop() {
+    'walk: while let Some(dir) = stack.pop() {
+        if budget.check().is_err() {
+            break;
+        }
         let Ok(entries) = fs::read_dir(&dir) else {
             continue;
         };
         for entry in entries.flatten() {
+            if budget.check().is_err() {
+                break 'walk;
+            }
             let path = entry.path();
             if path.is_dir() {
                 stack.push(path);
@@ -317,10 +350,14 @@ fn collect_jsonl_files(root: &Path) -> Vec<PathBuf> {
 
 #[cfg(test)]
 pub fn scan_local_sessions() -> Result<Vec<Session>> {
-    scan_sessions_in_roots(projects_roots())
+    scan_sessions_in_roots(
+        projects_roots(),
+        RefreshBudget::new(std::time::Instant::now),
+    )
+    .map(|s| s.sessions)
 }
 
-pub fn scan_extra_sessions() -> Result<Vec<Session>> {
+pub fn scan_extra_sessions(budget: RefreshBudget) -> Result<SessionSnapshot> {
     let roots = load_config()
         .settings
         .extra_project_dirs
@@ -328,12 +365,21 @@ pub fn scan_extra_sessions() -> Result<Vec<Session>> {
         .into_iter()
         .map(PathBuf::from)
         .collect();
-    scan_sessions_in_roots(roots)
+    scan_sessions_in_roots(roots, budget)
 }
 
-fn scan_sessions_in_roots(roots: Vec<PathBuf>) -> Result<Vec<Session>> {
+fn scan_sessions_in_roots(roots: Vec<PathBuf>, budget: RefreshBudget) -> Result<SessionSnapshot> {
     use std::io::Write;
     let mut out = Vec::new();
+    let mut snapshot = SessionSnapshot {
+        sessions: vec![],
+        complete: true,
+        missing_count: 0,
+        errors: vec![],
+    };
+    if !budget.record_timeout(&mut snapshot) {
+        return Ok(snapshot);
+    }
     let archived_root = archived_sessions_dir();
 
     let log_path = crate::config::config_dir().join("scan-debug.log");
@@ -351,11 +397,15 @@ fn scan_sessions_in_roots(roots: Vec<PathBuf>) -> Result<Vec<Session>> {
     }
 
     if roots.is_empty() {
-        return Ok(out);
+        budget.record_timeout(&mut snapshot);
+        return Ok(snapshot);
+    }
+    if !budget.record_timeout(&mut snapshot) {
+        return Ok(snapshot);
     }
     let cfg_full = load_config();
     let saved = cfg_full.sessions;
-    let index_names = load_session_index_names();
+    let index_names = load_session_index_names(budget);
 
     let mut total_found = 0usize;
     let mut total_pushed = 0usize;
@@ -364,8 +414,11 @@ fn scan_sessions_in_roots(roots: Vec<PathBuf>) -> Result<Vec<Session>> {
     let mut stat_fail = 0usize;
     let mut seen_session_ids: std::collections::HashSet<String> = std::collections::HashSet::new();
 
-    for root in &roots {
-        for path in collect_jsonl_files(root) {
+    'roots: for root in &roots {
+        for path in collect_jsonl_files(root, budget) {
+            if !budget.record_timeout(&mut snapshot) {
+                break 'roots;
+            }
             total_found += 1;
             let stat = match fs::metadata(&path) {
                 Ok(s) => s,
@@ -385,9 +438,12 @@ fn scan_sessions_in_roots(roots: Vec<PathBuf>) -> Result<Vec<Session>> {
                 continue;
             };
 
-            let meta = match read_jsonl_meta(&path) {
+            let meta = match read_jsonl_meta_with_budget(&path, budget) {
                 Ok(m) => Some(m),
                 Err(e) => {
+                    if !budget.record_timeout(&mut snapshot) {
+                        break 'roots;
+                    }
                     meta_fail += 1;
                     if let Some(f) = log.as_mut() {
                         let _ = writeln!(f, "[meta-fail] {}: {}", path.display(), e);
@@ -419,6 +475,9 @@ fn scan_sessions_in_roots(roots: Vec<PathBuf>) -> Result<Vec<Session>> {
                 .unwrap_or_else(|| root.to_string_lossy().to_string());
             let archived = path.starts_with(&archived_root);
 
+            if !budget.record_timeout(&mut snapshot) {
+                break 'roots;
+            }
             total_pushed += 1;
             out.push(Session {
                 session_id: stem.clone(),
@@ -475,6 +534,7 @@ fn scan_sessions_in_roots(roots: Vec<PathBuf>) -> Result<Vec<Session>> {
         let _ = writeln!(f, "out.len()      = {} (returned to frontend)", out.len());
     }
 
+    budget.record_timeout(&mut snapshot);
     out.sort_by(|a, b| match b.favorite.cmp(&a.favorite) {
         std::cmp::Ordering::Equal => {
             let ta = a.last_timestamp.as_deref().unwrap_or("");
@@ -484,7 +544,9 @@ fn scan_sessions_in_roots(roots: Vec<PathBuf>) -> Result<Vec<Session>> {
         other => other,
     });
 
-    Ok(out)
+    snapshot.sessions = out;
+    budget.record_timeout(&mut snapshot);
+    Ok(snapshot)
 }
 
 pub fn get_session_messages(file_path: &str, max_messages: usize) -> Result<Vec<String>> {
@@ -680,3 +742,45 @@ pub fn unarchive_session(session_id: &str) -> Result<()> {
 #[cfg(test)]
 #[path = "scanner_delete_tests.rs"]
 mod delete_tests;
+
+#[cfg(test)]
+mod budget_tests {
+    use super::*;
+    use crate::application::refresh_budget::RefreshBudget;
+    use std::cell::Cell;
+    use std::time::{Duration, Instant};
+    thread_local! {static CLOCK: Cell<Option<(Instant,u64)>> = const {Cell::new(None)};}
+    fn ticking_now() -> Instant {
+        CLOCK.with(|c| {
+            let (base, tick) = c.get().unwrap();
+            c.set(Some((base, tick + 1)));
+            base + Duration::from_secs(tick)
+        })
+    }
+    #[test]
+    fn refresh_budget_stops_large_extra_jsonl_inside_line_loop() {
+        let dir = tempfile::tempdir().unwrap();
+        let file = dir.path().join("large.jsonl");
+        fs::write(&file, "{}\n".repeat(200)).unwrap();
+        CLOCK.with(|c| c.set(Some((Instant::now(), 0))));
+        let result = read_jsonl_meta_with_budget(&file, RefreshBudget::new(ticking_now));
+        assert!(
+            result.is_err(),
+            "JSONL 반복 처리 중 초과한 갱신 예산을 검사해야 한다"
+        );
+        assert!(result.err().unwrap().to_string().contains("예산 초과"));
+    }
+    #[test]
+    fn refresh_budget_stops_directory_walk_and_keeps_discovered_paths() {
+        let dir = tempfile::tempdir().unwrap();
+        for i in 0..100 {
+            fs::write(dir.path().join(format!("{i}.jsonl")), "{}").unwrap();
+        }
+        CLOCK.with(|c| c.set(Some((Instant::now(), 0))));
+        let budget = RefreshBudget::new(ticking_now);
+        let files = collect_jsonl_files(dir.path(), budget);
+        assert!(!files.is_empty());
+        assert!(files.len() < 100);
+        assert!(budget.check().is_err());
+    }
+}

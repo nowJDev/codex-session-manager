@@ -1,5 +1,6 @@
 // Codex 등록 세션을 앱 모델로 변환하고 ID 삭제의 결과를 확인한다.
 use super::codex_app_server::{AppServer, RegisteredThread, RpcError};
+use crate::application::refresh_budget::RefreshBudget;
 use crate::types::{
     Config, DeleteSessionResult, DeleteSessionStatus, DeleteSessionTarget, DeletionPlan, Session,
     SessionSnapshot,
@@ -9,36 +10,56 @@ use serde_json::json;
 use std::collections::{HashMap, HashSet};
 use std::path::Path;
 
-pub(crate) fn list_sessions() -> Result<SessionSnapshot> {
-    let deadline = std::time::Instant::now() + std::time::Duration::from_secs(60);
-    let snapshot = AppServer::connect()?.collect_threads(deadline);
-    let threads = snapshot.threads;
-    let mut errors = snapshot.errors;
-    let config = crate::config::load_config();
-    let ids: HashSet<_> = threads.iter().map(|t| t.id.clone()).collect();
-    let mut sessions: Vec<_> = threads
-        .into_iter()
-        .filter(|t| !t.ephemeral)
-        .map(|t| map_thread(t, &config))
-        .collect();
-    let extra = match crate::scanner::scan_extra_sessions() {
-        Ok(rows) => rows,
-        Err(error) => {
-            errors.push(format!("추가 파일 조회 실패: {error:#}"));
-            Vec::new()
-        }
+pub(crate) fn list_sessions(budget: RefreshBudget) -> Result<SessionSnapshot> {
+    let mut out = SessionSnapshot {
+        sessions: vec![],
+        complete: true,
+        missing_count: 0,
+        errors: vec![],
     };
-    for session in extra {
-        if !ids.contains(&session.session_id) {
-            sessions.push(session);
+    if !budget.record_timeout(&mut out) {
+        return Ok(out);
+    }
+    let snapshot = AppServer::connect()?.collect_threads(budget.deadline());
+    out.errors = snapshot.errors;
+    out.missing_count = snapshot.missing_count;
+    out.complete = out.errors.is_empty() && out.missing_count == 0;
+    if !budget.record_timeout(&mut out) {
+        out.missing_count += snapshot.threads.len();
+        return Ok(out);
+    }
+    let config = crate::config::load_config();
+    let ids: HashSet<_> = snapshot.threads.iter().map(|t| t.id.clone()).collect();
+    let mut remaining = snapshot.threads.into_iter();
+    while let Some(thread) = remaining.next() {
+        if !budget.record_timeout(&mut out) {
+            out.missing_count += 1 + remaining.len();
+            break;
+        }
+        if !thread.ephemeral {
+            out.sessions.push(map_thread(thread, &config));
         }
     }
-    Ok(SessionSnapshot {
-        sessions,
-        complete: errors.is_empty() && snapshot.missing_count == 0,
-        missing_count: snapshot.missing_count,
-        errors,
-    })
+    if budget.record_timeout(&mut out) {
+        match crate::scanner::scan_extra_sessions(budget) {
+            Ok(extra) => {
+                out.complete &= extra.complete;
+                out.errors.extend(extra.errors);
+                for session in extra.sessions {
+                    budget.record_timeout(&mut out);
+                    if !ids.contains(&session.session_id) {
+                        out.sessions.push(session);
+                    }
+                }
+            }
+            Err(error) => {
+                out.complete = false;
+                out.errors.push(format!("추가 파일 조회 실패: {error:#}"));
+            }
+        }
+    }
+    budget.record_timeout(&mut out);
+    Ok(out)
 }
 
 fn parent_id(thread: &RegisteredThread) -> Option<&str> {

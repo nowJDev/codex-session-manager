@@ -1,4 +1,5 @@
 // 애플리케이션 use case가 외부 시스템에 기대는 기능 계약이다.
+use super::refresh_budget::RefreshBudget;
 use crate::types::{
     Config, DeleteSessionResult, DeleteSessionTarget, DeletionPlan, Session, SessionMeta,
     SessionSnapshot, Settings,
@@ -10,7 +11,7 @@ use std::path::PathBuf;
 use std::pin::Pin;
 
 pub trait SessionScanPort {
-    fn scan_local_sessions(&self) -> Result<SessionSnapshot>;
+    fn scan_local_sessions(&self, budget: RefreshBudget) -> Result<SessionSnapshot>;
 }
 
 pub trait SessionCommandPort {
@@ -32,7 +33,7 @@ pub trait SessionMetadataPort {
 }
 
 pub trait CloudSyncPort {
-    fn list_cloud_sessions(&self) -> Result<Vec<Session>>;
+    fn list_cloud_sessions(&self, budget: RefreshBudget) -> Result<SessionSnapshot>;
     fn set_cloud_folder(&self, root: &str) -> Result<PathBuf>;
     fn upload_to_cloud(&self, session: &Session) -> Result<()>;
     fn checkout_session(&self, session: &Session) -> Result<String>;

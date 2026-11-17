@@ -1,5 +1,6 @@
 // 세션 관리 use case를 조율하는 애플리케이션 서비스이다.
 use crate::application::ports::{ResumePlan, SessionPorts};
+use crate::application::refresh_budget::RefreshBudget;
 use crate::domain::session::{classify_storage_state, StorageState};
 use crate::types::{
     Config, DeleteSessionResult, DeleteSessionStatus, DeleteSessionTarget, DeletionPlan, Session,
@@ -20,9 +21,19 @@ impl<P: SessionPorts> SessionService<P> {
     }
 
     pub fn list_sessions(&self) -> Result<SessionSnapshot> {
-        let mut snapshot = self.ports.scan_local_sessions()?;
-        let cloud = match self.ports.list_cloud_sessions() {
-            Ok(rows) => rows,
+        self.list_sessions_with_budget(RefreshBudget::new(std::time::Instant::now))
+    }
+    fn list_sessions_with_budget(&self, budget: RefreshBudget) -> Result<SessionSnapshot> {
+        let mut snapshot = self.ports.scan_local_sessions(budget)?;
+        if !budget.record_timeout(&mut snapshot) {
+            return Ok(snapshot);
+        }
+        let cloud = match self.ports.list_cloud_sessions(budget) {
+            Ok(cloud) => {
+                snapshot.complete &= cloud.complete;
+                snapshot.errors.extend(cloud.errors);
+                cloud.sessions
+            }
             Err(error) => {
                 snapshot.complete = false;
                 snapshot
@@ -31,7 +42,9 @@ impl<P: SessionPorts> SessionService<P> {
                 Vec::new()
             }
         };
-        snapshot.sessions = merge_local_and_cloud_sessions(snapshot.sessions, cloud);
+        budget.record_timeout(&mut snapshot);
+        merge_local_and_cloud_sessions(&mut snapshot, cloud, budget);
+        budget.record_timeout(&mut snapshot);
         Ok(snapshot)
     }
 
@@ -148,7 +161,9 @@ impl<P: SessionPorts> SessionService<P> {
     }
 
     pub fn pending_auto_summary_batch(&self, batch_size: usize) -> Result<Vec<(String, String)>> {
-        let snapshot = self.ports.scan_local_sessions()?;
+        let budget = RefreshBudget::new(std::time::Instant::now);
+        let mut snapshot = self.ports.scan_local_sessions(budget)?;
+        budget.record_timeout(&mut snapshot);
         if !snapshot.complete {
             anyhow::bail!("전체 조회를 완료하지 못해 자동요약을 시작하지 않았습니다.");
         }
@@ -221,28 +236,35 @@ impl<P: SessionPorts> SessionService<P> {
 }
 
 fn merge_local_and_cloud_sessions(
-    mut local: Vec<Session>,
+    snapshot: &mut SessionSnapshot,
     cloud_all: Vec<Session>,
-) -> Vec<Session> {
-    let cloud_ids: HashSet<String> = cloud_all.iter().map(|c| c.session_id.clone()).collect();
-    for session in local.iter_mut() {
+    budget: RefreshBudget,
+) {
+    let mut cloud_ids = HashSet::new();
+    for session in &cloud_all {
+        budget.record_timeout(snapshot);
+        cloud_ids.insert(session.session_id.clone());
+    }
+    for index in 0..snapshot.sessions.len() {
+        budget.record_timeout(snapshot);
+        let session = &mut snapshot.sessions[index];
         if let Some(state) = classify_storage_state(true, cloud_ids.contains(&session.session_id)) {
             session.storage_type = storage_type_value(state).into();
         }
     }
-
-    let local_ids: HashSet<String> = local.iter().map(|s| s.session_id.clone()).collect();
-    let cloud_only = cloud_all
-        .into_iter()
-        .filter(|session| !local_ids.contains(&session.session_id))
-        .map(|mut session| {
-            if let Some(state) = classify_storage_state(false, true) {
-                session.storage_type = storage_type_value(state).into();
-            }
-            session
-        });
-    local.extend(cloud_only);
-    local
+    let mut local_ids = HashSet::new();
+    for index in 0..snapshot.sessions.len() {
+        budget.record_timeout(snapshot);
+        local_ids.insert(snapshot.sessions[index].session_id.clone());
+    }
+    // 조회가 이미 반환한 행은 예산 초과 뒤에도 중복 없이 보존한다. 이 단계는 추가 I/O를 시작하지 않는다.
+    for mut session in cloud_all {
+        budget.record_timeout(snapshot);
+        if local_ids.insert(session.session_id.clone()) {
+            session.storage_type = storage_type_value(StorageState::CloudOnly).into();
+            snapshot.sessions.push(session);
+        }
+    }
 }
 
 fn storage_type_value(state: StorageState) -> &'static str {
@@ -285,6 +307,8 @@ mod tests {
         cloud_folders: Vec<String>,
         uploaded_sessions: Vec<String>,
         summaries: HashMap<String, (String, String)>,
+        expire_on_cloud: bool,
+        deadlines: Vec<std::time::Instant>,
     }
 
     #[derive(Clone, Default)]
@@ -293,7 +317,11 @@ mod tests {
     }
 
     impl SessionScanPort for FakePorts {
-        fn scan_local_sessions(&self) -> Result<SessionSnapshot> {
+        fn scan_local_sessions(
+            &self,
+            budget: crate::application::refresh_budget::RefreshBudget,
+        ) -> Result<SessionSnapshot> {
+            self.state.borrow_mut().deadlines.push(budget.deadline());
             Ok(SessionSnapshot {
                 sessions: self.state.borrow().local.clone(),
                 complete: true,
@@ -392,8 +420,21 @@ mod tests {
     }
 
     impl CloudSyncPort for FakePorts {
-        fn list_cloud_sessions(&self) -> Result<Vec<Session>> {
-            Ok(self.state.borrow().cloud.clone())
+        fn list_cloud_sessions(
+            &self,
+            budget: crate::application::refresh_budget::RefreshBudget,
+        ) -> Result<SessionSnapshot> {
+            self.state.borrow_mut().deadlines.push(budget.deadline());
+            if self.state.borrow().expire_on_cloud {
+                BUDGET_CLOCK
+                    .with(|c| c.set(c.get().map(|t| t + std::time::Duration::from_secs(61))));
+            }
+            Ok(SessionSnapshot {
+                sessions: self.state.borrow().cloud.clone(),
+                complete: true,
+                missing_count: 0,
+                errors: vec![],
+            })
         }
 
         fn set_cloud_folder(&self, root: &str) -> Result<PathBuf> {
@@ -482,6 +523,43 @@ mod tests {
         }
     }
 
+    thread_local! { static BUDGET_CLOCK: std::cell::Cell<Option<std::time::Instant>> = const {std::cell::Cell::new(None)}; }
+    fn budget_now() -> std::time::Instant {
+        BUDGET_CLOCK.with(|c| c.get().unwrap())
+    }
+    #[test]
+    fn refresh_budget_late_cloud_keeps_rows_but_marks_snapshot_incomplete() {
+        BUDGET_CLOCK.with(|c| c.set(Some(std::time::Instant::now())));
+        let ports = FakePorts::default();
+        {
+            let mut state = ports.state.borrow_mut();
+            state.local = vec![session("local", "local.jsonl")];
+            state.cloud = vec![session("cloud", "cloud.jsonl")];
+            state.expire_on_cloud = true;
+        }
+        let state = ports.state.clone();
+        let budget = crate::application::refresh_budget::RefreshBudget::new(budget_now);
+        let snapshot = SessionService::new(ports)
+            .list_sessions_with_budget(budget)
+            .unwrap();
+        assert_eq!(
+            state.borrow().deadlines,
+            vec![budget.deadline(), budget.deadline()]
+        );
+        assert_eq!(
+            snapshot
+                .sessions
+                .iter()
+                .map(|s| s.session_id.as_str())
+                .collect::<Vec<_>>(),
+            vec!["local", "cloud"]
+        );
+        assert!(
+            !snapshot.complete,
+            "API 성공 후 늦은 클라우드는 전체 갱신 성공이 아니다"
+        );
+        assert!(snapshot.errors.iter().any(|s| s.contains("예산 초과")));
+    }
     #[test]
     fn list_sessions_merges_storage_state_without_real_files() {
         let ports = FakePorts::default();
