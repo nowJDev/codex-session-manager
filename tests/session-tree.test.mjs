@@ -3,6 +3,7 @@ import assert from "node:assert/strict";
 import { readFileSync } from "node:fs";
 import test from "node:test";
 import ts from "typescript";
+import { session } from "./helpers/frontendHarness.mjs";
 
 function loadModule(file) {
   const source = readFileSync(new URL(file, import.meta.url), "utf8");
@@ -18,12 +19,6 @@ function loadModule(file) {
 }
 
 const state = loadModule("../src/lib/sessionTableState.ts");
-const session = (sessionId, parentId = null, extra = {}) => ({
-  sessionId, parentId, isSubagent: !!parentId, agentNickname: null,
-  name: sessionId, description: null, autoSummary: null, firstUserMessage: null,
-  project: "project", storageType: "local-only", favorite: false, size: 1, registered:true, historyMode:"legacy",filePath:"session.jsonl",
-  lastTimestamp: "2026-10-08T00:00:00Z", ...extra,
-});
 const rows = (sessions, expanded = new Set()) => {
   assert.equal(typeof state.buildSessionTreeRows, "function", "session table must group children under parents");
   return state.buildSessionTreeRows(sessions, expanded);
@@ -86,9 +81,9 @@ test("cycles and self references neither lose rows nor loop", () => {
   assert.deepEqual(state.filterSessionsWithAncestors(sessions,"a").map(s=>s.sessionId),["a","b"]);
 });
 
-test("ordinary forked sessions stay independent and deep chains are iterative", () => {
+test("direct parent IDs connect ordinary forks and deep chains are iterative", () => {
   assert.deepEqual(idsAndDepth(rows([session("fork","parent",{isSubagent:false}),session("parent")],new Set(["parent"]))),
-    [["fork",0],["parent",0]]);
+    [["parent",0],["fork",1]]);
   const chain = Array.from({length:12000},(_,i)=>session(String(i),i?String(i-1):null));
   const result = rows(chain,new Set(chain.map(s=>s.sessionId)));
   assert.equal(result.length,12000);
@@ -137,6 +132,7 @@ test("table disclosure, search expansion and select-all use actual visible rows"
   let resumes = 0;
   const noop = () => {};
   const props = {sessions:all, selectedId:null, locale:"ko", t:(key)=>key,
+    canDelete:true,onVisibleRowsChange:noop,
     selectedSessionIds:new Set(["parent","other"]),onSelect:noop,onResume:()=>resumes++,
     onRename:noop,onDescribe:noop,onDelete:noop,onToggleArchive:noop,onToggleCloud:noop,
     onGenerateSummary:noop,onToggleFavorite:noop,onToggleSelected:noop,
@@ -162,24 +158,24 @@ test("table disclosure, search expansion and select-all use actual visible rows"
   const selectAll = (nodes) => nodes.find(node=>node.type==="input");
   const disclosure = (nodes,expanded) => nodes.find(node=>node.type==="button" && node.props["aria-expanded"]===expanded);
   let nodes=render();
-  assert.equal(selectAll(nodes).props["aria-label"],"action.deselectVisible");
-  assert.equal(displayed(nodes).length,2,"children must start collapsed");
-  assert.equal(selectAll(nodes).props.checked,true,"hidden unchecked children must not affect select-all");
+  assert.equal(selectAll(nodes).props["aria-label"],"action.selectVisible");
+  assert.equal(displayed(nodes).length,4,"children must start expanded");
+  assert.equal(selectAll(nodes).props.checked,false,"visible unchecked children affect select-all");
   selectAll(nodes).props.onChange({currentTarget:{checked:true}});
-  assert.deepEqual(selected,["parent","other"]);
-  const button=disclosure(nodes,false);
+  assert.deepEqual(selected,["parent","child","leaf","other"]);
+  const button=disclosure(nodes,true);
   assert.ok(button,"parent must expose an accessible disclosure button");
   button.props.onClick({stopPropagation:()=>stopped++});
   button.props.onDoubleClick({stopPropagation:()=>stopped++});
   nodes=render();
-  assert.equal(displayed(nodes).length,3);
-  assert.equal(selectAll(nodes).props.checked,false);
+  assert.equal(displayed(nodes).length,2);
+  assert.equal(selectAll(nodes).props.checked,true);
   assert.equal(stopped,2);
   assert.equal(resumes,0,"disclosure clicks must not resume sessions");
   selectAll(nodes).props.onChange({currentTarget:{checked:true}});
-  assert.deepEqual(selected,["parent","child","other"]);
+  assert.deepEqual(selected,["parent","other"]);
   props.sessions=state.filterSessionsWithAncestors(all,"Gauss");
-  props.autoExpand=true;
+  props.query="Gauss";
   nodes=render();
   assert.deepEqual(displayed(nodes).map(node=>node.props["data-depth"]),[0,1,2]);
   disclosure(nodes,true).props.onClick({stopPropagation:noop});

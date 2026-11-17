@@ -30,9 +30,8 @@ import {
   DropdownMenuSeparator,
   DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu";
-import { sessionDescriptionText } from "@/lib/sessionDisplay";
+import { sessionDescriptionText, sessionKindLabels, sessionName } from "@/lib/sessionDisplay";
 import {
-  compareSessions,
   buildSessionTreeRows,
   loadColumnWidths,
   loadSortPreference,
@@ -51,7 +50,9 @@ import type { Locale } from "@/i18n";
 
 interface Props {
   sessions: Session[];
-  autoExpand?: boolean;
+  query?: string;
+  canDelete: boolean;
+  onVisibleRowsChange: (sessions: Session[]) => void;
   selectedId: string | null;
   locale: Locale;
   t: (k: string, p?: Record<string, string | number>) => string;
@@ -78,6 +79,7 @@ function ResizableHead({
   contentClassName,
   childrenClassName,
   sortKey,
+  title,
   sortState,
   onSort,
 }: {
@@ -90,6 +92,7 @@ function ResizableHead({
   childrenClassName?: string;
   /** 이 컬럼이 정렬 가능하면 SortKey, 아니면 undefined */
   sortKey?: SortKey;
+  title?: string;
   sortState?: SortState;
   onSort?: (key: SortKey) => void;
 }) {
@@ -139,7 +142,7 @@ function ResizableHead({
         )}
         onClick={isSortable ? () => onSort!(sortKey!) : undefined}
         role={isSortable ? "button" : undefined}
-        title={isSortable ? "정렬: 다시 클릭하면 역순" : undefined}
+        title={isSortable ? title : undefined}
       >
         <span className={cn("truncate", childrenClassName)}>{children}</span>
         {isActiveSort && (
@@ -159,7 +162,9 @@ function ResizableHead({
 
 function SessionTableInner({
   sessions,
-  autoExpand = false,
+  query = "",
+  canDelete,
+  onVisibleRowsChange,
   selectedId,
   locale,
   t,
@@ -178,11 +183,17 @@ function SessionTableInner({
 }: Props) {
   const [widths, setWidths] = useState<Record<ColKey, number>>(() => loadColumnWidths());
   const [sort, setSort] = useState<SortState>(() => loadSortPreference());
-  const [expandedIds, setExpandedIds] = useState<Set<string>>(() => new Set());
-
-  useEffect(() => {
-    if (autoExpand) setExpandedIds((current) => new Set([...current, ...sessions.map((s) => s.sessionId)]));
-  }, [sessions, autoExpand]);
+  // 검색 접기는 일반 목록 접기와 분리하여 검색을 지우면 원래 상태로 돌아간다.
+  const [collapsedIds, setCollapsedIds] = useState<Set<string>>(() => new Set());
+  const [searchCollapse, setSearchCollapse] = useState<{ query: string; ids: Set<string> }>(() => ({ query: "", ids: new Set() }));
+  const tableRef = useRef<HTMLDivElement | null>(null);
+  const searching = !!query.trim();
+  const collapsed = searching ? (searchCollapse.query === query ? searchCollapse.ids : new Set<string>()) : collapsedIds;
+  useEffect(() => { setSearchCollapse({ query, ids: new Set() }); }, [query]);
+  function setCollapsed(next: Set<string>) {
+    if (searching) setSearchCollapse({ query, ids: next });
+    else setCollapsedIds(next);
+  }
 
   useEffect(() => {
     saveColumnWidths(widths);
@@ -204,11 +215,24 @@ function SessionTableInner({
     );
   }, []);
 
-  const sortedSessions = useMemo(
-    () => [...sessions].sort((a, b) => compareSessions(a, b, sort)),
-    [sessions, sort]
-  );
-  const treeRows = useMemo(() => buildSessionTreeRows(sortedSessions, expandedIds), [sortedSessions, expandedIds]);
+  const expandedIds = useMemo(() => new Set(sessions.filter((s) => !collapsed.has(s.sessionId)).map((s) => s.sessionId)), [sessions, collapsed]);
+  const treeRows = useMemo(() => buildSessionTreeRows(sessions, expandedIds, sort), [sessions, expandedIds, sort]);
+  const allRows = useMemo(() => buildSessionTreeRows(sessions, new Set(sessions.map((s) => s.sessionId)), sort), [sessions, sort]);
+  const displayedSessions = useMemo(() => treeRows.map((row) => row.session), [treeRows]);
+  useEffect(() => { onVisibleRowsChange(displayedSessions); }, [displayedSessions, onVisibleRowsChange]);
+  function collapseAll() {
+    const parentIds = new Set(allRows.filter((row) => row.childCount > 0).map((row) => row.session.sessionId));
+    const selectedIndex = allRows.findIndex((row) => row.session.sessionId === selectedId);
+    if (selectedIndex >= 0 && allRows[selectedIndex].depth > 0) {
+      let rootIndex = selectedIndex;
+      while (rootIndex > 0 && allRows[rootIndex].depth > 0) rootIndex--;
+      const rootId = allRows[rootIndex].session.sessionId;
+      const parentRow = Array.from(tableRef.current?.querySelectorAll<HTMLTableRowElement>("[data-session-id]") ?? [])
+        .find((row) => row.dataset.sessionId === rootId);
+      parentRow?.querySelector<HTMLButtonElement>("button[aria-expanded]")?.focus();
+    }
+    setCollapsed(parentIds);
+  }
   const visibleSessions = useMemo(() => treeRows.map((row) => row.session).filter((s) => s.registered), [treeRows]);
   const tableWidth = useMemo(() => totalColumnWidth(widths), [widths]);
   const visibleSelectedCount = visibleSessions.filter((s) => selectedSessionIds.has(s.sessionId)).length;
@@ -237,6 +261,12 @@ function SessionTableInner({
   });
 
   return (
+    <div ref={tableRef} className="flex h-full min-h-0 flex-col">
+      <div className="flex shrink-0 gap-2 border-b border-border/60 px-3 py-2">
+        <Button variant="outline" size="sm" aria-label={t("action.expandAll")} onClick={() => setCollapsed(new Set())}>{t("action.expandAll")}</Button>
+        <Button variant="outline" size="sm" aria-label={t("action.collapseAll")} onClick={collapseAll}>{t("action.collapseAll")}</Button>
+      </div>
+      <div className="min-h-0 flex-1">
     <Table className="table-fixed" style={{ minWidth: tableWidth }}>
       <TableHeader>
         <TableRow>
@@ -280,6 +310,7 @@ function SessionTableInner({
             colKey="lastActive"
             width={widths.lastActive}
             onResize={handleResize}
+            title={t("list.branchActivity")}
             sortKey="lastActive"
             sortState={sort}
             onSort={handleSort}
@@ -348,12 +379,12 @@ function SessionTableInner({
         </TableRow>
       </TableHeader>
       <TableBody>
-        {treeRows.map(({ session: s, depth, childCount }) => {
+        {treeRows.map(({ session: s, depth, childCount, parentMissing }) => {
           const selected = selectedId === s.sessionId;
           const checked = selectedSessionIds.has(s.sessionId);
           const desc = sessionDescriptionText(s);
           const expanded = expandedIds.has(s.sessionId);
-          const displayName = s.name || s.agentNickname || t("list.noName");
+          const displayName = sessionName(s, t);
           const cloudOnly = s.storageType === "cloud" || s.storageType === "cloud-only";
           const resumeDisabled = cloudOnly ? s.historyMode !== "legacy" : !s.registered;
           const cloudDisabled = s.historyMode !== "legacy" || !s.filePath;
@@ -364,6 +395,7 @@ function SessionTableInner({
             <TableRow
               key={s.sessionId}
               data-depth={depth}
+              data-session-id={s.sessionId}
               data-state={selected ? "selected" : undefined}
               onClick={() => onSelect(s)}
               onDoubleClick={() => !resumeDisabled && onResume(s)}
@@ -402,7 +434,7 @@ function SessionTableInner({
                   />
                 </Button>
               </TableCell>
-              <TableCell style={cellStyle("name")} title={[s.name, s.agentNickname].filter(Boolean).join(" · ") || undefined}>
+              <TableCell style={cellStyle("name")} title={displayName}>
                 <div className="flex min-w-0 items-center gap-1" style={{ paddingLeft: Math.min(depth, 6) * 16 }}>
                   {childCount > 0 ? (
                     <button
@@ -413,12 +445,17 @@ function SessionTableInner({
                       onDoubleClick={(e) => e.stopPropagation()}
                       onClick={(e) => {
                         e.stopPropagation();
-                        setExpandedIds((current) => {
-                          const next = new Set(current);
-                          if (next.has(s.sessionId)) next.delete(s.sessionId);
-                          else next.add(s.sessionId);
-                          return next;
-                        });
+                        const next = new Set(collapsed);
+                        if (expanded) {
+                          next.add(s.sessionId);
+                          const index = allRows.findIndex((row) => row.session.sessionId === s.sessionId);
+                          let hidesSelection = false;
+                          for (let i = index + 1; i < allRows.length && allRows[i].depth > depth; i++) {
+                            if (allRows[i].session.sessionId === selectedId) hidesSelection = true;
+                          }
+                          if (hidesSelection) e.currentTarget.focus();
+                        } else next.delete(s.sessionId);
+                        setCollapsed(next);
                       }}
                       className="inline-flex h-6 w-5 shrink-0 items-center justify-center rounded text-muted-foreground hover:bg-muted/40 hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
                     >
@@ -429,11 +466,12 @@ function SessionTableInner({
                     <span className={cn("block truncate", s.name || s.agentNickname ? "font-medium" : "text-sm italic text-muted-foreground/60")}>
                       {displayName}
                     </span>
+                    {parentMissing && <span className="block truncate text-[10px] text-amber-500">{t("list.parentMissing")}</span>}
                     {s.agentNickname && s.name && s.agentNickname !== s.name && (
                       <span className="block truncate text-[10px] text-muted-foreground">{s.agentNickname}</span>
                     )}
                   </div>
-                  {s.isSubagent && <span className="shrink-0 rounded bg-muted px-1 text-[10px] text-muted-foreground">{t("list.subagent")}</span>}
+                  {sessionKindLabels(s).map((kind) => <span key={kind} className={cn("shrink-0 rounded px-1 text-[10px]", kind === "guardian" ? "bg-amber-500/15 text-amber-400" : kind === "worker" ? "bg-sky-500/15 text-sky-400" : "bg-muted text-muted-foreground")}>{t("kind." + kind)}</span>)}
                   {childCount > 0 && <span className="shrink-0 text-[10px] tabular-nums text-muted-foreground">{childCount}</span>}
                 </div>
               </TableCell>
@@ -587,7 +625,7 @@ function SessionTableInner({
                         : t("action.syncToCloud")}
                     </DropdownMenuItem>
                     <DropdownMenuSeparator />
-                    <DropdownMenuItem disabled={!s.registered} title={apiReason} destructive onSelect={() => onDelete(s)}>
+                    <DropdownMenuItem disabled={!s.registered || !canDelete} title={!canDelete ? t("delete.snapshotRequired") : apiReason} destructive onSelect={() => onDelete(s)}>
                       {t("action.delete")}
                     </DropdownMenuItem>
                   </DropdownMenuContent>
@@ -598,6 +636,8 @@ function SessionTableInner({
         })}
       </TableBody>
     </Table>
+      </div>
+    </div>
   );
 }
 

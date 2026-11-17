@@ -3,6 +3,7 @@ import assert from "node:assert/strict";
 import {readFileSync} from "node:fs";
 import test from "node:test";
 import ts from "typescript";
+import { session, snapshot } from "./helpers/frontendHarness.mjs";
 
 export function harness(file, gateway, params, modules={}, runEffects=false) {
   const slots=[]; let cursor=0;
@@ -27,38 +28,34 @@ export function harness(file, gateway, params, modules={}, runEffects=false) {
 test("refresh failure keeps the old list and clears its banner only after success",async()=>{
   let fail=false;
   const render=harness("../src/application/useSessionData.ts",{
-    listSessions:async()=>{if(fail)throw Error("API unavailable");return [{sessionId:"kept"}];},
+    listSessions:async()=>{if(fail)throw Error("API unavailable");return snapshot([session("kept")]);},
     getConfig:async()=>({sessions:{},settings:{}}),
   });
   await render().refresh(); fail=true; await render().refresh();
-  assert.deepEqual(render().sessions,[{sessionId:"kept"}]);
+  assert.deepEqual(render().sessions,[session("kept")]);
   assert.match(render().refreshError,/API unavailable/);
   fail=false;await render().refresh();assert.equal(render().refreshError,null);
 });
 
-test("hidden registered records remain raw and reachable through the visibility toggle",()=>{
-  const sessions=[{sessionId:"visible",registered:true,hidden:false,storageType:"local-only"},
-    {sessionId:"hidden",registered:true,hidden:true,storageType:"local-only"},
-    {sessionId:"extra",registered:false,hidden:false,storageType:"local-only"}];
+test("all kinds remain visible without a visibility toggle",()=>{
+  const sessions=[session("visible"),session("guardian",null,{sessionKind:"guardian"}),session("extra",null,{registered:false})];
   const render=harness("../src/application/useSessionManager.ts",{},undefined,{
     "@/i18n":{createT:()=>key=>key},
-    "@/application/useSessionData":{useSessionData:()=>({sessions,refreshError:"failed"})},
-    "@/application/useSessionSelection":{useSessionSelection:()=>({})},
+    "@/application/useSessionData":{useSessionData:()=>({sessions,refreshError:"failed",canDelete:false,canDeleteNow:()=>false})},
+    "@/application/useSessionSelection":{useSessionSelection:()=>({selectedForDeleteIds:new Set()})},
     "@/application/useSessionCommands":{useSessionCommands:()=>({})},
     "@/application/useSettingsActions":{useSettingsActions:()=>({})},
-    "@/lib/sessionTableState":{filterSessionsWithAncestors:items=>items},
+    "@/lib/sessionTableState":{filterSessionsWithAncestors:items=>items,buildSessionTreeRows:items=>items.map(session=>({session,depth:0,childCount:0,parentMissing:false}))},
   });
   assert.equal(render().localCount,2);assert.equal(render().refreshError,"failed");
-  assert.deepEqual(render().filtered.map(s=>s.sessionId),["visible","extra"]);
-  render().setShowHidden(true);
-  assert.equal(render().filtered.length,3);assert.equal(sessions.length,3);
+  assert.deepEqual(render().filtered.map(s=>s.sessionId),["visible","guardian","extra"]);
 });
 
-const record=sessionId=>({sessionId,registered:true,storageType:"local-only"});
+const record=sessionId=>session(sessionId);
 function commands(gateway, refresh=async()=>{}) {
   let selectedId="parent";let selected=new Set(["parent","child","uncertain"]);
   const render=harness("../src/application/useSessionCommands.ts",gateway,{
-    refresh,setSessions(){},setSelectedId(fn){selectedId=fn(selectedId);},
+    canDeleteNow:()=>true,refresh,setSessions(){},setSelectedId(fn){selectedId=fn(selectedId);},
     setSelectedForDeleteIds(fn){selected=fn(selected);},selectedForDelete:[record("parent")],
   });
   return {render,selection:()=>({selectedId,selected})};
@@ -127,7 +124,7 @@ test("successful deletion with a cleanup warning can be rechecked after its row 
       return [{sessionId:"parent",status:calls.filter(call=>call[0]==="delete").length===1?"deleted":"alreadyMissing",error:null,
         warning:calls.filter(call=>call[0]==="delete").length===1?"metadata cleanup failed":null}];
     },
-  },{refresh:async()=>{selected=[];calls.push(["refresh"]);},setSessions(){},setSelectedId(){},setSelectedForDeleteIds(){},
+  },{canDeleteNow:()=>true,refresh:async()=>{selected=[];calls.push(["refresh"]);},setSessions(){},setSelectedId(){},setSelectedForDeleteIds(){},
     get selectedForDelete(){return selected;}});
   await render().handleBulkDelete();await render().confirmDelete();
   assert.equal(selected.length,0,"the deleted row no longer exists in the refreshed list");

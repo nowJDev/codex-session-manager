@@ -1,4 +1,13 @@
 // 세션과 설정 및 삭제 API의 프런트엔드 계약을 정의한다.
+export type SessionKind = "main" | "worker" | "guardian" | "otherInternal" | "unknown";
+
+export interface SessionSnapshot {
+  sessions: Session[];
+  complete: boolean;
+  missingCount: number;
+  errors: string[];
+}
+
 export interface Session {
   sessionId: string;
   parentId: string | null;
@@ -14,7 +23,8 @@ export interface Session {
   preview: string | null;
   historyMode: string;
   registered: boolean;
-  hidden: boolean;
+  sessionKind: SessionKind;
+  isSummaryRun: boolean;
   totalLines: number;
   firstTimestamp: string | null;
   lastTimestamp: string | null;
@@ -61,7 +71,7 @@ export interface Settings {
   customTerminalArgs?: string | null;
   extraProjectDirs?: string[] | null;
   wslAutoDetect?: boolean | null;
-  /** 스캔에서 제외할 경로/폴더명 substring 목록. 매치되는 프로젝트는 전부 스킵. */
+  /** 자동요약 제외 정책과 과거 설정 호환을 위해 보존하는 경로 목록. */
   excludedScanPaths?: string[] | null;
 }
 

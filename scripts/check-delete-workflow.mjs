@@ -39,6 +39,7 @@ async function setup(deleteSessions, refresh = async () => {}) {
     alert: () => assert.fail("Deletion must not open a blocking alert"),
   });
   const params = {
+    canDeleteNow: () => true,
     refresh: async () => { refreshCount++; await refresh(); },
     setSessions() {},
     setSelectedId: (update) => { selectedId = update(selectedId); },

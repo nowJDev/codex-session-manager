@@ -8,13 +8,14 @@ import type {
   EnvironmentReport,
   CodexStatus,
   Session,
+  SessionSnapshot,
   SessionMeta,
   Settings,
   UpdateInfo,
 } from "@/types";
 
 export const ipc = {
-  listSessions: () => invoke<Session[]>("list_sessions"),
+  listSessions: () => invoke<SessionSnapshot>("list_sessions"),
   getConfig: () => invoke<AppConfig>("get_config_cmd"),
   saveSessionMeta: (sessionId: string, patch: SessionMeta) =>
     invoke<void>("save_session_meta", { sessionId, patch }),

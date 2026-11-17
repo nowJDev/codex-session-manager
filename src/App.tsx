@@ -15,8 +15,16 @@ function App() {
     t,
     query,
     setQuery,
-    showHidden,
-    setShowHidden,
+    handleVisibleRowsChange,
+    displayedCount,
+    visibleSelectedCount,
+    workerCount,
+    total,
+    selectedDepth,
+    selectedParentMissing,
+    canDelete,
+    snapshotStale,
+    missingCount,
     loading,
     refreshError,
     locale,
@@ -87,7 +95,7 @@ function App() {
         <div className="flex flex-col">
           <h1 className="text-base font-semibold leading-tight">{t("app.title")}</h1>
           <p className="text-[11px] text-muted-foreground">
-            {t("list.counts", { registered: localCount, displayed: filtered.length, selected: selectedForDeleteCount })} · cloud {cloudCount}
+            {loading ? t("list.scanning") : t("list.counts", { total, workers: workerCount, registered: localCount, displayed: displayedCount, selected: selectedForDeleteCount, selectedVisible: visibleSelectedCount })} · cloud {cloudCount}
           </p>
         </div>
         <div className="relative ml-6 flex-1 max-w-md">
@@ -99,17 +107,13 @@ function App() {
             className="pl-8"
           />
         </div>
-        <label className="flex shrink-0 items-center gap-1.5 text-xs text-muted-foreground">
-          <input type="checkbox" checked={showHidden} onChange={(e) => setShowHidden(e.currentTarget.checked)} />
-          {t("list.showHidden")}
-        </label>
         <div className="flex items-center gap-1.5">
           {selectedForDeleteCount > 0 && (
             <Button
               variant="destructive"
               size="sm"
               onClick={handleBulkDelete}
-              disabled={deleting || preparingDelete}
+              disabled={deleting || preparingDelete || !canDelete}
               title={t("action.deleteSelected", { count: selectedForDeleteCount })}
             >
               <Trash2 className="h-4 w-4" />
@@ -136,7 +140,8 @@ function App() {
         </div>
       </header>
 
-      {refreshError && <p role="alert" className="border-b border-destructive/40 bg-destructive/10 px-5 py-2 text-sm text-destructive">{t("error.refreshFailed", { error: refreshError })}</p>}
+      {refreshError && <p role="alert" className="border-b border-destructive/40 bg-destructive/10 px-5 py-2 text-sm text-destructive">{t(snapshotStale ? "warning.staleSnapshot" : "warning.partialSnapshot", { error: refreshError, missing: missingCount })}</p>}
+      {loading && <p role="status" className="border-b border-border px-5 py-2 text-sm">{t("list.scanning")}</p>}
       {preparingDelete && <p role="status" className="border-b border-border px-5 py-2 text-sm">{t("delete.preparing")}</p>}
 
       {deleteReport && (
@@ -154,7 +159,7 @@ function App() {
             </p>
             <div className="flex shrink-0 gap-2">
               {deleteReport.results.some((result) => result.status === "failed" || result.status === "unconfirmed" || result.warning) && (
-                <Button variant="outline" size="sm" disabled={deleting || preparingDelete} onClick={handleRetryFailedDelete}>
+                <Button variant="outline" size="sm" disabled={deleting || preparingDelete || !canDelete} onClick={handleRetryFailedDelete}>
                   {t("delete.retryFailed")}
                 </Button>
               )}
@@ -183,10 +188,12 @@ function App() {
       )}
 
       <main className="flex flex-1 overflow-hidden">
-        <section className="min-w-0 flex-1 overflow-auto">
+        <section className="min-w-0 flex-1 overflow-hidden">
           <SessionTable
             sessions={filtered}
-            autoExpand={!!query.trim()}
+            query={query}
+            canDelete={canDelete}
+            onVisibleRowsChange={handleVisibleRowsChange}
             selectedId={selectedId}
             locale={locale}
             t={t}
@@ -207,6 +214,8 @@ function App() {
         <aside className="w-[380px] shrink-0 border-l border-border/60 bg-card/30">
           <SessionDetail
             session={selected}
+            depth={selectedDepth}
+            parentMissing={selectedParentMissing}
             locale={locale}
             t={t}
             codexStatus={codexStatus}
@@ -255,6 +264,7 @@ function App() {
         open={pendingDelete !== null}
         count={pendingDelete?.sessions.length ?? 0}
         pending={deleting}
+        canDelete={canDelete}
         title={
           pendingDelete?.sessions.length === 1
             ? t("delete.titleSingle")

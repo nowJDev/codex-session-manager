@@ -4,7 +4,6 @@
     "version": "v{version}"
   },
   "list": {
-    "subagent": "sub",
     "name": "Name",
     "description": "Description",
     "project": "Project",
@@ -15,14 +14,15 @@
     "id": "ID",
     "noName": "(no name)",
     "noSessions": "No sessions found.",
-    "scanning": "Scanning sessions...",
+    "scanning": "Loading sessions and child tasks…",
     "total": "{count} session(s) found",
     "synced": "synced",
     "cloudOnly": "cloud only",
     "localOnly": "local",
     "archived": "archived",
-    "showHidden": "Include hidden sessions",
-    "counts": "Registered local {registered} · Displayed {displayed} · Selected {selected}"
+    "counts": "Total {total} · Workers {workers} · Displayed {displayed} · Selected {selected}, visible {selectedVisible}",
+    "parentMissing": "Parent session not found",
+    "branchActivity": "Sort by the latest activity in each branch, including descendants. Each row shows its own activity."
   },
   "action": {
     "expandChildren": "Expand {count} child sessions of {name}",
@@ -51,7 +51,9 @@
     "selectVisible": "Select currently visible registered sessions",
     "deselectVisible": "Deselect currently visible registered sessions",
     "registeredRequired": "Available for sessions registered with Codex.",
-    "legacyRequired": "Requires a legacy JSONL file containing the complete history."
+    "legacyRequired": "Requires a legacy JSONL file containing the complete history.",
+    "expandAll": "Expand all",
+    "collapseAll": "Collapse all"
   },
   "prompt": {
     "enterName": "Enter session name:",
@@ -118,7 +120,9 @@
   },
   "warning": {
     "codexCliMissing": "Codex CLI not found on PATH. Resume actions won't work.",
-    "codexCliInstall": "Install guide"
+    "codexCliInstall": "Install guide",
+    "partialSnapshot": "Some sessions could not be loaded. Missing {missing}. Deletion is disabled until a complete refresh. {error}",
+    "staleSnapshot": "Refresh failed. Showing the previous complete list. Missing {missing}. Deletion is disabled until a successful refresh. {error}"
   },
   "status": {
     "title": "Codex status",
@@ -148,10 +152,21 @@
     "preparing": "Checking deletion scope...",
     "prepareFailed": "Could not confirm deletion scope. No delete request was sent.",
     "scope": "Selected {selected} · Total affected {affected} · Additional descendants {descendants}. Local Codex registration and history will be deleted. Cloud copies are preserved.",
-    "warning": "Cleanup warning"
+    "warning": "Cleanup warning",
+    "snapshotRequired": "Refresh a complete session list before deleting."
   },
   "detail": {
     "preview": "Preview",
-    "firstMessage": "First user message"
+    "firstMessage": "First user message",
+    "parent": "Direct parent session",
+    "depth": "Tree depth"
+  },
+  "kind": {
+    "main": "Main",
+    "worker": "Worker",
+    "guardian": "Guardian",
+    "otherInternal": "Other internal",
+    "unknown": "Unknown",
+    "summary": "Summary run"
   }
 }

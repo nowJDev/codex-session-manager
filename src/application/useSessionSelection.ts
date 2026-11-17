@@ -1,10 +1,21 @@
 // 세션 선택과 다중 선택 파생 상태를 관리한다.
-import { useMemo, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import type { Session } from "@/types";
 
-export function useSessionSelection(sessions: Session[]) {
+export function useSessionSelection(sessions: Session[], authoritative = false) {
   const [selectedId, setSelectedId] = useState<string | null>(null);
   const [selectedForDeleteIds, setSelectedForDeleteIds] = useState<Set<string>>(() => new Set());
+
+  useEffect(() => {
+    if (!authoritative) return;
+    const existing = new Set(sessions.map((s) => s.sessionId));
+    const registered = new Set(sessions.filter((s) => s.registered).map((s) => s.sessionId));
+    setSelectedId((current) => current && !existing.has(current) ? null : current);
+    setSelectedForDeleteIds((current) => {
+      const next = new Set([...current].filter((id) => registered.has(id)));
+      return next.size === current.size ? current : next;
+    });
+  }, [sessions, authoritative]);
 
   const selected = useMemo(
     () => sessions.find((s) => s.sessionId === selectedId) || null,
@@ -50,7 +61,7 @@ export function useSessionSelection(sessions: Session[]) {
     selectedForDeleteIds,
     setSelectedForDeleteIds,
     selectedForDelete,
-    selectedForDeleteCount: selectedForDelete.length,
+    selectedForDeleteCount: selectedForDeleteIds.size,
     handleToggleSelected,
     handleToggleVisibleSelection,
   };

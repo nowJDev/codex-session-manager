@@ -14,6 +14,7 @@ interface Props {
   open: boolean;
   count: number;
   pending: boolean;
+  canDelete: boolean;
   title: string;
   description: string;
   confirmLabel: string;
@@ -27,6 +28,7 @@ export function DeleteConfirmDialog({
   open,
   count,
   pending,
+  canDelete,
   title,
   description,
   confirmLabel,
@@ -61,7 +63,7 @@ export function DeleteConfirmDialog({
           <Button variant="outline" onClick={onCancel} disabled={pending}>
             {cancelLabel}
           </Button>
-          <Button variant="destructive" onClick={onConfirm} disabled={pending || count === 0}>
+          <Button variant="destructive" onClick={onConfirm} disabled={pending || count === 0 || !canDelete}>
             {pending ? <Loader2 className="h-4 w-4 animate-spin" /> : <Trash2 className="h-4 w-4" />}
             {confirmLabel}
           </Button>

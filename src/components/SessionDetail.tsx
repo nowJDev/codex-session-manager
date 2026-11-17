@@ -2,13 +2,15 @@
 import { Archive, Cloud, HardDrive, Play } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { CodexStatusPanel } from "@/components/CodexStatusPanel";
-import { isAutoSummaryStatus } from "@/lib/sessionDisplay";
+import { isAutoSummaryStatus, sessionName, sessionKindLabels } from "@/lib/sessionDisplay";
 import { formatBytes, formatRelativeTime } from "@/lib/utils";
 import type { CodexStatus, Session } from "@/types";
 import type { Locale } from "@/i18n";
 
 interface Props {
   session: Session | null;
+  depth: number;
+  parentMissing: boolean;
   locale: Locale;
   t: (k: string, p?: Record<string, string | number>) => string;
   codexStatus: CodexStatus | null;
@@ -20,6 +22,8 @@ interface Props {
 
 export function SessionDetail({
   session,
+  depth,
+  parentMissing,
   locale,
   t,
   codexStatus,
@@ -72,7 +76,7 @@ export function SessionDetail({
               )}
             </div>
             <h2 className="break-words text-xl font-semibold">
-              {session.name || <span className="font-mono text-muted-foreground">{session.sessionId.slice(0, 12)}</span>}
+              {sessionName(session, t)}
             </h2>
             {session.name && (
               <p className="mt-0.5 break-all font-mono text-xs text-muted-foreground/70">{session.sessionId}</p>
@@ -85,6 +89,10 @@ export function SessionDetail({
           </Button>
 
           <div className="min-w-0 space-y-3 rounded-lg border border-border/60 bg-card/60 p-4 text-sm">
+            <div className="flex flex-wrap gap-1">{sessionKindLabels(session).map((kind) => <span key={kind} className="rounded bg-muted px-2 py-1 text-xs">{t("kind." + kind)}</span>)}</div>
+            <Field label={t("detail.parent")} value={session.parentId || "—"} mono />
+            <Field label={t("detail.depth")} value={String(depth)} />
+            {parentMissing && <p className="text-xs text-amber-500">{t("list.parentMissing")}</p>}
             {session.description && (
               <Field label={t("list.description")} value={session.description} />
             )}

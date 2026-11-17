@@ -1,7 +1,8 @@
 // 세션 관리 화면의 application hook들을 조립한다.
-import { useMemo, useState } from "react";
+import { useCallback, useMemo, useState } from "react";
 import { createT } from "@/i18n";
-import { filterSessionsWithAncestors } from "@/lib/sessionTableState";
+import { buildSessionTreeRows, filterSessionsWithAncestors } from "@/lib/sessionTableState";
+import type { Session } from "@/types";
 import { useSessionCommands } from "@/application/useSessionCommands";
 import { useSessionData } from "@/application/useSessionData";
 import { useSessionSelection } from "@/application/useSessionSelection";
@@ -9,13 +10,15 @@ import { useSettingsActions } from "@/application/useSettingsActions";
 
 export function useSessionManager() {
   const [query, setQuery] = useState("");
-  const [showHidden, setShowHidden] = useState(false);
+  const [visibleSessions, setVisibleSessions] = useState<Session[]>([]);
+  const handleVisibleRowsChange = useCallback((rows: Session[]) => setVisibleSessions(rows), []);
   const [settingsOpen, setSettingsOpen] = useState(false);
   const data = useSessionData();
-  const selection = useSessionSelection(data.sessions);
+  const selection = useSessionSelection(data.sessions, data.canDelete);
   const settingsActions = useSettingsActions();
   const commands = useSessionCommands({
     refresh: data.refresh,
+    canDeleteNow: data.canDeleteNow,
     setSessions: data.setSessions,
     setSelectedId: selection.setSelectedId,
     setSelectedForDeleteIds: selection.setSelectedForDeleteIds,
@@ -25,11 +28,15 @@ export function useSessionManager() {
   const t = useMemo(() => createT(data.locale), [data.locale]);
 
   const filtered = useMemo(
-    () => filterSessionsWithAncestors(data.sessions.filter((session) => showHidden || !session.hidden), query),
-    [data.sessions, query, showHidden],
+    () => filterSessionsWithAncestors(data.sessions, query),
+    [data.sessions, query],
   );
 
+  const allRows = useMemo(() => buildSessionTreeRows(data.sessions, new Set(data.sessions.map((s) => s.sessionId))), [data.sessions]);
+  const selectedRow = allRows.find((row) => row.session.sessionId === selection.selectedId);
   const total = data.sessions.length;
+  const workerCount = data.sessions.filter((s) => s.sessionKind === "worker").length;
+  const visibleSelectedCount = visibleSessions.filter((s) => s.registered && selection.selectedForDeleteIds.has(s.sessionId)).length;
   const localCount = data.sessions.filter(
     (s) => s.registered,
   ).length;
@@ -41,8 +48,15 @@ export function useSessionManager() {
     t,
     query,
     setQuery,
-    showHidden,
-    setShowHidden,
+    handleVisibleRowsChange,
+    displayedCount: visibleSessions.length,
+    visibleSelectedCount,
+    workerCount,
+    selectedDepth: selectedRow?.depth ?? 0,
+    selectedParentMissing: selectedRow?.parentMissing ?? false,
+    canDelete: data.canDelete,
+    snapshotStale: data.snapshotStale,
+    missingCount: data.missingCount,
     loading: data.loading,
     refreshError: data.refreshError,
     locale: data.locale,

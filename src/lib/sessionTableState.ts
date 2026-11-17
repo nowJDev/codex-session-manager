@@ -1,6 +1,6 @@
 // 세션 테이블의 정렬과 컬럼 폭 상태를 저장하고 계산한다.
 import type { Session } from "@/types";
-import { sessionDescriptionText } from "@/lib/sessionDisplay";
+import { sessionDescriptionText, sessionKindLabels } from "@/lib/sessionDisplay";
 
 export type ColKey =
   | "select"
@@ -144,46 +144,81 @@ export interface SessionTreeRow {
   session: Session;
   depth: number;
   childCount: number;
+  parentMissing: boolean;
 }
 
 export function buildSessionTreeRows(
-  sortedSessions: Session[],
+  sessions: Session[],
   expandedIds: ReadonlySet<string>,
+  sort?: SortState,
 ): SessionTreeRow[] {
-  const byId = new Map(sortedSessions.map((session) => [session.sessionId, session]));
-  const children = new Map<string, Session[]>();
-  const roots: Session[] = [];
-  for (const session of sortedSessions) {
-    const parentId = session.isSubagent ? session.parentId : null;
-    if (parentId && parentId !== session.sessionId && byId.has(parentId)) {
-      const siblings = children.get(parentId) ?? [];
-      siblings.push(session);
-      children.set(parentId, siblings);
-    } else {
-      roots.push(session);
+  const byId = new Map(sessions.map((session) => [session.sessionId, session]));
+  const parents = new Map<string, string>();
+  for (const session of byId.values()) {
+    if (session.parentId && session.parentId !== session.sessionId && byId.has(session.parentId)) {
+      parents.set(session.sessionId, session.parentId);
     }
   }
-
-  const rows: SessionTreeRow[] = [];
-  const visited = new Set<string>();
-  // 접힌 자손도 방문하여 순환 관계의 대체 루트 처리에서 다시 노출하지 않는다.
-  for (const root of [...roots, ...sortedSessions]) {
-    if (visited.has(root.sessionId)) continue;
-    const stack = [{ session: root, depth: 0, visible: true }];
+  // 순환 간선만 표시 계산에서 끊고 원본 직접 부모 ID는 보존한다.
+  const checked = new Set<string>();
+  for (const id of byId.keys()) {
+    const path = new Set<string>();
+    let current: string | undefined = id;
+    while (current && !checked.has(current)) {
+      if (path.has(current)) { parents.delete(current); break; }
+      path.add(current);
+      current = parents.get(current);
+    }
+    for (const visited of path) checked.add(visited);
+  }
+  const children = new Map<string, Session[]>();
+  const roots: Session[] = [];
+  for (const session of byId.values()) {
+    const parent = parents.get(session.sessionId);
+    if (parent) {
+      const siblings = children.get(parent) ?? [];
+      siblings.push(session);
+      children.set(parent, siblings);
+    } else roots.push(session);
+  }
+  const activity = new Map<string, string>();
+  if (sort?.key === "lastActive") {
+    const traversal: Session[] = [];
+    const stack = [...roots];
     while (stack.length) {
-      const { session, depth, visible } = stack.pop()!;
-      if (visited.has(session.sessionId)) continue;
-      visited.add(session.sessionId);
-      const descendants = (children.get(session.sessionId) ?? [])
-        .filter((child) => !visited.has(child.sessionId));
-      if (visible) rows.push({ session, depth, childCount: descendants.length });
-      for (let i = descendants.length - 1; i >= 0; i--) {
-        stack.push({
-          session: descendants[i],
-          depth: depth + 1,
-          visible: visible && expandedIds.has(session.sessionId),
-        });
+      const session = stack.pop()!;
+      traversal.push(session);
+      stack.push(...children.get(session.sessionId) ?? []);
+    }
+    for (let i = traversal.length - 1; i >= 0; i--) {
+      const session = traversal[i];
+      let latest = session.lastTimestamp ?? "";
+      for (const child of children.get(session.sessionId) ?? []) {
+        const stamp = activity.get(child.sessionId) ?? "";
+        if (stamp > latest) latest = stamp;
       }
+      activity.set(session.sessionId, latest);
+    }
+  }
+  if (sort) {
+    const compare = (a: Session, b: Session) => compareSessions(
+      sort.key === "lastActive" ? { ...a, lastTimestamp: activity.get(a.sessionId) ?? null } : a,
+      sort.key === "lastActive" ? { ...b, lastTimestamp: activity.get(b.sessionId) ?? null } : b,
+      sort,
+    );
+    roots.sort(compare);
+    for (const siblings of children.values()) siblings.sort(compare);
+  }
+  const rows: SessionTreeRow[] = [];
+  const stack = roots.slice().reverse().map((session) => ({ session, depth: 0, visible: true }));
+  while (stack.length) {
+    const { session, depth, visible } = stack.pop()!;
+    const descendants = children.get(session.sessionId) ?? [];
+    if (visible) rows.push({ session, depth, childCount: descendants.length,
+      parentMissing: !!session.parentId && !byId.has(session.parentId) });
+    for (let i = descendants.length - 1; i >= 0; i--) {
+      stack.push({ session: descendants[i], depth: depth + 1,
+        visible: visible && expandedIds.has(session.sessionId) });
     }
   }
   return rows;
@@ -196,13 +231,15 @@ export function filterSessionsWithAncestors(sessions: Session[], query: string):
   const included = new Set<string>();
   for (const session of sessions) {
     const text = [session.name, session.description, session.autoSummary, session.project,
-      session.sessionId, session.firstUserMessage, session.preview, session.agentNickname]
+      session.sessionId, session.firstUserMessage, session.preview, session.agentNickname,
+      ...sessionKindLabels(session),
+      ...sessionKindLabels(session).map((kind) => ({ main: "Main 일반", worker: "Worker 작업 서브 작업자", guardian: "Guardian", otherInternal: "Other internal 기타 내부", unknown: "Unknown 알 수 없음", summary: "Summary run 자동요약 자동 요약" })[kind])]
       .filter(Boolean).join(" ").toLowerCase();
     if (!text.includes(q)) continue;
     let ancestor: Session | undefined = session;
     while (ancestor && !included.has(ancestor.sessionId)) {
       included.add(ancestor.sessionId);
-      ancestor = ancestor.isSubagent && ancestor.parentId ? byId.get(ancestor.parentId) : undefined;
+      ancestor = ancestor.parentId ? byId.get(ancestor.parentId) : undefined;
     }
   }
   return sessions.filter((session) => included.has(session.sessionId));

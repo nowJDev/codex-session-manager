@@ -8,6 +8,7 @@ type PendingDelete = { sessions: DeleteSessionTarget[]; affectedIds: string[] } 
 
 interface UseSessionCommandsParams {
   refresh: () => Promise<void>;
+  canDeleteNow: () => boolean;
   setSessions: Dispatch<SetStateAction<Session[]>>;
   setSelectedId: Dispatch<SetStateAction<string | null>>;
   setSelectedForDeleteIds: Dispatch<SetStateAction<Set<string>>>;
@@ -16,11 +17,15 @@ interface UseSessionCommandsParams {
 
 export function useSessionCommands({
   refresh,
+  canDeleteNow,
   setSessions,
   setSelectedId,
   setSelectedForDeleteIds,
   selectedForDelete,
 }: UseSessionCommandsParams) {
+  const deletionGate = useRef(canDeleteNow);
+  deletionGate.current = canDeleteNow;
+  const deletionBlocked = () => !deletionGate.current();
   const [editMode, setEditMode] = useState<EditMode>(null);
   const [editTarget, setEditTarget] = useState<Session | null>(null);
   const [pendingDelete, setPendingDelete] = useState<PendingDelete>(null);
@@ -49,14 +54,16 @@ export function useSessionCommands({
   }
 
   async function prepareDelete(targets: DeleteSessionTarget[], refreshFirst = false) {
-    if (targets.length === 0 || deletingRef.current) return;
+    if (targets.length === 0 || deletingRef.current || deletionBlocked()) return;
     deletingRef.current = true;
     setPreparingDelete(true);
     setPendingDelete(null);
     setDeleteReport(null);
     try {
       if (refreshFirst) await refresh();
+      if (deletionBlocked()) return;
       const plan = await tauriGateway.prepareSessionDeletion(targets);
+      if (deletionBlocked()) return;
       setPendingDelete({ sessions: plan.targets, affectedIds: plan.affectedIds });
     } catch (err) {
       console.error(err);
@@ -85,7 +92,7 @@ export function useSessionCommands({
 
   async function confirmDelete() {
     const targets = pendingDelete?.sessions ?? [];
-    if (targets.length === 0 || deletingRef.current) return;
+    if (targets.length === 0 || deletingRef.current || deletionBlocked()) return;
     deletingRef.current = true;
     setDeleting(true);
     setDeleteReport(null);

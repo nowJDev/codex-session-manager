@@ -13,6 +13,10 @@ export function useSessionData() {
   const [codexStatus, setCodexStatus] = useState<CodexStatus | null>(null);
   const [codexStatusLoading, setCodexStatusLoading] = useState(false);
   const [refreshError, setRefreshError] = useState<string | null>(null);
+  const [snapshotInfo, setSnapshotInfo] = useState({ complete: false, stale: false, missingCount: 0 });
+  const hasCompleteSnapshot = useRef(false);
+  const deletionAllowed = useRef(false);
+  const canDeleteNow = useCallback(() => deletionAllowed.current, []);
   const refreshInFlight = useRef<Promise<void> | null>(null);
   const refreshQueued = useRef(false);
 
@@ -28,6 +32,7 @@ export function useSessionData() {
   }, []);
 
   const refresh = useCallback(() => {
+    deletionAllowed.current = false;
     refreshQueued.current = true;
     if (refreshInFlight.current) return refreshInFlight.current;
     setLoading(true);
@@ -41,14 +46,21 @@ export function useSessionData() {
               tauriGateway.getConfig(),
             ]);
             if (refreshQueued.current) continue;
-            setSessions(list);
-            setRefreshError(null);
+            if (list.complete || !hasCompleteSnapshot.current) setSessions(list.sessions);
+            setSnapshotInfo({ complete: list.complete, stale: !list.complete && hasCompleteSnapshot.current, missingCount: list.missingCount });
+            deletionAllowed.current = list.complete;
+            if (list.complete) hasCompleteSnapshot.current = true;
+            setRefreshError(list.complete ? null : list.errors.join("\n") || "Session snapshot incomplete");
             setConfig(cfg);
             const savedLocale = cfg.settings.locale;
             if (savedLocale === "en" || savedLocale === "ko") setLocale(savedLocale);
           } catch (err) {
             console.error(err);
-            if (!refreshQueued.current) setRefreshError(String(err));
+            if (!refreshQueued.current) {
+              deletionAllowed.current = false;
+              setSnapshotInfo((previous) => ({ ...previous, complete: false, stale: hasCompleteSnapshot.current }));
+              setRefreshError(String(err));
+            }
           }
         }
       } finally {
@@ -85,6 +97,11 @@ export function useSessionData() {
     setSessions,
     loading,
     refreshError,
+    snapshotComplete: snapshotInfo.complete,
+    snapshotStale: snapshotInfo.stale,
+    missingCount: snapshotInfo.missingCount,
+    canDelete: snapshotInfo.complete && !snapshotInfo.stale && !loading,
+    canDeleteNow,
     config,
     locale,
     codexCliMissing,

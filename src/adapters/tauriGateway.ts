@@ -15,6 +15,7 @@ import type {
   DeletionPlan,
   EnvironmentReport,
   Session,
+  SessionSnapshot,
   SessionMeta,
   Settings,
   UpdateInfo,
@@ -46,7 +47,7 @@ async function checkInstallerUpdate(): Promise<InstallerUpdate | null> {
 }
 
 export const tauriGateway = {
-  listSessions: (): Promise<Session[]> => ipc.listSessions(),
+  listSessions: (): Promise<SessionSnapshot> => ipc.listSessions(),
   getConfig: (): Promise<AppConfig> => ipc.getConfig(),
   saveSessionMeta: (sessionId: string, patch: SessionMeta): Promise<void> =>
     ipc.saveSessionMeta(sessionId, patch),

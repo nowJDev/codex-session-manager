@@ -3,6 +3,7 @@ import assert from "node:assert/strict";
 import { readFileSync } from "node:fs";
 import test from "node:test";
 import ts from "typescript";
+import { session, snapshot } from "./helpers/frontendHarness.mjs";
 
 test("overlapping refreshes share work and discard outdated results", async () => {
   const states = [];
@@ -39,19 +40,19 @@ test("overlapping refreshes share work and discard outdated results", async () =
   const second = refresh();
   const third = refresh();
   assert.equal(requests.length, 1, "concurrent requests must not start concurrent scans");
-  requests[0]([{ sessionId: "outdated" }]);
+  requests[0](snapshot([session("outdated")]));
   await new Promise(setImmediate);
   assert.deepEqual(states[0], [], "a superseded scan must not replace displayed sessions");
   assert.equal(states[1], true, "loading must remain active for the queued scan");
   assert.equal(requests.length, 2, "overlapping requests must coalesce into one follow-up scan");
-  requests[1]([{ sessionId: "latest" }]);
+  requests[1](snapshot([session("latest")]));
   await Promise.all([first, second, third]);
-  assert.deepEqual(states[0], [{ sessionId: "latest" }]);
+  assert.deepEqual(states[0], [session("latest")]);
   assert.equal(states[1], false);
 
   const later = refresh();
   await Promise.resolve();
   assert.equal(requests.length, 3, "a completed refresh must allow new scans");
-  requests[2]([]);
+  requests[2](snapshot([]));
   await later;
 });

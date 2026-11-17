@@ -19,3 +19,13 @@ export function sessionDescriptionText(session: Session): string {
   if (!isAutoSummaryStatus(session.autoSummary)) return session.autoSummary ?? "";
   return session.firstUserMessage ?? "";
 }
+
+
+export function sessionKindLabels(session: Session): string[] {
+  return [session.sessionKind ?? "unknown", ...(session.isSummaryRun ? ["summary"] : [])];
+}
+
+export function sessionName(session: Session, t: (key: string) => string): string {
+  return session.name || session.agentNickname || session.preview ||
+    (t("kind." + (session.isSummaryRun ? "summary" : session.sessionKind ?? "unknown")) + " · " + session.sessionId.slice(0, 8));
+}
