@@ -140,7 +140,15 @@ function App() {
         </div>
       </header>
 
-      {refreshError && <p role="alert" className="border-b border-destructive/40 bg-destructive/10 px-5 py-2 text-sm text-destructive">{t(snapshotStale ? "warning.staleSnapshot" : "warning.partialSnapshot", { error: refreshError, missing: missingCount })}</p>}
+      {refreshError && (
+        <p
+          role="alert"
+          tabIndex={0}
+          className="max-h-[25vh] shrink-0 overflow-auto whitespace-pre-wrap break-words border-b border-destructive/40 bg-destructive/10 px-5 py-2 text-sm text-destructive focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-ring"
+        >
+          {t(snapshotStale ? "warning.staleSnapshot" : "warning.partialSnapshot", { error: refreshError, missing: missingCount })}
+        </p>
+      )}
       {loading && <p role="status" className="border-b border-border px-5 py-2 text-sm">{t("list.scanning")}</p>}
       {preparingDelete && <p role="status" className="border-b border-border px-5 py-2 text-sm">{t("delete.preparing")}</p>}
 
