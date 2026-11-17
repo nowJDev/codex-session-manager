@@ -21,3 +21,5 @@ Windows 읽기 전용 임시 파일 정리는 소유 경계·기존 OS 오류 �
 이전 v0.5.12 공개 릴리스 발행과 자산 해시·updater 서명·바로가기 갱신·main 통합·정리 기록은 `superpowers/plans/2026-11-02-v0.5.12-release.md`와 `release-qa.md`에 보존한다. 이 기록은 이번 작업에서 원격 최신 상태를 다시 조회했다는 의미가 아니다. 이전 API 검증과 한계는 `reviews/2026-11-02-paginated-sessions.md`를 따른다.
 
 README의 제품 소개형 구조, 공개 다운로드 링크와 v0.5.12 샘플 화면은 유지했다. 이번 변경의 전체 표시·완전성·호환 범위만 갱신했으며 이전 README 화면 검증 기록은 `reviews/2026-11-02-readme.md`에 보존한다.
+
+2026-11-17 후속 요청으로 전체 커밋의 origin/main 반영을 승인받았다. fetch·prune 후 로컬 main은 원격보다 9커밋 앞서고 뒤처진 커밋·추가 병합 대상은 없었다. 중간 debug 산출물 약 5.27GiB와 빈 임시 디렉터리·Cargo 캐시 메타데이터를 정리했다. 현재 바로가기가 참조하는 0.5.13 release GUI·CLI·리소스와 node_modules는 보존하고 실행 파일 해시·PE 버전을 재확인했다. 상세 경계와 근거는 `reviews/2026-11-17-full-session-tree.md`의 후속 정리 기록을 따른다.
