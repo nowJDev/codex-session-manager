@@ -24,7 +24,7 @@ All notable changes to this project are documented here.
 - Windows 임시 파일 정리 Python unittest 3개 RED→GREEN 및 전체 3개 통과. Chrome production DOM에서 52,949자 오류 보존·목록 높이 유지·오류 영역 포커스와 스크롤 확인.
 - 정식 Tauri CLI production 빌드와 실제 네이티브 정상 흐름 확인. 격리 복사본의 등록 2,287개·작업 서브 385개를 조회하고 2,287개 초기 표시·부모 관계·검색·선택·접기·새로고침·키보드·스크롤을 검증.
 - 백엔드·프런트 독립 리뷰 승인. 실제 RPC 조회 실패 주입 후 표시·선택 수 보존, 삭제 차단과 새로고침 회복도 네이티브에서 확인. 상세 근거와 제한은 `docs/reviews/2026-11-17-full-session-tree.md`에 기록.
-- 오류 영역·임시 정리 수정 이후 실제 CLI 0.169.0의 전체 API 검사와 생성 임시 루트 정리까지 종료 코드 0으로 재확인. 정식 Tauri production 재빌드도 종료 코드 0이며 최종 실행 파일의 네이티브 재검증은 진행 중.
+- 오류 영역·임시 정리 수정 이후 실제 CLI 0.169.0의 전체 API 검사와 생성 임시 루트 정리까지 종료 코드 0으로 재확인. 정식 Tauri production 재빌드와 최종 실행 파일의 네이티브 정상·실패 회복 재검증 모두 종료 코드 0.
 
 ### Compatibility
 
