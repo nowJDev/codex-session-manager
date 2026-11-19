@@ -184,16 +184,12 @@ function SessionTableInner({
   const [widths, setWidths] = useState<Record<ColKey, number>>(() => loadColumnWidths());
   const [sort, setSort] = useState<SortState>(() => loadSortPreference());
   // 검색 접기는 일반 목록 접기와 분리하여 검색을 지우면 원래 상태로 돌아간다.
-  const [collapsedIds, setCollapsedIds] = useState<Set<string>>(() => new Set());
+  const [expandedBranches, setExpandedBranches] = useState<Set<string>>(() => new Set());
   const [searchCollapse, setSearchCollapse] = useState<{ query: string; ids: Set<string> }>(() => ({ query: "", ids: new Set() }));
   const tableRef = useRef<HTMLDivElement | null>(null);
   const searching = !!query.trim();
-  const collapsed = searching ? (searchCollapse.query === query ? searchCollapse.ids : new Set<string>()) : collapsedIds;
+  const searchCollapsedIds = searchCollapse.query === query ? searchCollapse.ids : undefined;
   useEffect(() => { setSearchCollapse({ query, ids: new Set() }); }, [query]);
-  function setCollapsed(next: Set<string>) {
-    if (searching) setSearchCollapse({ query, ids: next });
-    else setCollapsedIds(next);
-  }
 
   useEffect(() => {
     saveColumnWidths(widths);
@@ -215,14 +211,19 @@ function SessionTableInner({
     );
   }, []);
 
-  const expandedIds = useMemo(() => new Set(sessions.filter((s) => !collapsed.has(s.sessionId)).map((s) => s.sessionId)), [sessions, collapsed]);
+  const expandedIds = useMemo(
+    () => searching
+      ? new Set(sessions.filter((s) => !searchCollapsedIds?.has(s.sessionId)).map((s) => s.sessionId))
+      : expandedBranches,
+    [sessions, searching, searchCollapsedIds, expandedBranches],
+  );
   const treeRows = useMemo(() => buildSessionTreeRows(sessions, expandedIds, sort), [sessions, expandedIds, sort]);
   const allRows = useMemo(() => buildSessionTreeRows(sessions, new Set(sessions.map((s) => s.sessionId)), sort), [sessions, sort]);
   const displayedSessions = useMemo(() => treeRows.map((row) => row.session), [treeRows]);
   useEffect(() => { onVisibleRowsChange(displayedSessions); }, [displayedSessions, onVisibleRowsChange]);
-  function collapseAll() {
-    const parentIds = new Set(allRows.filter((row) => row.childCount > 0).map((row) => row.session.sessionId));
-    const selectedIndex = allRows.findIndex((row) => row.session.sessionId === selectedId);
+  function setAllExpanded(expand: boolean) {
+    const parentIds = () => new Set(allRows.filter((row) => row.childCount > 0).map((row) => row.session.sessionId));
+    const selectedIndex = expand ? -1 : allRows.findIndex((row) => row.session.sessionId === selectedId);
     if (selectedIndex >= 0 && allRows[selectedIndex].depth > 0) {
       let rootIndex = selectedIndex;
       while (rootIndex > 0 && allRows[rootIndex].depth > 0) rootIndex--;
@@ -231,7 +232,8 @@ function SessionTableInner({
         .find((row) => row.dataset.sessionId === rootId);
       parentRow?.querySelector<HTMLButtonElement>("button[aria-expanded]")?.focus();
     }
-    setCollapsed(parentIds);
+    if (searching) setSearchCollapse({ query, ids: expand ? new Set() : parentIds() });
+    else setExpandedBranches(expand ? parentIds() : new Set());
   }
   const visibleSessions = useMemo(() => treeRows.map((row) => row.session).filter((s) => s.registered), [treeRows]);
   const tableWidth = useMemo(() => totalColumnWidth(widths), [widths]);
@@ -263,8 +265,8 @@ function SessionTableInner({
   return (
     <div ref={tableRef} className="flex h-full min-h-0 flex-col">
       <div className="flex shrink-0 gap-2 border-b border-border/60 px-3 py-2">
-        <Button variant="outline" size="sm" aria-label={t("action.expandAll")} onClick={() => setCollapsed(new Set())}>{t("action.expandAll")}</Button>
-        <Button variant="outline" size="sm" aria-label={t("action.collapseAll")} onClick={collapseAll}>{t("action.collapseAll")}</Button>
+        <Button variant="outline" size="sm" aria-label={t("action.expandAll")} onClick={() => setAllExpanded(true)}>{t("action.expandAll")}</Button>
+        <Button variant="outline" size="sm" aria-label={t("action.collapseAll")} onClick={() => setAllExpanded(false)}>{t("action.collapseAll")}</Button>
       </div>
       <div className="min-h-0 flex-1">
     <Table className="table-fixed" style={{ minWidth: tableWidth }}>
@@ -445,17 +447,19 @@ function SessionTableInner({
                       onDoubleClick={(e) => e.stopPropagation()}
                       onClick={(e) => {
                         e.stopPropagation();
-                        const next = new Set(collapsed);
                         if (expanded) {
-                          next.add(s.sessionId);
                           const index = allRows.findIndex((row) => row.session.sessionId === s.sessionId);
                           let hidesSelection = false;
                           for (let i = index + 1; i < allRows.length && allRows[i].depth > depth; i++) {
                             if (allRows[i].session.sessionId === selectedId) hidesSelection = true;
                           }
                           if (hidesSelection) e.currentTarget.focus();
-                        } else next.delete(s.sessionId);
-                        setCollapsed(next);
+                        }
+                        const next = new Set(searching ? searchCollapsedIds : expandedBranches);
+                        if (next.has(s.sessionId)) next.delete(s.sessionId);
+                        else next.add(s.sessionId);
+                        if (searching) setSearchCollapse({ query, ids: next });
+                        else setExpandedBranches(next);
                       }}
                       className="inline-flex h-6 w-5 shrink-0 items-center justify-center rounded text-muted-foreground hover:bg-muted/40 hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
                     >

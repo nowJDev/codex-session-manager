@@ -8,28 +8,30 @@ const ids=out=>visible(out).map(id);
 const click=n=>n.props.onClick({stopPropagation(){},currentTarget:{focus(){}}});
 const disclosure=(out,id)=>nodes(visible(out).find(n=>(n.props['data-session-id'] || nodes(n).find(x=>x.type==='TableCell'&&x.props.title)?.props.title)===id)).find(n=>n.type==='button'&&'aria-expanded' in n.props);
 
-test('async initial rows are all expanded; refresh preserves a manual collapse and opens new branches',()=>{
+test('async initial rows are collapsed; refresh preserves manual expansion and collapses new branches',()=>{
   const view=renderer('src/components/SessionTable.tsx'); const props=tableProps([]);
   view.render(props); props.sessions=[session('p'),session('c','p'),session('g','c'),session('guardian',null,{sessionKind:'guardian'})];
-  let out=view.render(props);assert.equal(visible(out).length,4,'async initial children must be visible');
-  click(disclosure(out,'c'));out=view.render(props);assert.deepEqual(ids(out),['p','c','guardian']);
+  let out=view.render(props);assert.deepEqual(ids(out),['p','guardian']);
+  click(disclosure(out,'p'));out=view.render(props);assert.deepEqual(ids(out),['p','c','guardian']);
   props.sessions=[...props.sessions.map(s=>({...s})),session('new'),session('new-child','new')];
-  out=view.render(props);assert.deepEqual(ids(out),['p','c','guardian','new','new-child']);
+  out=view.render(props);assert.deepEqual(ids(out),['p','c','guardian','new']);
 });
 
 test('search restores prior collapse state and does not reopen a manually collapsed match on refresh',()=>{
   const view=renderer('src/components/SessionTable.tsx');const all=[session('p'),session('c','p'),session('leaf','c'),session('other')];
-  const props=tableProps(all);let out=view.render(props);assert.equal(visible(out).length,4,'search begins with the full tree');click(disclosure(out,'p'));view.render(props);
+  const props=tableProps(all);let out=view.render(props);assert.deepEqual(ids(out),['p','other']);click(disclosure(out,'p'));view.render(props);
   props.query='leaf';props.sessions=all.slice(0,3);out=view.render(props);assert.deepEqual(ids(out),['p','c','leaf']);
   click(disclosure(out,'p'));out=view.render(props);assert.deepEqual(ids(out),['p']);
   props.sessions=props.sessions.map(s=>({...s}));out=view.render(props);assert.deepEqual(ids(out),['p']);
-  props.query='';props.sessions=all;out=view.render(props);assert.deepEqual(ids(out),['p','other']);
+  props.query='';props.sessions=all;out=view.render(props);assert.deepEqual(ids(out),['p','c','other']);
 });
 
 test('expand controls report all logical rows and select only currently visible registered rows',()=>{
   const view=renderer('src/components/SessionTable.tsx');const props=tableProps([session('p'),session('c','p'),session('extra',null,{registered:false}),session('guardian',null,{sessionKind:'guardian'})]);
   let report;let selected;props.onVisibleRowsChange=(rows)=>report=rows.map(s=>s.sessionId);props.onToggleVisibleSelection=(rows)=>selected=rows.map(s=>s.sessionId);
-  let out=view.render(props);assert.deepEqual(report,['p','c','extra','guardian']);
+  let out=view.render(props);assert.deepEqual(report,['p','extra','guardian']);
+  click(nodes(out).find(n=>n.props['aria-label']==='action.expandAll'));out=view.render(props);
+  assert.deepEqual(report,['p','c','extra','guardian']);
   click(nodes(out).find(n=>n.props['aria-label']==='action.collapseAll'));out=view.render(props);
   assert.deepEqual(report,['p','extra','guardian']);nodes(out).find(n=>n.type==='input').props.onChange({currentTarget:{checked:true}});
   assert.deepEqual(selected,['p','guardian']);
@@ -55,6 +57,7 @@ test('actual parent IDs connect every kind and default sorting promotes the late
 
 test('collapse moves focus to its parent disclosure while retaining detail selection',()=>{
   const view=renderer('src/components/SessionTable.tsx');const props=tableProps([session('p'),session('c','p')]);props.selectedId='c';
+  click(disclosure(view.render(props),'p'));
   const out=view.render(props);let focused=0;disclosure(out,'p').props.onClick({stopPropagation(){},currentTarget:{focus(){focused++;}}});
   assert.equal(focused,1);assert.equal(props.selectedId,'c');assert.deepEqual(ids(view.render(props)),['p']);
 });

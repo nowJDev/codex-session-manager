@@ -158,8 +158,11 @@ test("table disclosure, search expansion and select-all use actual visible rows"
   const selectAll = (nodes) => nodes.find(node=>node.type==="input");
   const disclosure = (nodes,expanded) => nodes.find(node=>node.type==="button" && node.props["aria-expanded"]===expanded);
   let nodes=render();
-  assert.equal(selectAll(nodes).props["aria-label"],"action.selectVisible");
-  assert.equal(displayed(nodes).length,4,"children must start expanded");
+  assert.equal(selectAll(nodes).props["aria-label"],"action.deselectVisible");
+  assert.equal(displayed(nodes).length,2,"children must start collapsed");
+  nodes.find(node=>node.props["aria-label"]==="action.expandAll").props.onClick();
+  nodes=render();
+  assert.equal(displayed(nodes).length,4);
   assert.equal(selectAll(nodes).props.checked,false,"visible unchecked children affect select-all");
   selectAll(nodes).props.onChange({currentTarget:{checked:true}});
   assert.deepEqual(selected,["parent","child","leaf","other"]);
