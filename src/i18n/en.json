@@ -35,6 +35,7 @@
     "describe": "Edit description",
     "delete": "Delete session",
     "deleteSelected": "Delete {count}",
+    "deleteGuardians": "Delete all Guardians ({count})",
     "selectAll": "Select all",
     "deselectAll": "Deselect all",
     "selectSession": "Select session",
@@ -152,6 +153,8 @@
     "preparing": "Checking deletion scope...",
     "prepareFailed": "Could not confirm deletion scope. No delete request was sent.",
     "scope": "Selected {selected} · Total affected {affected} · Additional descendants {descendants}. Local Codex registration and history will be deleted. Cloud copies are preserved.",
+    "guardianUnavailable": "No Guardians can be deleted",
+    "guardiansSkipped": "Skipped {count} Guardians because their deletion could affect other kinds of records.",
     "warning": "Cleanup warning",
     "snapshotRequired": "Refresh a complete session list before deleting."
   },

@@ -4,7 +4,7 @@ import { tauriGateway } from "@/adapters/tauriGateway";
 import type { DeleteSessionResult, DeleteSessionTarget, Session } from "@/types";
 
 type EditMode = "rename" | "describe" | null;
-type PendingDelete = { sessions: DeleteSessionTarget[]; affectedIds: string[] } | null;
+type PendingDelete = { sessions: DeleteSessionTarget[]; affectedIds: string[]; skippedGuardianCount?: number } | null;
 
 interface UseSessionCommandsParams {
   refresh: () => Promise<void>;
@@ -36,6 +36,7 @@ export function useSessionCommands({
     results: DeleteSessionResult[];
     error: string | null;
     phase: "prepare" | "delete";
+    guardianOnly?: boolean;
   } | null>(null);
 
   async function handleResume(s: Session) {
@@ -64,7 +65,7 @@ export function useSessionCommands({
       if (deletionBlocked()) return;
       const plan = await tauriGateway.prepareSessionDeletion(targets);
       if (deletionBlocked()) return;
-      setPendingDelete({ sessions: plan.targets, affectedIds: plan.affectedIds });
+      setPendingDelete({ sessions: plan.targets, affectedIds: plan.affectedIds, skippedGuardianCount: plan.skippedGuardianCount });
     } catch (err) {
       console.error(err);
       setDeleteReport({ results: [], error: String(err), phase: "prepare" });
@@ -86,7 +87,10 @@ export function useSessionCommands({
   async function handleRetryFailedDelete() {
     const targets = deleteReport?.results
       .filter((result) => result.status === "failed" || result.status === "unconfirmed" || result.warning)
-      .map((result) => ({ sessionId: result.sessionId })) ?? [];
+      .map((result) => ({
+        sessionId: result.sessionId,
+        ...(deleteReport.guardianOnly ? { guardianOnly: true } : {}),
+      })) ?? [];
     await prepareDelete(targets, true);
   }
 
@@ -98,7 +102,7 @@ export function useSessionCommands({
     setDeleteReport(null);
     try {
       const results = await tauriGateway.deleteSessions(targets, pendingDelete!.affectedIds);
-      setDeleteReport({ results, error: null, phase: "delete" });
+      setDeleteReport({ results, error: null, phase: "delete", guardianOnly: targets.some((target) => target.guardianOnly) });
       const deletedIds = new Set(
         results.filter((result) => result.status === "deleted" || result.status === "alreadyMissing").map((result) => result.sessionId),
       );
@@ -209,6 +213,7 @@ export function useSessionCommands({
     handleResume,
     handleDelete,
     handleBulkDelete,
+    prepareDelete,
     handleRetryFailedDelete,
     confirmDelete,
     cancelDelete,

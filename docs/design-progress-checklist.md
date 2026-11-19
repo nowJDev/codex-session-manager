@@ -27,3 +27,10 @@
 - [x] 작업용 복사본·화면·로그, 임시 worktree·브랜치 정리.
 
 실제 0.166.0 바이너리·사용자 세션 삭제·모델 실행·계정 간 클라우드 쓰기는 이번에 검증하지 않았다. 공개 릴리스는 발행하지 않았다. 근거와 판단은 `reviews/2026-11-17-full-session-tree.md`에 보존한다.
+
+## 2026-11-19 목록 제어와 Windows 재개.
+
+- [x] 기본 접기, Guardian 일괄 삭제, Windows Terminal 재개 수정.
+- [x] 변경 전 재현·수정 후 회귀, 전체 Rust·Node 테스트 및 Windows 빌드 검증.
+- [x] 생성한 세션으로 Windows 앱의 접기·실제 재개 프로세스·Guardian 삭제 흐름 검증.
+- [x] 관계 누락 수정과 독립 재리뷰. 상세 근거는 `reviews/2026-11-19-session-controls.md`에 기록.

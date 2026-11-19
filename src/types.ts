@@ -47,6 +47,7 @@ export interface SessionMeta {
 
 export interface DeleteSessionTarget {
   sessionId: string;
+  guardianOnly?: boolean;
 }
 
 export type DeleteSessionStatus = "deleted" | "alreadyMissing" | "failed" | "unconfirmed";
@@ -54,6 +55,7 @@ export type DeleteSessionStatus = "deleted" | "alreadyMissing" | "failed" | "unc
 export interface DeletionPlan {
   targets: DeleteSessionTarget[];
   affectedIds: string[];
+  skippedGuardianCount?: number;
 }
 
 export interface DeleteSessionResult extends DeleteSessionTarget {

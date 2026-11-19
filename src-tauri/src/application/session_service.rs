@@ -71,6 +71,7 @@ impl<P: SessionPorts> SessionService<P> {
         self.delete_sessions(
             vec![DeleteSessionTarget {
                 session_id: session_id.into(),
+                guardian_only: false,
             }],
             approved_ids,
         )?
@@ -349,6 +350,7 @@ mod tests {
             Ok(DeletionPlan {
                 targets: targets.to_vec(),
                 affected_ids: targets.iter().map(|t| t.session_id.clone()).collect(),
+                skipped_guardian_count: 0,
             })
         }
         fn delete_sessions(
@@ -614,6 +616,7 @@ mod tests {
         let state = ports.state.clone();
         let targets = ["first", "bad", "last"].map(|id| crate::types::DeleteSessionTarget {
             session_id: id.into(),
+            guardian_only: false,
         });
         let results = SessionService::new(ports)
             .delete_sessions(targets.to_vec(), &[])
@@ -648,6 +651,7 @@ mod tests {
         let state = ports.state.clone();
         let targets = ["gone", "meta", "last"].map(|id| crate::types::DeleteSessionTarget {
             session_id: id.into(),
+            guardian_only: false,
         });
         let results = SessionService::new(ports)
             .delete_sessions(targets.to_vec(), &[])

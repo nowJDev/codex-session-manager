@@ -11,6 +11,28 @@ pub(crate) struct Registration {
     pub(crate) parent_id: Option<String>,
 }
 pub(crate) type Registry = BTreeMap<String, Registration>;
+
+pub(super) fn parent_id(thread: &RegisteredThread) -> Option<&str> {
+    thread
+        .parent_thread_id
+        .as_deref()
+        .filter(|id| !id.trim().is_empty())
+        .or_else(|| {
+            [
+                "/subAgent/thread_spawn/parent_thread_id",
+                "/subagent/thread_spawn/parent_thread_id",
+            ]
+            .into_iter()
+            .find_map(|path| {
+                thread
+                    .source
+                    .pointer(path)
+                    .and_then(Value::as_str)
+                    .filter(|id| !id.trim().is_empty())
+            })
+        })
+}
+
 #[derive(Debug, Default)]
 pub(crate) struct ThreadSnapshot {
     pub(crate) threads: Vec<RegisteredThread>,
@@ -150,6 +172,11 @@ pub(crate) fn collect(
                 .push("조회 중 등록 목록이 다시 변경됐습니다. 새로고침해 주세요.".into());
         }
         if let Some(rows) = after.as_ref().or(before.as_ref()) {
+            for (id, thread) in &mut found {
+                if parent_id(thread).is_none() {
+                    thread.parent_thread_id = rows.get(id).and_then(|row| row.parent_id.clone());
+                }
+            }
             snapshot.missing_count = rows
                 .keys()
                 .filter(|id| !found.contains_key(id.as_str()))
@@ -360,11 +387,14 @@ mod tests {
                 assert_eq!(method, "thread/list");
                 assert!(params.get("ancestorThreadId").is_none());
                 Ok(
-                    json!({"data":[row("p",None),row("c",Some("p")),row("g",Some("c")),row("o",Some("absent"))],"nextCursor":null}),
+                    json!({"data":[row("p",None),row("c",None),row("g",Some("c")),row("o",Some("absent"))],"nextCursor":null}),
                 )
             },
             Instant::now() + Duration::from_secs(60),
         );
-        assert_eq!(snapshot.require_complete().unwrap().len(), 4);
+        let threads = snapshot.require_complete().unwrap();
+        assert_eq!(threads.len(), 4);
+        let child = threads.iter().find(|thread| thread.id == "c").unwrap();
+        assert_eq!(child.parent_thread_id.as_deref(), Some("p"));
     }
 }

@@ -55,6 +55,8 @@ function App() {
     handleResume,
     handleDelete,
     handleBulkDelete,
+    guardianCount,
+    handleDeleteGuardians,
     handleRetryFailedDelete,
     confirmDelete,
     cancelDelete,
@@ -68,6 +70,7 @@ function App() {
     submitEdit,
     closeEdit,
   } = manager;
+  const skippedGuardians = pendingDelete?.skippedGuardianCount ?? 0;
 
   return (
     <div className="flex h-screen flex-col bg-background text-foreground">
@@ -108,6 +111,19 @@ function App() {
           />
         </div>
         <div className="flex items-center gap-1.5">
+          {guardianCount > 0 && (
+            <Button
+              variant="outline"
+              size="sm"
+              onClick={handleDeleteGuardians}
+              disabled={deleting || preparingDelete || !canDelete}
+              title={t("action.deleteGuardians", { count: guardianCount })}
+              className="text-destructive"
+            >
+              <Trash2 className="h-4 w-4" />
+              {t("action.deleteGuardians", { count: guardianCount })}
+            </Button>
+          )}
           {selectedForDeleteCount > 0 && (
             <Button
               variant="destructive"
@@ -274,7 +290,9 @@ function App() {
         pending={deleting}
         canDelete={canDelete}
         title={
-          pendingDelete?.sessions.length === 1
+          pendingDelete?.sessions.length === 0 && skippedGuardians > 0
+            ? t("delete.guardianUnavailable")
+            : pendingDelete?.sessions.length === 1
             ? t("delete.titleSingle")
             : t("delete.titleBulk", { count: pendingDelete?.sessions.length ?? 0 })
         }
@@ -283,7 +301,7 @@ function App() {
             selected: pendingDelete?.sessions.length ?? 0,
             affected: pendingDelete?.affectedIds.length ?? 0,
             descendants: pendingDelete?.affectedIds.filter((id) => !pendingDelete.sessions.some((s) => s.sessionId === id)).length ?? 0,
-          })
+          }) + (skippedGuardians ? " " + t("delete.guardiansSkipped", { count: skippedGuardians }) : "")
         }
         confirmLabel={t("delete.confirm")}
         cancelLabel={t("settings.cancel")}

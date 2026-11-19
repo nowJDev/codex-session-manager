@@ -1,9 +1,10 @@
 // Codex 등록 세션을 앱 모델로 변환하고 ID 삭제의 결과를 확인한다.
 use super::codex_app_server::{AppServer, RegisteredThread, RpcError};
+use super::full_catalog::parent_id;
 use crate::application::refresh_budget::RefreshBudget;
 use crate::types::{
     Config, DeleteSessionResult, DeleteSessionStatus, DeleteSessionTarget, DeletionPlan, Session,
-    SessionSnapshot,
+    SessionKind, SessionSnapshot,
 };
 use anyhow::{bail, Result};
 use serde_json::json;
@@ -88,20 +89,6 @@ fn map_collected_threads(
     out
 }
 
-fn parent_id(thread: &RegisteredThread) -> Option<&str> {
-    thread
-        .parent_thread_id
-        .as_deref()
-        .filter(|s| !s.trim().is_empty())
-        .or_else(|| {
-            thread
-                .source
-                .pointer("/subAgent/thread_spawn/parent_thread_id")
-                .and_then(serde_json::Value::as_str)
-                .filter(|s| !s.trim().is_empty())
-        })
-}
-
 fn map_thread(thread: RegisteredThread, config: &Config) -> Session {
     let meta = config.sessions.get(&thread.id).cloned().unwrap_or_default();
     let parent = parent_id(&thread).map(str::to_owned);
@@ -182,6 +169,27 @@ fn validate_id(id: &str) -> Result<()> {
     Ok(())
 }
 
+fn guardian_blocked_ids(threads: &[RegisteredThread]) -> HashSet<&str> {
+    let parents: HashMap<_, _> = threads
+        .iter()
+        .filter_map(|thread| parent_id(thread).map(|parent| (thread.id.as_str(), parent)))
+        .collect();
+    let mut blocked = HashSet::new();
+    for thread in threads {
+        if SessionKind::from_source(&thread.source) == SessionKind::Guardian {
+            continue;
+        }
+        let mut current = Some(thread.id.as_str());
+        while let Some(id) = current {
+            if !blocked.insert(id) {
+                break;
+            }
+            current = parents.get(id).copied();
+        }
+    }
+    blocked
+}
+
 fn deletion_plan(
     threads: &[RegisteredThread],
     targets: &[DeleteSessionTarget],
@@ -194,13 +202,25 @@ fn deletion_plan(
             unique.push(target.clone());
         }
     }
+    let mut skipped_guardian_count = 0;
+    if unique.iter().any(|target| target.guardian_only) {
+        let blocked = guardian_blocked_ids(threads);
+        let original_count = unique.len();
+        unique.retain(|target| {
+            !target.guardian_only || !blocked.contains(target.session_id.as_str())
+        });
+        skipped_guardian_count = original_count - unique.len();
+    }
     let mut children: HashMap<&str, Vec<&str>> = HashMap::new();
     for thread in threads {
         if let Some(parent) = parent_id(thread) {
             children.entry(parent).or_default().push(&thread.id);
         }
     }
-    let mut stack: Vec<_> = selected.iter().map(String::as_str).collect();
+    let mut stack: Vec<_> = unique
+        .iter()
+        .map(|target| target.session_id.as_str())
+        .collect();
     let mut affected = HashSet::new();
     while let Some(id) = stack.pop() {
         if !affected.insert(id.to_owned()) {
@@ -215,6 +235,7 @@ fn deletion_plan(
     Ok(DeletionPlan {
         targets: unique,
         affected_ids,
+        skipped_guardian_count,
     })
 }
 
@@ -246,10 +267,11 @@ fn delete_using(
     let before = api.list()?;
     let plan = deletion_plan(&before, targets)?;
     let approved: HashSet<_> = approved.iter().map(String::as_str).collect();
-    if plan
-        .affected_ids
-        .iter()
-        .any(|id| !approved.contains(id.as_str()))
+    if plan.skipped_guardian_count > 0
+        || plan
+            .affected_ids
+            .iter()
+            .any(|id| !approved.contains(id.as_str()))
     {
         bail!("삭제 영향 범위가 변경됐습니다. 목록을 새로 확인하고 다시 승인해 주세요.");
     }
@@ -381,9 +403,60 @@ mod tests {
         ids.iter()
             .map(|id| DeleteSessionTarget {
                 session_id: (*id).into(),
+                guardian_only: false,
             })
             .collect()
     }
+    #[test]
+    fn guardian_plan_skips_branches_with_other_kinds_but_includes_archived_guardians() {
+        let mut parent = thread(P, None);
+        parent.source = json!({"subAgent":{"other":"guardian"}});
+        let mut other = thread(O, None);
+        other.source = parent.source.clone();
+        other.archived = true;
+        let threads = vec![parent, thread(C, Some(P)), other];
+        let targets = serde_json::from_value::<Vec<DeleteSessionTarget>>(json!([
+            {"sessionId":P,"guardianOnly":true},
+            {"sessionId":C,"guardianOnly":true},
+            {"sessionId":O,"guardianOnly":true}
+        ]))
+        .unwrap();
+
+        let plan = deletion_plan(&threads, &targets).unwrap();
+        assert_eq!(plan.affected_ids, vec![O.to_owned()]);
+        assert_eq!(plan.targets.len(), 1);
+        assert_eq!(plan.skipped_guardian_count, 2);
+    }
+
+    #[test]
+    fn guardian_delete_rechecks_kind_and_descendants_before_any_request() {
+        let mut parent = thread(P, None);
+        parent.source = json!({"subAgent":{"other":"guardian"}});
+        let mut child = thread(C, Some(P));
+        child.source = parent.source.clone();
+        let target = DeleteSessionTarget {
+            session_id: P.into(),
+            guardian_only: true,
+        };
+        let approved = deletion_plan(
+            &[parent.clone(), child.clone()],
+            std::slice::from_ref(&target),
+        )
+        .unwrap()
+        .affected_ids;
+        child.source = json!("cli");
+        let mut api = Fake {
+            threads: vec![parent, child],
+            requests: vec![],
+            remain: false,
+            uncertain: false,
+            fail_verify: false,
+            lists: 0,
+        };
+        assert!(delete_using(&mut api, &[target], &approved).is_err());
+        assert!(api.requests.is_empty());
+    }
+
     thread_local! {static MAP_CLOCK:std::cell::Cell<Option<(std::time::Instant,usize,usize)>>=const{std::cell::Cell::new(None)};}
     fn mapping_now() -> std::time::Instant {
         MAP_CLOCK.with(|c| {

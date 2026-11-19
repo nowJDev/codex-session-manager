@@ -57,6 +57,8 @@ pub struct Config {
 #[serde(rename_all = "camelCase")]
 pub struct DeleteSessionTarget {
     pub session_id: String,
+    #[serde(default, skip_serializing_if = "std::ops::Not::not")]
+    pub guardian_only: bool,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -64,6 +66,8 @@ pub struct DeleteSessionTarget {
 pub struct DeletionPlan {
     pub targets: Vec<DeleteSessionTarget>,
     pub affected_ids: Vec<String>,
+    #[serde(default)]
+    pub skipped_guardian_count: usize,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]

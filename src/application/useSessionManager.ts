@@ -25,6 +25,11 @@ export function useSessionManager() {
     selectedForDelete: selection.selectedForDelete,
   });
 
+  const guardianTargets = useMemo(
+    () => data.sessions.filter((s) => s.registered && s.sessionKind === "guardian")
+      .map((s) => ({ sessionId: s.sessionId, guardianOnly: true })),
+    [data.sessions],
+  );
   const t = useMemo(() => createT(data.locale), [data.locale]);
 
   const filtered = useMemo(
@@ -88,6 +93,8 @@ export function useSessionManager() {
     handleResume: commands.handleResume,
     handleDelete: commands.handleDelete,
     handleBulkDelete: commands.handleBulkDelete,
+    guardianCount: guardianTargets.length,
+    handleDeleteGuardians: () => commands.prepareDelete(guardianTargets),
     handleRetryFailedDelete: commands.handleRetryFailedDelete,
     confirmDelete: commands.confirmDelete,
     cancelDelete: commands.cancelDelete,

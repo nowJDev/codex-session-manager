@@ -62,3 +62,35 @@ test('manager counts the logical displayed rows and retains hidden selections th
   assert.equal(state.displayedCount,3);assert.equal(state.selectedForDeleteCount,1);assert.equal(state.visibleSelectedCount,0);assert.equal(state.workerCount,1);
   state.setQuery('guardian');state=view.render();assert.deepEqual(state.filtered.map(s=>s.sessionId),['guardian']);assert.equal(state.selectedForDeleteCount,1);
 });
+
+test('Guardian deletion uses the complete list and keeps its restriction on retry',async()=>{
+  const all=[session('main'),session('active','main',{sessionKind:'guardian'}),
+    session('archived',null,{sessionKind:'guardian',archived:true}),
+    session('unregistered',null,{sessionKind:'guardian',registered:false})];
+  const calls=[];
+  const gateway={
+    listSessions:async()=>snapshot(all),getConfig:config,
+    prepareSessionDeletion:async targets=>{
+      calls.push(['prepare',targets]);
+      return {targets:targets.filter(s=>s.sessionId!=='active'),affectedIds:['archived'],skippedGuardianCount:targets.length-1};
+    },
+    deleteSessions:async(targets,ids)=>{
+      calls.push(['delete',targets,ids]);
+      return [{sessionId:'archived',status:'unconfirmed',error:'uncertain',warning:null}];
+    },
+  };
+  const view=renderer('src/application/useSessionManager.ts',{'@/adapters/tauriGateway':{tauriGateway:gateway},'@/i18n':{detectLocale:()=> 'ko',createT:()=>key=>key}},{effects:false});
+  await view.render().refresh();
+  view.render().setQuery('main');
+  const state=view.render();
+  assert.deepEqual(state.filtered.map(s=>s.sessionId),['main']);
+  assert.equal(state.guardianCount,2);
+  await state.handleDeleteGuardians();
+  const archived={sessionId:'archived',guardianOnly:true};
+  assert.deepEqual(calls,[['prepare',[{sessionId:'active',guardianOnly:true},archived]]]);
+  assert.equal(view.render().pendingDelete.skippedGuardianCount,1);
+  await view.render().confirmDelete();
+  assert.deepEqual(calls[1],['delete',[archived],['archived']]);
+  await view.render().handleRetryFailedDelete();
+  assert.deepEqual(calls[2],['prepare',[archived]]);
+});
