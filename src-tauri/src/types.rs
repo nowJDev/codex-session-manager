@@ -59,6 +59,8 @@ pub struct DeleteSessionTarget {
     pub session_id: String,
     #[serde(default, skip_serializing_if = "std::ops::Not::not")]
     pub guardian_only: bool,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub activity_before: Option<i64>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -68,6 +70,8 @@ pub struct DeletionPlan {
     pub affected_ids: Vec<String>,
     #[serde(default)]
     pub skipped_guardian_count: usize,
+    #[serde(default)]
+    pub skipped_age_count: usize,
 }
 
 #[derive(Debug, Serialize)]

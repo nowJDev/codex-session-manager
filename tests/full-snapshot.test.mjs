@@ -94,3 +94,55 @@ test('Guardian deletion uses the complete list and keeps its restriction on retr
   await view.render().handleRetryFailedDelete();
   assert.deepEqual(calls[2],['prepare',[archived]]);
 });
+
+test('period bulk deletion checks only backend-approved sessions and keeps the cutoff through confirmation and retry',async ctx=>{
+  const now=Date.UTC(2026,10,19,12);
+  ctx.mock.method(Date,'now',()=>now);
+  const cutoff=now/1000-86400;
+  const all=[session('old'),session('archived',null,{archived:true}),
+    session('recent'),session('unknown',null,{lastTimestamp:null}),session('unregistered',null,{registered:false})];
+  const calls=[];
+  const gateway={
+    listSessions:async()=>snapshot(all),getConfig:config,
+    prepareSessionDeletion:async targets=>{
+      calls.push(['prepare',targets]);
+      const eligible=targets.filter(s=>s.sessionId==='old'||s.sessionId==='archived');
+      return {targets:eligible,affectedIds:eligible.map(s=>s.sessionId),skippedAgeCount:targets.length-eligible.length};
+    },
+    deleteSessions:async(targets,ids)=>{
+      calls.push(['delete',targets,ids]);
+      return [{sessionId:'old',status:'unconfirmed',error:'pending',warning:null}];
+    },
+  };
+  const view=renderer('src/application/useSessionManager.ts',{'@/adapters/tauriGateway':{tauriGateway:gateway},'@/i18n':{detectLocale:()=> 'ko',createT:()=>key=>key}},{effects:false});
+  await view.render().refresh();
+  view.render().handleToggleSelected(all[2]);
+  view.render().setQuery('no matching sessions');
+  assert.deepEqual(view.render().filtered,[]);
+  await view.render().handleDeleteByAge(1);
+  const requested=all.filter(s=>s.registered).map(s=>({sessionId:s.sessionId,activityBefore:cutoff}));
+  const eligible=requested.slice(0,2);
+  assert.deepEqual(calls,[['prepare',requested]]);
+  assert.deepEqual([...view.render().selectedForDeleteIds],['old','archived']);
+  assert.equal(view.render().pendingDelete.skippedAgeCount,2);
+  assert.equal(view.render().pendingDelete.retentionDays,1);
+
+  view.render().cancelDelete();
+  await view.render().handleBulkDelete();
+  assert.deepEqual(calls[1],['prepare',eligible]);
+  await view.render().confirmDelete();
+  assert.deepEqual(calls[2],['delete',eligible,['old','archived']]);
+  await view.render().handleRetryFailedDelete();
+  assert.deepEqual(calls[3],['prepare',[eligible[0]]]);
+});
+
+test('period bulk deletion clears all checks when no sessions are eligible',async()=>{
+  const app=commandView({
+    prepareSessionDeletion:async targets=>({targets:[],affectedIds:[],skippedAgeCount:targets.length}),
+    deleteSessions:async()=>assert.fail('empty period selection should not delete anything'),
+  },{setSelectedForDeleteIds:selected=>assert.deepEqual([...selected],[])});
+  await app.render().handleDeleteByAge([session('recent')],7);
+  assert.deepEqual(app.render().pendingDelete.sessions,[]);
+  assert.equal(app.render().pendingDelete.retentionDays,7);
+  await app.render().confirmDelete();
+});

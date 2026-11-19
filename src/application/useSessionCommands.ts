@@ -4,7 +4,18 @@ import { tauriGateway } from "@/adapters/tauriGateway";
 import type { DeleteProgress, DeleteSessionResult, DeleteSessionTarget, Session } from "@/types";
 
 type EditMode = "rename" | "describe" | null;
-type PendingDelete = { sessions: DeleteSessionTarget[]; affectedIds: string[]; skippedGuardianCount?: number } | null;
+type PendingDelete = {
+  sessions: DeleteSessionTarget[];
+  affectedIds: string[];
+  skippedGuardianCount?: number;
+  skippedAgeCount?: number;
+  retentionDays?: number;
+} | null;
+
+type PrepareDeleteOptions = {
+  refreshFirst?: boolean;
+  retention?: { days: number; activityBefore: number };
+};
 
 interface UseSessionCommandsParams {
   refresh: () => Promise<void>;
@@ -32,11 +43,13 @@ export function useSessionCommands({
   const [deleting, setDeleting] = useState(false);
   const [preparingDelete, setPreparingDelete] = useState(false);
   const deletingRef = useRef(false);
+  const ageCutoffs = useRef(new Map<string, number>());
   const [deleteReport, setDeleteReport] = useState<{
     results: DeleteSessionResult[];
     error: string | null;
     phase: "prepare" | "delete";
     guardianOnly?: boolean;
+    activityBefore?: number;
   } | null>(null);
 
   async function handleResume(s: Session) {
@@ -54,7 +67,7 @@ export function useSessionCommands({
     }
   }
 
-  async function prepareDelete(targets: DeleteSessionTarget[], refreshFirst = false) {
+  async function prepareDelete(targets: DeleteSessionTarget[], { refreshFirst = false, retention }: PrepareDeleteOptions = {}) {
     if (targets.length === 0 || deletingRef.current || deletionBlocked()) return;
     deletingRef.current = true;
     setPreparingDelete(true);
@@ -65,7 +78,18 @@ export function useSessionCommands({
       if (deletionBlocked()) return;
       const plan = await tauriGateway.prepareSessionDeletion(targets);
       if (deletionBlocked()) return;
-      setPendingDelete({ sessions: plan.targets, affectedIds: plan.affectedIds, skippedGuardianCount: plan.skippedGuardianCount });
+      if (retention) {
+        const selectedIds = plan.targets.map((target) => target.sessionId);
+        ageCutoffs.current = new Map(selectedIds.map((id) => [id, retention.activityBefore]));
+        setSelectedForDeleteIds(new Set(selectedIds));
+      }
+      setPendingDelete({
+        sessions: plan.targets,
+        affectedIds: plan.affectedIds,
+        skippedGuardianCount: plan.skippedGuardianCount,
+        skippedAgeCount: plan.skippedAgeCount,
+        retentionDays: retention?.days,
+      });
     } catch (err) {
       console.error(err);
       setDeleteReport({ results: [], error: String(err), phase: "prepare" });
@@ -81,7 +105,22 @@ export function useSessionCommands({
   }
 
   async function handleBulkDelete() {
-    await prepareDelete(selectedForDelete.filter((s) => s.registered).map((s) => ({ sessionId: s.sessionId })));
+    const targets = selectedForDelete.filter((s) => s.registered).map(({ sessionId }) => {
+      const activityBefore = ageCutoffs.current.get(sessionId);
+      return activityBefore === undefined ? { sessionId } : { sessionId, activityBefore };
+    });
+    await prepareDelete(targets);
+  }
+
+  async function handleDeleteByAge(sessions: Session[], days: number) {
+    if (!Number.isSafeInteger(days) || days <= 0) return;
+    const activityBefore = Math.floor(Date.now() / 1000) - days * 86_400;
+    const targets = sessions.filter((s) => s.registered).map((s) => ({ sessionId: s.sessionId, activityBefore }));
+    await prepareDelete(targets, { retention: { days, activityBefore } });
+  }
+
+  function forgetAgeSelection(sessions: Session[]) {
+    for (const session of sessions) ageCutoffs.current.delete(session.sessionId);
   }
 
   async function handleRetryFailedDelete() {
@@ -90,8 +129,9 @@ export function useSessionCommands({
       .map((result) => ({
         sessionId: result.sessionId,
         ...(deleteReport.guardianOnly ? { guardianOnly: true } : {}),
+        ...(deleteReport.activityBefore !== undefined ? { activityBefore: deleteReport.activityBefore } : {}),
       })) ?? [];
-    await prepareDelete(targets, true);
+    await prepareDelete(targets, { refreshFirst: true });
   }
 
   async function confirmDelete(reportProgress: (update: DeleteProgress) => void = () => {}) {
@@ -106,10 +146,19 @@ export function useSessionCommands({
       const results = await tauriGateway.deleteSessions(targets, pendingDelete!.affectedIds, (update) => {
         if (active) reportProgress(update);
       });
-      setDeleteReport({ results, error: null, phase: "delete", guardianOnly: targets.some((target) => target.guardianOnly) });
+      const activityBefore = targets.find((target) => target.activityBefore !== undefined)?.activityBefore;
+      setDeleteReport({ results, error: null, phase: "delete", guardianOnly: targets.some((target) => target.guardianOnly), activityBefore });
       const deletedIds = new Set(
         results.filter((result) => result.status === "deleted" || result.status === "alreadyMissing").map((result) => result.sessionId),
       );
+      for (const id of deletedIds) ageCutoffs.current.delete(id);
+      if (activityBefore !== undefined) {
+        for (const result of results) {
+          if (result.status === "failed" || result.status === "unconfirmed") {
+            ageCutoffs.current.set(result.sessionId, activityBefore);
+          }
+        }
+      }
       setSelectedId((cur) => (cur && deletedIds.has(cur) ? null : cur));
       setSelectedForDeleteIds((cur) => {
         const next = new Set(cur);
@@ -218,6 +267,8 @@ export function useSessionCommands({
     handleResume,
     handleDelete,
     handleBulkDelete,
+    handleDeleteByAge,
+    forgetAgeSelection,
     prepareDelete,
     handleRetryFailedDelete,
     confirmDelete,

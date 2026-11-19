@@ -252,6 +252,10 @@ impl AppServer {
         self.request_timeout = timeout;
         snapshot
     }
+    pub(super) fn check_deletion_age(&self, approved: &HashSet<&str>, cutoff: i64) -> Result<()> {
+        crate::session_state::revalidate_deletion_age(&self.home, approved, cutoff)
+    }
+
     pub(crate) fn complete_threads(&mut self) -> Result<Vec<RegisteredThread>> {
         self.collect_threads(Instant::now() + Duration::from_secs(60))
             .require_complete()

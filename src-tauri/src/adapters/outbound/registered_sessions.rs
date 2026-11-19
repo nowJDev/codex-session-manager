@@ -170,16 +170,16 @@ fn validate_id(id: &str) -> Result<()> {
     Ok(())
 }
 
-fn guardian_blocked_ids(threads: &[RegisteredThread]) -> HashSet<&str> {
+fn blocked_ids(
+    threads: &[RegisteredThread],
+    protect: impl Fn(&RegisteredThread) -> bool,
+) -> HashSet<&str> {
     let parents: HashMap<_, _> = threads
         .iter()
         .filter_map(|thread| parent_id(thread).map(|parent| (thread.id.as_str(), parent)))
         .collect();
     let mut blocked = HashSet::new();
-    for thread in threads {
-        if SessionKind::from_source(&thread.source) == SessionKind::Guardian {
-            continue;
-        }
+    for thread in threads.iter().filter(|thread| protect(thread)) {
         let mut current = Some(thread.id.as_str());
         while let Some(id) = current {
             if !blocked.insert(id) {
@@ -191,62 +191,105 @@ fn guardian_blocked_ids(threads: &[RegisteredThread]) -> HashSet<&str> {
     blocked
 }
 
-fn deletion_plan(
-    threads: &[RegisteredThread],
-    targets: &[DeleteSessionTarget],
-) -> Result<DeletionPlan> {
-    let mut selected = HashSet::new();
-    let mut unique = Vec::new();
-    for target in targets {
-        validate_id(&target.session_id)?;
-        if selected.insert(target.session_id.clone()) {
-            unique.push(target.clone());
-        }
-    }
-    let mut skipped_guardian_count = 0;
-    if unique.iter().any(|target| target.guardian_only) {
-        let blocked = guardian_blocked_ids(threads);
-        let original_count = unique.len();
-        unique.retain(|target| {
-            !target.guardian_only || !blocked.contains(target.session_id.as_str())
-        });
-        skipped_guardian_count = original_count - unique.len();
-    }
+fn children_by_parent(threads: &[RegisteredThread]) -> HashMap<&str, Vec<&str>> {
     let mut children: HashMap<&str, Vec<&str>> = HashMap::new();
     for thread in threads {
         if let Some(parent) = parent_id(thread) {
             children.entry(parent).or_default().push(&thread.id);
         }
     }
-    let mut stack: Vec<_> = unique
-        .iter()
-        .map(|target| target.session_id.as_str())
-        .collect();
+    children
+}
+
+fn affected_by<'a>(
+    children: &HashMap<&'a str, Vec<&'a str>>,
+    mut stack: Vec<&'a str>,
+) -> HashSet<&'a str> {
     let mut affected = HashSet::new();
     while let Some(id) = stack.pop() {
-        if !affected.insert(id.to_owned()) {
+        if !affected.insert(id) {
             continue;
         }
         if let Some(descendants) = children.get(id) {
             stack.extend(descendants);
         }
     }
-    let mut affected_ids: Vec<_> = affected.into_iter().collect();
+    affected
+}
+
+fn deletion_plan(
+    threads: &[RegisteredThread],
+    targets: &[DeleteSessionTarget],
+) -> Result<DeletionPlan> {
+    // 기간을 지정한 대상이 있으면 수동 추가된 부모도 최근 자손을 삭제할 수 없다.
+    let activity_before = targets
+        .iter()
+        .filter_map(|target| target.activity_before)
+        .min();
+    if activity_before.is_some_and(|cutoff| cutoff <= 0 || cutoff > chrono::Utc::now().timestamp())
+    {
+        bail!("올바르지 않은 활동 기간입니다.");
+    }
+    let mut selected = HashSet::new();
+    let mut unique = Vec::new();
+    for target in targets {
+        validate_id(&target.session_id)?;
+        if selected.insert(target.session_id.as_str()) {
+            let mut target = target.clone();
+            target.activity_before = activity_before;
+            unique.push(target);
+        }
+    }
+    let mut skipped_guardian_count = 0;
+    if unique.iter().any(|target| target.guardian_only) {
+        let blocked = blocked_ids(threads, |thread| {
+            SessionKind::from_source(&thread.source) != SessionKind::Guardian
+        });
+        let original_count = unique.len();
+        unique.retain(|target| {
+            !target.guardian_only || !blocked.contains(target.session_id.as_str())
+        });
+        skipped_guardian_count = original_count - unique.len();
+    }
+    let mut skipped_age_count = 0;
+    if let Some(cutoff) = activity_before {
+        let blocked = blocked_ids(threads, |thread| {
+            thread.updated_at >= cutoff
+                || thread.updated_at <= 0
+                || chrono::DateTime::from_timestamp(thread.updated_at, 0).is_none()
+        });
+        let original_count = unique.len();
+        unique.retain(|target| !blocked.contains(target.session_id.as_str()));
+        skipped_age_count = original_count - unique.len();
+    }
+    let selected_ids = unique
+        .iter()
+        .map(|target| target.session_id.as_str())
+        .collect();
+    let mut affected_ids = affected_by(&children_by_parent(threads), selected_ids)
+        .into_iter()
+        .map(str::to_owned)
+        .collect::<Vec<_>>();
     affected_ids.sort();
     Ok(DeletionPlan {
         targets: unique,
         affected_ids,
         skipped_guardian_count,
+        skipped_age_count,
     })
 }
 
 trait RegistryApi {
     fn list(&mut self) -> Result<Vec<RegisteredThread>>;
     fn delete(&mut self, id: &str) -> Result<()>;
+    fn revalidate_age(&self, approved: &HashSet<&str>, cutoff: i64) -> Result<()>;
 }
 impl RegistryApi for AppServer {
     fn list(&mut self) -> Result<Vec<RegisteredThread>> {
         self.complete_threads()
+    }
+    fn revalidate_age(&self, approved: &HashSet<&str>, cutoff: i64) -> Result<()> {
+        self.check_deletion_age(approved, cutoff)
     }
     fn delete(&mut self, id: &str) -> Result<()> {
         self.request("thread/delete", json!({"threadId":id}))
@@ -277,6 +320,7 @@ fn delete_using(
     let plan = deletion_plan(&before, targets)?;
     let approved: HashSet<_> = approved.iter().map(String::as_str).collect();
     if plan.skipped_guardian_count > 0
+        || plan.skipped_age_count > 0
         || plan
             .affected_ids
             .iter()
@@ -286,6 +330,7 @@ fn delete_using(
     }
     let by_id: HashMap<_, _> = before.iter().map(|t| (t.id.as_str(), t)).collect();
     let selected: HashSet<_> = plan.targets.iter().map(|t| t.session_id.as_str()).collect();
+    let children = children_by_parent(&before);
     let mut roots: Vec<_> = plan
         .targets
         .iter()
@@ -305,17 +350,16 @@ fn delete_using(
             }
             true
         })
-        .cloned()
         .collect();
     // 순환 메타데이터에도 승인된 대상을 빠뜨리지 않는다.
     let mut covered = HashSet::new();
     for root in &roots {
-        covered.extend(deletion_plan(&before, std::slice::from_ref(root))?.affected_ids);
+        covered.extend(affected_by(&children, vec![root.session_id.as_str()]));
     }
     for target in &plan.targets {
-        if !covered.contains(&target.session_id) {
-            roots.push(target.clone());
-            covered.extend(deletion_plan(&before, std::slice::from_ref(target))?.affected_ids);
+        if !covered.contains(target.session_id.as_str()) {
+            roots.push(target);
+            covered.extend(affected_by(&children, vec![target.session_id.as_str()]));
         }
     }
     let mut attempts: HashMap<String, (DeleteSessionStatus, Option<String>)> = HashMap::new();
@@ -335,7 +379,7 @@ fn delete_using(
     let mut processed = 0;
     report_deleting(processed);
     for root in roots {
-        let group = deletion_plan(&before, std::slice::from_ref(&root))?.affected_ids;
+        let group = affected_by(&children, vec![root.session_id.as_str()]);
         let outcome = if !by_id.contains_key(root.session_id.as_str()) {
             (DeleteSessionStatus::AlreadyMissing, None)
         } else if disconnected {
@@ -343,6 +387,11 @@ fn delete_using(
                 DeleteSessionStatus::Failed,
                 Some("통신 중단으로 삭제 요청을 보내지 않았습니다.".into()),
             )
+        } else if let Some(error) = root
+            .activity_before
+            .and_then(|cutoff| api.revalidate_age(&group, cutoff).err())
+        {
+            (DeleteSessionStatus::Failed, Some(format!("{error:#}")))
         } else {
             let result = api.delete(&root.session_id);
             processed += 1;
@@ -366,7 +415,9 @@ fn delete_using(
             }
         };
         for id in group {
-            attempts.entry(id).or_insert_with(|| outcome.clone());
+            attempts
+                .entry(id.to_owned())
+                .or_insert_with(|| outcome.clone());
         }
     }
     report_progress(DeleteProgress::Verifying);
@@ -431,6 +482,7 @@ mod tests {
             .map(|id| DeleteSessionTarget {
                 session_id: (*id).into(),
                 guardian_only: false,
+                activity_before: None,
             })
             .collect()
     }
@@ -464,6 +516,7 @@ mod tests {
         let target = DeleteSessionTarget {
             session_id: P.into(),
             guardian_only: true,
+            activity_before: None,
         };
         let approved = deletion_plan(
             &[parent.clone(), child.clone()],
@@ -478,10 +531,109 @@ mod tests {
             remain: false,
             uncertain: false,
             fail_verify: false,
+            reactivate_on_delete: None,
             lists: 0,
         };
         assert!(delete_using(&mut api, &[target], &approved, &mut |_| {}).is_err());
         assert!(api.requests.is_empty());
+    }
+
+    #[test]
+    fn age_plan_protects_the_cutoff_unknown_dates_and_ancestors() {
+        const GRANDCHILD: &str = "44444444-4444-4444-8444-444444444444";
+        const UNKNOWN: &str = "55555555-5555-4555-8555-555555555555";
+        const INVALID: &str = "66666666-6666-4666-8666-666666666666";
+        let threads = [
+            (P, None, 90),
+            (C, Some(P), 100),
+            (GRANDCHILD, Some(C), 80),
+            (O, None, 99),
+            (UNKNOWN, None, 0),
+            (INVALID, None, i64::MIN),
+        ]
+        .map(|(id, parent, last_activity)| {
+            let mut row = thread(id, parent);
+            row.updated_at = last_activity;
+            row.archived = id == O;
+            row
+        });
+        let targets: Vec<DeleteSessionTarget> = serde_json::from_value(json!([
+            {"sessionId":P,"activityBefore":100},
+            {"sessionId":C,"activityBefore":100},
+            {"sessionId":GRANDCHILD,"activityBefore":100},
+            {"sessionId":O,"activityBefore":100},
+            {"sessionId":UNKNOWN,"activityBefore":100},
+            {"sessionId":INVALID,"activityBefore":100}
+        ]))
+        .unwrap();
+
+        let plan = serde_json::to_value(deletion_plan(&threads, &targets).unwrap()).unwrap();
+
+        assert_eq!(plan["affectedIds"], json!([O, GRANDCHILD]));
+        assert_eq!(plan["skippedAgeCount"], 4);
+        assert_eq!(plan["targets"][0]["activityBefore"], 100);
+    }
+
+    #[test]
+    fn age_plan_applies_the_earliest_cutoff_across_mixed_targets() {
+        let mut parent = thread(P, None);
+        parent.updated_at = 90;
+        let mut child = thread(C, Some(P));
+        child.updated_at = 100;
+        let targets: Vec<DeleteSessionTarget> = serde_json::from_value(json!([
+            {"sessionId":P},
+            {"sessionId":C,"activityBefore":110},
+            {"sessionId":C,"activityBefore":100},
+            {"sessionId":O}
+        ]))
+        .unwrap();
+
+        let plan = serde_json::to_value(
+            deletion_plan(&[parent, child, thread(O, None)], &targets).unwrap(),
+        )
+        .unwrap();
+
+        assert_eq!(plan["affectedIds"], json!([O]));
+        assert_eq!(plan["skippedAgeCount"], 2);
+        assert_eq!(plan["targets"][0]["activityBefore"], 100);
+    }
+
+    #[test]
+    fn age_delete_rechecks_new_activity_before_any_request() {
+        let mut api = fake();
+        let targets: Vec<DeleteSessionTarget> = serde_json::from_value(json!([
+            {"sessionId":P,"activityBefore":100},
+            {"sessionId":O,"activityBefore":100}
+        ]))
+        .unwrap();
+        let approved = deletion_plan(&api.threads, &targets).unwrap().affected_ids;
+        api.threads
+            .iter_mut()
+            .find(|row| row.id == C)
+            .unwrap()
+            .updated_at = 100;
+        let result = delete_using(&mut api, &targets, &approved, &mut |_| {});
+
+        assert!(result.is_err());
+        assert!(api.requests.is_empty());
+    }
+
+    #[test]
+    fn age_delete_protects_activity_during_an_earlier_delete_request() {
+        let mut api = fake();
+        api.reactivate_on_delete = Some(O);
+        let targets: Vec<DeleteSessionTarget> = serde_json::from_value(json!([
+            {"sessionId":P,"activityBefore":100},
+            {"sessionId":O,"activityBefore":100}
+        ]))
+        .unwrap();
+        let approved = deletion_plan(&api.threads, &targets).unwrap().affected_ids;
+
+        let result = delete_using(&mut api, &targets, &approved, &mut |_| {}).unwrap();
+
+        assert_eq!(api.requests, [P]);
+        assert_eq!(result.last().unwrap().status, DeleteSessionStatus::Failed);
+        assert!(api.threads.iter().any(|row| row.id == O));
     }
 
     thread_local! {static MAP_CLOCK:std::cell::Cell<Option<(std::time::Instant,usize,usize)>>=const{std::cell::Cell::new(None)};}
@@ -628,6 +780,7 @@ mod tests {
         remain: bool,
         uncertain: bool,
         fail_verify: bool,
+        reactivate_on_delete: Option<&'static str>,
         lists: usize,
     }
     impl RegistryApi for Fake {
@@ -638,8 +791,30 @@ mod tests {
             }
             Ok(self.threads.clone())
         }
+        fn revalidate_age(&self, approved: &HashSet<&str>, cutoff: i64) -> Result<()> {
+            let children = children_by_parent(&self.threads);
+            let scoped = affected_by(&children, approved.iter().copied().collect());
+            if scoped != *approved
+                || approved.iter().any(|id| {
+                    !self
+                        .threads
+                        .iter()
+                        .any(|row| row.id == *id && row.updated_at > 0 && row.updated_at < cutoff)
+                })
+            {
+                bail!("기간 보호 범위 변경");
+            }
+            Ok(())
+        }
         fn delete(&mut self, id: &str) -> Result<()> {
             self.requests.push(id.into());
+            if let Some(next) = self.reactivate_on_delete.take() {
+                self.threads
+                    .iter_mut()
+                    .find(|row| row.id == next)
+                    .unwrap()
+                    .updated_at = 100;
+            }
             if self.uncertain {
                 bail!("timeout");
             }
@@ -657,6 +832,7 @@ mod tests {
             remain: false,
             uncertain: false,
             fail_verify: false,
+            reactivate_on_delete: None,
             lists: 0,
         }
     }

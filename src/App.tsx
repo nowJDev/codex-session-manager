@@ -1,4 +1,5 @@
 // 세션 목록의 상태와 API 삭제 확인 및 결과 화면을 조립한다.
+import { useState } from "react";
 import { AlertTriangle, RefreshCw, Search, Settings as SettingsIcon, Trash2 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -11,6 +12,7 @@ import { useSessionManager } from "@/application/useSessionManager";
 
 function App() {
   const manager = useSessionManager();
+  const [retentionDays, setRetentionDays] = useState(7);
   const {
     t,
     query,
@@ -55,6 +57,7 @@ function App() {
     handleResume,
     handleDelete,
     handleBulkDelete,
+    handleDeleteByAge,
     guardianCount,
     handleDeleteGuardians,
     handleRetryFailedDelete,
@@ -71,6 +74,14 @@ function App() {
     closeEdit,
   } = manager;
   const skippedGuardians = pendingDelete?.skippedGuardianCount ?? 0;
+  const skippedByAge = pendingDelete?.skippedAgeCount ?? 0;
+  const plannedRetention = pendingDelete?.retentionDays;
+  const emptyAgeDeletion = pendingDelete?.sessions.length === 0 && (plannedRetention !== undefined || skippedByAge > 0);
+  const ageDeleteDisabled = deleting || preparingDelete || !canDelete || localCount === 0;
+  const ageNotes = [
+    plannedRetention !== undefined && t("delete.ageRetention", { days: plannedRetention }),
+    skippedByAge > 0 && t("delete.ageSkipped", { count: skippedByAge }),
+  ].filter(Boolean).join(" ");
 
   return (
     <div className="flex h-screen flex-col bg-background text-foreground">
@@ -94,14 +105,14 @@ function App() {
           </a>
         </div>
       )}
-      <header className="flex items-center gap-3 border-b border-border/60 px-5 py-3">
+      <header className="flex flex-wrap items-center gap-3 border-b border-border/60 px-5 py-3">
         <div className="flex flex-col">
           <h1 className="text-base font-semibold leading-tight">{t("app.title")}</h1>
           <p className="text-[11px] text-muted-foreground">
             {loading ? t("list.scanning") : t("list.counts", { total, workers: workerCount, registered: localCount, displayed: displayedCount, selected: selectedForDeleteCount, selectedVisible: visibleSelectedCount })} · cloud {cloudCount}
           </p>
         </div>
-        <div className="relative ml-6 flex-1 max-w-md">
+        <div className="relative min-w-32 flex-1 max-w-md">
           <Search className="pointer-events-none absolute left-2.5 top-1/2 h-3.5 w-3.5 -translate-y-1/2 text-muted-foreground" />
           <Input
             value={query}
@@ -110,7 +121,27 @@ function App() {
             className="pl-8"
           />
         </div>
-        <div className="flex items-center gap-1.5">
+        <div className="flex flex-wrap items-center gap-1.5">
+          <div className="flex items-center gap-1.5">
+            <select
+              aria-label={t("action.retentionDays")}
+              value={retentionDays}
+              onChange={(event) => setRetentionDays(Number(event.currentTarget.value))}
+              disabled={ageDeleteDisabled}
+              className="h-8 rounded-md border border-border bg-background px-2 text-xs focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring disabled:opacity-50"
+            >
+              {[1, 7, 30].map((days) => <option key={days} value={days}>{t("action.keepRecentDays", { days })}</option>)}
+            </select>
+            <Button
+              variant="outline"
+              size="sm"
+              title={t("action.deleteByAge")}
+              disabled={ageDeleteDisabled}
+              onClick={() => handleDeleteByAge(retentionDays)}
+            >
+              {t("action.deleteByAge")}
+            </Button>
+          </div>
           {guardianCount > 0 && (
             <Button
               variant="outline"
@@ -290,18 +321,21 @@ function App() {
         pending={deleting}
         canDelete={canDelete}
         title={
-          pendingDelete?.sessions.length === 0 && skippedGuardians > 0
+          emptyAgeDeletion
+            ? t("delete.ageUnavailable")
+            : pendingDelete?.sessions.length === 0 && skippedGuardians > 0
             ? t("delete.guardianUnavailable")
             : pendingDelete?.sessions.length === 1
             ? t("delete.titleSingle")
             : t("delete.titleBulk", { count: pendingDelete?.sessions.length ?? 0 })
         }
         description={
-          t("delete.scope", {
+          (emptyAgeDeletion ? t("delete.ageUnavailableDescription") : t("delete.scope", {
             selected: pendingDelete?.sessions.length ?? 0,
             affected: pendingDelete?.affectedIds.length ?? 0,
             descendants: pendingDelete?.affectedIds.filter((id) => !pendingDelete.sessions.some((s) => s.sessionId === id)).length ?? 0,
-          }) + (skippedGuardians ? " " + t("delete.guardiansSkipped", { count: skippedGuardians }) : "")
+          })) + (skippedGuardians ? " " + t("delete.guardiansSkipped", { count: skippedGuardians }) : "")
+            + (ageNotes ? " " + ageNotes : "")
         }
         confirmLabel={t("delete.confirm")}
         cancelLabel={t("settings.cancel")}

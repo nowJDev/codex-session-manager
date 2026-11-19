@@ -91,6 +91,11 @@ test('app uses table counts, removes visibility toggles and blocks destructive c
   const bulk=nodes(out).find(n=>n.type==='Button'&&n.props.variant==='destructive');assert.equal(bulk.props.disabled,true);
   const guardianBulk=nodes(out).find(n=>n.type==='Button'&&n.props.title==='action.deleteGuardians');
   assert.equal(guardianBulk?.props.disabled,true);assert.equal(guardianBulk.props.onClick,manager.handleDeleteGuardians);
+  const retention=nodes(out).find(n=>n.type==='select'&&n.props['aria-label']==='action.retentionDays');
+  assert.equal(retention?.props.value,7);
+  assert.deepEqual(nodes(retention).filter(n=>n.type==='option').map(n=>n.props.value),[1,7,30]);
+  const ageBulk=nodes(out).find(n=>n.type==='Button'&&n.props.title==='action.deleteByAge');
+  assert.equal(ageBulk?.props.disabled,true);
   const table=nodes(out).find(n=>n.props.sessions===manager.filtered);assert.equal(table.props.onVisibleRowsChange,manager.handleVisibleRowsChange);assert.equal(table.props.canDelete,false);
   const detail=nodes(out).find(n=>n.props.session===item);assert.equal(detail.props.depth,4);
 });

@@ -48,6 +48,7 @@ export interface SessionMeta {
 export interface DeleteSessionTarget {
   sessionId: string;
   guardianOnly?: boolean;
+  activityBefore?: number;
 }
 
 export type DeleteProgress =
@@ -61,6 +62,7 @@ export interface DeletionPlan {
   targets: DeleteSessionTarget[];
   affectedIds: string[];
   skippedGuardianCount?: number;
+  skippedAgeCount?: number;
 }
 
 export interface DeleteSessionResult extends DeleteSessionTarget {

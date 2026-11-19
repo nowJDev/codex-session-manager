@@ -93,6 +93,7 @@ export function useSessionManager() {
     handleResume: commands.handleResume,
     handleDelete: commands.handleDelete,
     handleBulkDelete: commands.handleBulkDelete,
+    handleDeleteByAge: (days: number) => commands.handleDeleteByAge(data.sessions, days),
     guardianCount: guardianTargets.length,
     handleDeleteGuardians: () => commands.prepareDelete(guardianTargets),
     handleRetryFailedDelete: commands.handleRetryFailedDelete,
@@ -102,8 +103,14 @@ export function useSessionManager() {
     handleToggleCloud: commands.handleToggleCloud,
     handleGenerateSummary: commands.handleGenerateSummary,
     handleToggleFavorite: commands.handleToggleFavorite,
-    handleToggleSelected: selection.handleToggleSelected,
-    handleToggleVisibleSelection: selection.handleToggleVisibleSelection,
+    handleToggleSelected: (session: Session) => {
+      commands.forgetAgeSelection([session]);
+      selection.handleToggleSelected(session);
+    },
+    handleToggleVisibleSelection: (sessions: Session[], selected: boolean) => {
+      if (!selected) commands.forgetAgeSelection(sessions);
+      selection.handleToggleVisibleSelection(sessions, selected);
+    },
     openEdit: commands.openEdit,
     submitEdit: commands.submitEdit,
     closeEdit: commands.closeEdit,

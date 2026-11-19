@@ -139,6 +139,7 @@ fn main() -> ExitCode {
             let targets = vec![codex_session_manager_lib::types::DeleteSessionTarget {
                 session_id: id.clone(),
                 guardian_only: false,
+                activity_before: None,
             }];
             let plan = service.prepare_session_deletion(&targets)?;
             let results = service.delete_sessions(targets, &plan.affected_ids)?;
