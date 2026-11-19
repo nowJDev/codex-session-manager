@@ -18,6 +18,8 @@ export type UpdateCheckResult = {
   error: string | null;
 };
 
+export type CloudFolderCandidate = { root: string; path: string };
+
 function progressText(downloaded: number, total?: number): string {
   if (!total) return `${(downloaded / 1024 / 1024).toFixed(1)} MB 다운로드 중...`;
   const pct = Math.min(100, Math.round((downloaded / total) * 100));
@@ -29,9 +31,17 @@ export function useSettingsActions() {
     return tauriGateway.pickDirectory();
   }
 
-  async function pickCloudFolder(): Promise<string | null> {
-    const result = await pickDirectory();
-    return result ? tauriGateway.setCloudFolder(result) : null;
+  async function previewCloudFolder(root: string | null): Promise<CloudFolderCandidate | null> {
+    return root ? { root, path: await tauriGateway.previewCloudFolder(root) } : null;
+  }
+
+  async function pickCloudFolder(): Promise<CloudFolderCandidate | null> {
+    return previewCloudFolder(await pickDirectory());
+  }
+
+  async function detectGoogleDrive(): Promise<CloudFolderCandidate | null> {
+    const detected = await tauriGateway.detectGoogleDrive();
+    return previewCloudFolder(detected.found ? detected.path : null);
   }
 
   async function checkForUpdates(
@@ -91,11 +101,11 @@ export function useSettingsActions() {
     pickCloudFolder,
     loadDebugLog: () => tauriGateway.getDebugLog() as Promise<DebugLogInfo>,
     openDebugLogFolder: () => tauriGateway.openDebugLogFolder(),
-    connectGoogleDrive: () => tauriGateway.connectGoogleDrive(),
+    detectGoogleDrive,
     checkEnvironment: () => tauriGateway.checkEnvironment() as Promise<EnvironmentReport>,
     checkForUpdates,
     openReleases: (url?: string) => tauriGateway.openExternalUrl(url || RELEASES_URL),
     openUsagePage: () => tauriGateway.openExternalUrl(CODEX_WEB_URL),
-    saveSettings: (patch: Settings) => tauriGateway.saveSettings(patch),
+    saveSettings: (patch: Settings, cloudFolderRoot?: string) => tauriGateway.saveSettings(patch, cloudFolderRoot),
   };
 }

@@ -4,7 +4,7 @@ use crate::types::{Session, SessionSnapshot};
 use anyhow::{anyhow, Result};
 use serde::{Deserialize, Serialize};
 use std::fs;
-use std::path::PathBuf;
+use std::path::{Path, PathBuf};
 
 const CLOUD_FOLDER: &str = "Codex Sessions";
 
@@ -161,14 +161,48 @@ struct CloudMeta {
     uploaded_at: String,
 }
 
+pub fn cloud_folder_path(root: &Path) -> PathBuf {
+    if root.file_name().is_some_and(|name| {
+        name == CLOUD_FOLDER
+            || cfg!(windows) && name.to_string_lossy().eq_ignore_ascii_case(CLOUD_FOLDER)
+    }) {
+        root.to_path_buf()
+    } else {
+        root.join(CLOUD_FOLDER)
+    }
+}
+
 pub fn set_cloud_root(root: &str) -> Result<PathBuf> {
-    let root = PathBuf::from(root);
-    if !root.exists() {
+    let root = Path::new(root);
+    if !root.is_dir() {
         return Err(anyhow!("folder not found: {}", root.display()));
     }
-    let folder = root.join(CLOUD_FOLDER);
+    let folder = cloud_folder_path(root);
     fs::create_dir_all(&folder)?;
     Ok(folder)
+}
+
+#[cfg(test)]
+mod sync_folder_tests {
+    use super::*;
+
+    #[test]
+    fn reselecting_the_sync_folder_does_not_nest_another_folder() {
+        let base = tempfile::tempdir().unwrap();
+        let folder = set_cloud_root(base.path().to_str().unwrap()).unwrap();
+
+        assert_eq!(set_cloud_root(folder.to_str().unwrap()).unwrap(), folder);
+        assert!(!folder.join(CLOUD_FOLDER).exists());
+    }
+
+    #[test]
+    fn preview_matches_save_without_creating_a_directory() {
+        let base = tempfile::tempdir().unwrap();
+        let preview = cloud_folder_path(base.path());
+        assert!(!preview.exists());
+        assert_eq!(set_cloud_root(base.path().to_str().unwrap()).unwrap(), preview);
+        assert!(preview.is_dir());
+    }
 }
 
 fn require_complete_legacy(session: &Session) -> Result<()> {

@@ -12,6 +12,8 @@ export function useSessionData() {
   const [codexCliMissing, setCodexCliMissing] = useState(false);
   const [codexStatus, setCodexStatus] = useState<CodexStatus | null>(null);
   const [codexStatusLoading, setCodexStatusLoading] = useState(false);
+  const [initialLoading, setInitialLoading] = useState(true);
+  const [codexStatusError, setCodexStatusError] = useState<string | null>(null);
   const [refreshError, setRefreshError] = useState<string | null>(null);
   const [snapshotInfo, setSnapshotInfo] = useState({ complete: false, stale: false, missingCount: 0 });
   const hasCompleteSnapshot = useRef(false);
@@ -24,8 +26,9 @@ export function useSessionData() {
     setCodexStatusLoading(true);
     try {
       setCodexStatus(await tauriGateway.getCodexStatus());
+      setCodexStatusError(null);
     } catch (err) {
-      console.error(err);
+      setCodexStatusError(String(err));
     } finally {
       setCodexStatusLoading(false);
     }
@@ -58,7 +61,7 @@ export function useSessionData() {
             console.error(err);
             if (!refreshQueued.current) {
               deletionAllowed.current = false;
-              setSnapshotInfo((previous) => ({ ...previous, complete: false, stale: hasCompleteSnapshot.current }));
+              setSnapshotInfo((previous) => ({ ...previous, complete: false, stale: hasCompleteSnapshot.current, missingCount: 0 }));
               setRefreshError(String(err));
             }
           }
@@ -66,6 +69,7 @@ export function useSessionData() {
       } finally {
         refreshInFlight.current = null;
         setLoading(false);
+        setInitialLoading(false);
       }
     });
     return refreshInFlight.current;
@@ -96,6 +100,8 @@ export function useSessionData() {
     sessions,
     setSessions,
     loading,
+    initialLoading,
+    codexStatusError,
     refreshError,
     snapshotComplete: snapshotInfo.complete,
     snapshotStale: snapshotInfo.stale,

@@ -57,8 +57,8 @@ export const tauriGateway = {
     ipc.deleteSessions(targets, approvedIds, onProgress),
   archiveSession: (sessionId: string): Promise<void> => ipc.archiveSession(sessionId),
   unarchiveSession: (sessionId: string): Promise<void> => ipc.unarchiveSession(sessionId),
-  saveSettings: (patch: Settings): Promise<void> => ipc.saveSettings(patch),
-  setCloudFolder: (root: string): Promise<string> => ipc.setCloudFolder(root),
+  saveSettings: (patch: Settings, cloudFolderRoot?: string): Promise<void> => ipc.saveSettings(patch, cloudFolderRoot),
+  previewCloudFolder: (root: string): Promise<string> => ipc.previewCloudFolder(root),
   uploadToCloud: (session: Session): Promise<void> => ipc.uploadToCloud(session),
   checkoutSession: (session: Session): Promise<string> => ipc.checkoutSession(session),
   checkinSession: (session: Session): Promise<void> => ipc.checkinSession(session),
@@ -71,7 +71,6 @@ export const tauriGateway = {
   startAutoSummary: (): Promise<boolean> => ipc.startAutoSummary(),
   detectGoogleDrive: (): Promise<{ found: boolean; path: string | null }> =>
     ipc.detectGoogleDrive(),
-  connectGoogleDrive: (): Promise<string> => ipc.connectGoogleDrive(),
   getDebugLog: (): Promise<DebugLogInfo> => ipc.getDebugLog(),
   openDebugLogFolder: (): Promise<void> => ipc.openDebugLogFolder(),
   pickDirectory: async (): Promise<string | null> => {

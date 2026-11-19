@@ -28,9 +28,10 @@ export const ipc = {
     invoke<void>("archive_session", { sessionId }),
   unarchiveSession: (sessionId: string) =>
     invoke<void>("unarchive_session", { sessionId }),
-  saveSettings: (patch: Settings) => invoke<void>("save_settings", { patch }),
-  setCloudFolder: (root: string) =>
-    invoke<string>("set_cloud_folder", { root }),
+  saveSettings: (patch: Settings, cloudFolderRoot?: string) =>
+    invoke<void>("save_settings", { patch, cloudFolderRoot }),
+  previewCloudFolder: (root: string) =>
+    invoke<string>("preview_cloud_folder", { root }),
   uploadToCloud: (session: Session) =>
     invoke<void>("upload_to_cloud", { session }),
   checkoutSession: (session: Session) =>
@@ -46,7 +47,6 @@ export const ipc = {
   checkUpdate: () => invoke<UpdateInfo>("check_update_cmd"),
   startAutoSummary: () => invoke<boolean>("start_auto_summary"),
   detectGoogleDrive: () => invoke<{ found: boolean; path: string | null }>("detect_google_drive_cmd"),
-  connectGoogleDrive: () => invoke<string>("connect_google_drive_cmd"),
   getDebugLog: () =>
     invoke<{ path: string; exists: boolean; size: number; tail: string }>("get_debug_log_cmd"),
   openDebugLogFolder: () => invoke<void>("open_debug_log_folder_cmd"),

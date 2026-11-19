@@ -41,6 +41,7 @@ import {
   shortSessionId,
   totalColumnWidth,
   type ColKey,
+  type SessionBranchActivities,
   type SortKey,
   type SortState,
 } from "@/lib/sessionTableState";
@@ -51,6 +52,7 @@ import type { Locale } from "@/i18n";
 interface Props {
   sessions: Session[];
   query?: string;
+  branchActivities?: SessionBranchActivities;
   canDelete: boolean;
   onVisibleRowsChange: (sessions: Session[]) => void;
   selectedId: string | null;
@@ -75,6 +77,7 @@ function ResizableHead({
   width,
   onResize,
   className,
+  left,
   children,
   contentClassName,
   childrenClassName,
@@ -87,6 +90,7 @@ function ResizableHead({
   width: number;
   onResize: (key: ColKey, w: number) => void;
   className?: string;
+  left?: number;
   children?: React.ReactNode;
   contentClassName?: string;
   childrenClassName?: string;
@@ -126,35 +130,34 @@ function ResizableHead({
     [colKey, width, onResize]
   );
 
-  const isSortable = !!sortKey && !!onSort;
-  const isActiveSort = isSortable && sortState && sortKey === sortState.key;
+  const activeDirection = sortKey && sortKey === sortState?.key ? sortState.dir : undefined;
+  const content = <span className={cn("truncate", childrenClassName)}>{children}</span>;
 
   return (
     <TableHead
-      style={{ width, minWidth: width, maxWidth: width }}
-      className={cn("relative select-none", className)}
+      scope="col"
+      style={{ width, minWidth: width, maxWidth: width, left }}
+      aria-sort={activeDirection ? activeDirection === "asc" ? "ascending" : "descending" : undefined}
+      className={cn("relative select-none", left !== undefined && "sticky z-10 bg-card", className)}
     >
-      <div
-        className={cn(
-          "flex items-center gap-1 truncate pr-2",
-          isSortable && "cursor-pointer hover:text-foreground",
-          contentClassName
-        )}
-        onClick={isSortable ? () => onSort!(sortKey!) : undefined}
-        role={isSortable ? "button" : undefined}
-        title={isSortable ? title : undefined}
-      >
-        <span className={cn("truncate", childrenClassName)}>{children}</span>
-        {isActiveSort && (
-          sortState!.dir === "asc"
-            ? <ArrowUp className="h-3 w-3 shrink-0 text-foreground/70" />
-            : <ArrowDown className="h-3 w-3 shrink-0 text-foreground/70" />
-        )}
-      </div>
+      {sortKey && onSort ? (
+        <button
+          type="button"
+          className={cn("flex w-full items-center gap-1 rounded pr-2 text-inherit hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring", contentClassName)}
+          onClick={() => onSort(sortKey)}
+          title={title}
+        >
+          {content}
+          {activeDirection === "asc" && <ArrowUp aria-hidden="true" className="h-3 w-3 shrink-0" />}
+          {activeDirection === "desc" && <ArrowDown aria-hidden="true" className="h-3 w-3 shrink-0" />}
+        </button>
+      ) : (
+        <div className={cn("flex items-center gap-1 truncate pr-2", contentClassName)}>{content}</div>
+      )}
       <div
         onPointerDown={onPointerDown}
         className="absolute right-0 top-0 h-full w-1.5 cursor-col-resize hover:bg-primary/40 active:bg-primary/60"
-        aria-label={`Resize ${colKey}`}
+        aria-hidden="true"
       />
     </TableHead>
   );
@@ -163,6 +166,7 @@ function ResizableHead({
 function SessionTableInner({
   sessions,
   query = "",
+  branchActivities,
   canDelete,
   onVisibleRowsChange,
   selectedId,
@@ -217,8 +221,14 @@ function SessionTableInner({
       : expandedBranches,
     [sessions, searching, searchCollapsedIds, expandedBranches],
   );
-  const treeRows = useMemo(() => buildSessionTreeRows(sessions, expandedIds, sort), [sessions, expandedIds, sort]);
-  const allRows = useMemo(() => buildSessionTreeRows(sessions, new Set(sessions.map((s) => s.sessionId)), sort), [sessions, sort]);
+  const treeRows = useMemo(
+    () => buildSessionTreeRows(sessions, expandedIds, sort, branchActivities),
+    [sessions, expandedIds, sort, branchActivities],
+  );
+  const allRows = useMemo(
+    () => buildSessionTreeRows(sessions, new Set(sessions.map((s) => s.sessionId)), sort, branchActivities),
+    [sessions, sort, branchActivities],
+  );
   const displayedSessions = useMemo(() => treeRows.map((row) => row.session), [treeRows]);
   useEffect(() => { onVisibleRowsChange(displayedSessions); }, [displayedSessions, onVisibleRowsChange]);
   function setAllExpanded(expand: boolean) {
@@ -256,7 +266,10 @@ function SessionTableInner({
     );
   }
 
+  const leftOffsets: Partial<Record<ColKey, number>> = { select: 0, star: widths.select, name: widths.select + widths.star };
+  const pinnedCell = "sticky z-10 bg-background group-hover:bg-accent group-data-[state=selected]:bg-accent";
   const cellStyle = (key: ColKey): React.CSSProperties => ({
+    left: leftOffsets[key],
     width: widths[key],
     minWidth: widths[key],
     maxWidth: widths[key],
@@ -264,17 +277,27 @@ function SessionTableInner({
 
   return (
     <div ref={tableRef} className="flex h-full min-h-0 flex-col">
-      <div className="flex shrink-0 gap-2 border-b border-border/60 px-3 py-2">
+      <div className="flex shrink-0 flex-wrap gap-2 border-b border-border/60 px-3 py-2">
         <Button variant="outline" size="sm" aria-label={t("action.expandAll")} onClick={() => setAllExpanded(true)}>{t("action.expandAll")}</Button>
         <Button variant="outline" size="sm" aria-label={t("action.collapseAll")} onClick={() => setAllExpanded(false)}>{t("action.collapseAll")}</Button>
       </div>
       <div className="min-h-0 flex-1">
-    <Table className="table-fixed" style={{ minWidth: tableWidth }}>
-      <TableHeader>
+    <Table
+      className="table-fixed border-separate border-spacing-0"
+      style={{ width: tableWidth }}
+      viewportLabel={t("list.sessionList")}
+      viewportStyle={{
+        scrollPaddingTop: "2.5rem",
+        scrollPaddingLeft: widths.select + widths.star + widths.name,
+        scrollPaddingRight: widths.actions,
+      }}
+    >
+      <TableHeader className="sticky top-0 z-20 bg-card">
         <TableRow>
           <ResizableHead
             colKey="select"
             width={widths.select}
+            left={leftOffsets.select}
             onResize={handleResize}
             className="px-0"
             contentClassName="justify-center overflow-visible pr-0"
@@ -294,6 +317,7 @@ function SessionTableInner({
           <ResizableHead
             colKey="star"
             width={widths.star}
+            left={leftOffsets.star}
             onResize={handleResize}
             className="px-0"
             contentClassName="justify-center pr-0"
@@ -301,7 +325,9 @@ function SessionTableInner({
           <ResizableHead
             colKey="name"
             width={widths.name}
+            left={leftOffsets.name}
             onResize={handleResize}
+            className="border-r border-border/60"
             sortKey="name"
             sortState={sort}
             onSort={handleSort}
@@ -334,6 +360,7 @@ function SessionTableInner({
             width={widths.size}
             onResize={handleResize}
             className="text-right"
+            contentClassName="justify-end"
             sortKey="size"
             sortState={sort}
             onSort={handleSort}
@@ -371,73 +398,72 @@ function SessionTableInner({
             {t("list.type")}
           </ResizableHead>
           <TableHead
-            style={{
-              width: widths.actions,
-              minWidth: widths.actions,
-              maxWidth: widths.actions,
-            }}
-            className="px-0"
+            scope="col"
+            style={cellStyle("actions")}
+            className="sticky right-0 z-20 border-l border-border/60 bg-card px-0"
           />
         </TableRow>
       </TableHeader>
       <TableBody>
-        {treeRows.map(({ session: s, depth, childCount, parentMissing }) => {
+        {treeRows.map(({ session: s, depth, childCount, parentMissing, branchLastTimestamp }) => {
           const selected = selectedId === s.sessionId;
           const checked = selectedSessionIds.has(s.sessionId);
           const desc = sessionDescriptionText(s);
           const expanded = expandedIds.has(s.sessionId);
           const displayName = sessionName(s, t);
+          const selectLabel = t(checked ? "action.deselectSession" : "action.selectSession", { name: displayName });
+          const favoriteLabel = t(s.favorite ? "action.unfavoriteSession" : "action.favoriteSession", { name: displayName });
+          const actionsLabel = t("action.sessionActions", { name: displayName });
+          const hasBranchActivity = (branchActivities?.get(s.sessionId)?.childCount ?? childCount) > 0;
           const cloudOnly = s.storageType === "cloud" || s.storageType === "cloud-only";
           const resumeDisabled = cloudOnly ? s.historyMode !== "legacy" : !s.registered;
           const cloudDisabled = s.historyMode !== "legacy" || !s.filePath;
           const cloudReason = cloudDisabled ? t("action.legacyRequired") : undefined;
           const apiReason = !s.registered ? t("action.registeredRequired") : undefined;
-          // ponytail: 들여쓰기는 6단계까지 표시하며 더 깊은 트리는 이름 열 폭과 상한을 함께 늘린다.
           return (
             <TableRow
               key={s.sessionId}
               data-depth={depth}
               data-session-id={s.sessionId}
               data-state={selected ? "selected" : undefined}
-              onClick={() => onSelect(s)}
-              onDoubleClick={() => !resumeDisabled && onResume(s)}
-              className="cursor-pointer"
+              className="group [&>td]:border-b [&>td]:border-border/40"
             >
               <TableCell
                 style={cellStyle("select")}
-                onClick={(e) => e.stopPropagation()}
-                className="px-0 text-center"
+                className={cn(pinnedCell, "px-0 text-center")}
               >
                 <input
                   type="checkbox"
                   checked={checked}
                   disabled={!s.registered}
                   onChange={() => onToggleSelected(s)}
-                  aria-label={checked ? t("action.deselectSession") : t("action.selectSession")}
-                  title={checked ? t("action.deselectSession") : t("action.selectSession")}
+                  aria-label={selectLabel}
+                  title={selectLabel}
                   className="mx-auto block h-4 w-4 min-w-4 shrink-0 rounded border-border accent-primary"
                 />
               </TableCell>
-              <TableCell style={cellStyle("star")} onClick={(e) => e.stopPropagation()} className="px-0 text-center">
+              <TableCell style={cellStyle("star")} className={cn(pinnedCell, "px-0 text-center")}>
                 <Button
                   variant="ghost"
                   size="icon"
                   className="h-7 w-7"
                   onClick={() => onToggleFavorite(s)}
-                  aria-label={s.favorite ? "Unstar" : "Star"}
+                  aria-label={t("action.favoriteSession", { name: displayName })}
+                  title={favoriteLabel}
+                  aria-pressed={s.favorite}
                 >
                   <Star
                     className={cn(
                       "h-4 w-4",
                       s.favorite
                         ? "fill-amber-400 text-amber-400"
-                        : "text-muted-foreground/40"
+                        : "text-muted-foreground"
                     )}
                   />
                 </Button>
               </TableCell>
-              <TableCell style={cellStyle("name")} title={displayName}>
-                <div className="flex min-w-0 items-center gap-1" style={{ paddingLeft: Math.min(depth, 6) * 16 }}>
+              <TableCell style={cellStyle("name")} className={cn(pinnedCell, "border-r border-border/60")} title={displayName}>
+                <div className="flex min-w-0 items-start gap-1" style={{ paddingLeft: Math.min(depth * 8, 48, widths.name / 4) }}>
                   {childCount > 0 ? (
                     <button
                       type="button"
@@ -467,26 +493,37 @@ function SessionTableInner({
                     </button>
                   ) : <span className="w-5 shrink-0" />}
                   <div className="min-w-0 flex-1">
-                    <span className={cn("block truncate", s.name || s.agentNickname ? "font-medium" : "text-sm italic text-muted-foreground/60")}>
+                    <button
+                      type="button"
+                      data-session-title=""
+                      aria-current={selected || undefined}
+                      onClick={() => onSelect(s)}
+                      onDoubleClick={() => { if (!resumeDisabled) onResume(s); }}
+                      className={cn("block w-full truncate rounded text-left hover:underline focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring",
+                        s.name || s.agentNickname ? "font-medium" : "italic text-muted-foreground")}
+                    >
                       {displayName}
-                    </span>
-                    {parentMissing && <span className="block truncate text-[10px] text-amber-500">{t("list.parentMissing")}</span>}
+                    </button>
+                    {parentMissing && <span className="block break-words text-xs text-amber-400">{t("list.parentMissing")}</span>}
                     {s.agentNickname && s.name && s.agentNickname !== s.name && (
-                      <span className="block truncate text-[10px] text-muted-foreground">{s.agentNickname}</span>
+                      <span className="block truncate text-xs text-muted-foreground">{s.agentNickname}</span>
                     )}
+                    <div className="mt-0.5 flex flex-wrap items-center gap-1">
+                      {sessionKindLabels(s).map((kind) => <span key={kind} className={cn("max-w-full rounded px-1 text-xs [overflow-wrap:anywhere]", kind === "guardian" ? "bg-amber-500/15 text-amber-400" : kind === "worker" ? "bg-sky-500/15 text-sky-400" : "bg-muted text-muted-foreground")}>{t("kind." + kind)}</span>)}
+                      {childCount > 0 && <span className="shrink-0 text-xs tabular-nums text-muted-foreground" aria-hidden="true">{childCount}</span>}
+                    </div>
                   </div>
-                  {sessionKindLabels(s).map((kind) => <span key={kind} className={cn("shrink-0 rounded px-1 text-[10px]", kind === "guardian" ? "bg-amber-500/15 text-amber-400" : kind === "worker" ? "bg-sky-500/15 text-sky-400" : "bg-muted text-muted-foreground")}>{t("kind." + kind)}</span>)}
-                  {childCount > 0 && <span className="shrink-0 text-[10px] tabular-nums text-muted-foreground">{childCount}</span>}
                 </div>
               </TableCell>
               <TableCell
                 style={cellStyle("lastActive")}
                 className="text-sm text-muted-foreground"
-                title={s.lastTimestamp || undefined}
+                title={branchLastTimestamp || undefined}
               >
                 <span className="block truncate">
-                  {s.lastTimestamp ? formatRelativeTime(s.lastTimestamp, locale) : "—"}
+                  {branchLastTimestamp ? formatRelativeTime(branchLastTimestamp, locale) : "—"}
                 </span>
+                {hasBranchActivity && <span className="block text-xs">{t("list.branchActivityValue")}</span>}
               </TableCell>
               <TableCell style={cellStyle("desc")} title={desc || undefined}>
                 <span className="block truncate text-sm text-foreground/80">{desc || "—"}</span>
@@ -510,7 +547,7 @@ function SessionTableInner({
                 </span>
               </TableCell>
               <TableCell style={cellStyle("type")}>
-                <div className="inline-flex items-center gap-1.5">
+                <div className="flex min-w-0 items-center gap-1">
                   {(() => {
                     const st = s.storageType;
                     const isSynced = st === "synced";
@@ -563,20 +600,17 @@ function SessionTableInner({
                       : "로컬→클라우드 동기화";
                     return (
                       <>
-                        <span className="inline-flex items-center gap-1 text-xs text-muted-foreground">
-                          <Icon className={`h-3 w-3 ${colorClass}`} />
-                          {label}
+                        <span className="flex min-w-0 items-center gap-1 text-xs text-muted-foreground" title={label}>
+                          <Icon aria-hidden="true" className={`h-3 w-3 shrink-0 ${colorClass}`} />
+                          <span className="truncate">{label}</span>
                         </span>
                         <button
                           type="button"
-                          onClick={(e) => {
-                            e.stopPropagation();
-                            onToggleCloud(s);
-                          }}
+                          onClick={() => onToggleCloud(s)}
                           disabled={cloudDisabled}
                           title={cloudReason ?? syncTooltip}
                           aria-label={cloudReason ?? syncTooltip}
-                          className="ml-0.5 inline-flex h-5 w-5 items-center justify-center rounded text-muted-foreground/70 hover:bg-muted/40 hover:text-foreground transition-colors"
+                          className="inline-flex h-6 w-6 shrink-0 items-center justify-center rounded text-muted-foreground transition-colors hover:bg-muted/40 hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring disabled:opacity-50"
                         >
                           <SyncIcon className="h-3 w-3" />
                         </button>
@@ -587,12 +621,11 @@ function SessionTableInner({
               </TableCell>
               <TableCell
                 style={cellStyle("actions")}
-                onClick={(e) => e.stopPropagation()}
-                className="px-0 text-center"
+                className={cn(pinnedCell, "right-0 z-20 border-l border-border/60 px-0 text-center")}
               >
                 <DropdownMenu>
                   <DropdownMenuTrigger asChild>
-                    <Button variant="ghost" size="icon" className="h-8 w-8">
+                    <Button variant="ghost" size="icon" className="h-8 w-8" aria-label={actionsLabel} title={actionsLabel}>
                       <MoreHorizontal className="h-4 w-4" />
                     </Button>
                   </DropdownMenuTrigger>

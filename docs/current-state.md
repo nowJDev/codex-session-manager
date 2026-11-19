@@ -31,3 +31,7 @@ Windows 읽기 전용 임시 파일 정리는 소유 경계·기존 OS 오류 �
 README의 제품 소개형 구조, 공개 다운로드 링크와 v0.5.12 샘플 화면은 유지했다. 이번 변경의 전체 표시·완전성·호환 범위만 갱신했으며 이전 README 화면 검증 기록은 `reviews/2026-11-02-readme.md`에 보존한다.
 
 2026-11-17 후속 요청으로 전체 커밋의 origin/main 반영을 승인받았다. fetch·prune 후 로컬 main은 원격보다 9커밋 앞서고 뒤처진 커밋·추가 병합 대상은 없었다. 중간 debug 산출물 약 5.27GiB와 빈 임시 디렉터리·Cargo 캐시 메타데이터를 정리했다. 현재 바로가기가 참조하는 0.5.13 release GUI·CLI·리소스와 node_modules는 보존하고 실행 파일 해시·PE 버전을 재확인했다. 상세 경계와 근거는 `reviews/2026-11-17-full-session-tree.md`의 후속 정리 기록을 따른다.
+
+## 2026-11-19 UI·사용성 개선
+
+삭제 확인의 제목·포함 사유와 숨은 선택 재계산, 재개 안전성, 목록 고정 열과 키보드 정렬, 좁은 창의 상세, 오류 복구와 설정 저장을 개선했다. [상세 검증](reviews/2026-11-19-ui-usability.md)에 격리 실행 결과와 범위를 기록했다. 검증한 로컬 실행 파일은 `src-tauri/target/ui-usability/codex-session-manager.exe`에 있다.

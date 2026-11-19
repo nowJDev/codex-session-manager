@@ -129,6 +129,22 @@ impl<P: SessionPorts> SessionService<P> {
         self.ports.update_settings(patch)
     }
 
+    pub fn save_settings_with_cloud_folder(
+        &self,
+        mut patch: Settings,
+        cloud_folder_root: Option<&str>,
+    ) -> Result<()> {
+        if let Some(root) = cloud_folder_root {
+            let folder = self.ports.set_cloud_folder(root)?;
+            patch.cloud_path = Some(folder.to_string_lossy().into_owned());
+        }
+        self.save_settings(patch)
+    }
+
+    pub fn preview_cloud_folder(&self, root: &str) -> PathBuf {
+        self.ports.preview_cloud_folder(root)
+    }
+
     pub fn set_cloud_folder(&self, root: &str) -> Result<PathBuf> {
         let folder = self.ports.set_cloud_folder(root)?;
         self.ports.update_settings(Settings {
@@ -453,6 +469,10 @@ mod tests {
             })
         }
 
+        fn preview_cloud_folder(&self, root: &str) -> PathBuf {
+            PathBuf::from(root).join("cloud")
+        }
+
         fn set_cloud_folder(&self, root: &str) -> Result<PathBuf> {
             self.state.borrow_mut().cloud_folders.push(root.to_string());
             Ok(PathBuf::from("cloud"))
@@ -705,6 +725,28 @@ mod tests {
             state.updated_settings[0].cloud_path.as_deref(),
             Some("cloud")
         );
+    }
+
+    #[test]
+    fn save_settings_applies_the_cloud_folder_in_the_same_update() {
+        let ports = FakePorts::default();
+        let state = ports.state.clone();
+
+        SessionService::new(ports)
+            .save_settings_with_cloud_folder(
+                Settings {
+                    locale: Some("ko".into()),
+                    ..Default::default()
+                },
+                Some("drive"),
+            )
+            .unwrap();
+
+        let state = state.borrow();
+        assert_eq!(state.cloud_folders, ["drive"]);
+        assert_eq!(state.updated_settings.len(), 1);
+        assert_eq!(state.updated_settings[0].locale.as_deref(), Some("ko"));
+        assert_eq!(state.updated_settings[0].cloud_path.as_deref(), Some("cloud"));
     }
 
     #[test]

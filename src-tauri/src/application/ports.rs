@@ -35,6 +35,7 @@ pub trait SessionMetadataPort {
 
 pub trait CloudSyncPort {
     fn list_cloud_sessions(&self, budget: RefreshBudget) -> Result<SessionSnapshot>;
+    fn preview_cloud_folder(&self, root: &str) -> PathBuf;
     fn set_cloud_folder(&self, root: &str) -> Result<PathBuf>;
     fn upload_to_cloud(&self, session: &Session) -> Result<()>;
     fn checkout_session(&self, session: &Session) -> Result<String>;

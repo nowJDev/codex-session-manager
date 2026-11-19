@@ -79,6 +79,10 @@ impl CloudSyncPort for DefaultSessionPorts {
         crate::cloud::list_cloud_sessions_with_budget(cloud_path(), budget)
     }
 
+    fn preview_cloud_folder(&self, root: &str) -> PathBuf {
+        crate::cloud::cloud_folder_path(std::path::Path::new(root))
+    }
+
     fn set_cloud_folder(&self, root: &str) -> Result<PathBuf> {
         crate::cloud::set_cloud_root(root)
     }

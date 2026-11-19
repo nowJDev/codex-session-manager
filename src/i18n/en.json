@@ -22,7 +22,16 @@
     "archived": "archived",
     "counts": "Total {total} · Workers {workers} · Displayed {displayed} · Selected {selected}, visible {selectedVisible}",
     "parentMissing": "Parent session not found",
-    "branchActivity": "Sort by the latest activity in each branch, including descendants. Each row shows its own activity."
+    "branchActivity": "Sort by the latest activity in each branch. Branch rows show that timestamp.",
+    "title": "Session list",
+    "sessionList": "Session table",
+    "actions": "Session list actions",
+    "branchActivityValue": "Includes child sessions",
+    "cloudCount": "{count} only in sync folder",
+    "refreshing": "Refreshing the session list…",
+    "unavailable": "The session list could not be loaded.",
+    "noRecords": "There are no sessions yet.",
+    "noSearchResults": "No sessions match “{query}”."
   },
   "action": {
     "expandChildren": "Expand {count} child sessions of {name}",
@@ -41,13 +50,13 @@
     "deleteByAge": "Bulk delete",
     "selectAll": "Select all",
     "deselectAll": "Deselect all",
-    "selectSession": "Select session",
-    "deselectSession": "Deselect session",
+    "selectSession": "Select {name}",
+    "deselectSession": "Deselect {name}",
     "archive": "Archive session",
     "unarchive": "Unarchive session",
-    "syncToCloud": "Upload to cloud",
-    "syncFromCloud": "Download from cloud",
-    "resync": "Sync local → cloud",
+    "syncToCloud": "Save a copy to sync folder",
+    "syncFromCloud": "Restore from sync folder",
+    "resync": "Update the copy in the sync folder",
     "generateSummary": "Regenerate summary",
     "newSession": "New session",
     "back": "Back to list",
@@ -57,7 +66,13 @@
     "registeredRequired": "Available for sessions registered with Codex.",
     "legacyRequired": "Requires a legacy JSONL file containing the complete history.",
     "expandAll": "Expand all",
-    "collapseAll": "Collapse all"
+    "collapseAll": "Collapse all",
+    "search": "Search sessions",
+    "clearSearch": "Clear search",
+    "refresh": "Refresh",
+    "sessionActions": "Actions for {name}",
+    "favoriteSession": "Favorite {name}",
+    "unfavoriteSession": "Remove {name} from favorites"
   },
   "prompt": {
     "enterName": "Enter session name:",
@@ -120,13 +135,25 @@
     "detectedTerminals": "Detected terminals",
     "noTerminalsFound": "No terminals detected",
     "save": "Save",
-    "cancel": "Cancel"
+    "cancel": "Cancel",
+    "customTerminal": "Custom",
+    "terminalNotDetected": "Not detected",
+    "cloudSync": "Sync folder",
+    "cloudUnconfigured": "No sync folder configured",
+    "cloudDetect": "Find Google Drive folder",
+    "cloudPick": "Choose folder",
+    "cloudHelp": "Saving creates the Codex Sessions folder if needed. Syncing stores a copy of each supported session and keeps its local original.",
+    "cloudDriveNotFound": "Google Drive was not detected. You can choose a folder manually.",
+    "cloudFolderError": "Could not select a sync folder.",
+    "saving": "Saving…",
+    "saveError": "Could not save your settings. Try again.",
+    "cloudPending": "This path will be applied after you save."
   },
   "warning": {
     "codexCliMissing": "Codex CLI not found on PATH. Resume actions won't work.",
     "codexCliInstall": "Install guide",
-    "partialSnapshot": "Some sessions could not be loaded. Missing {missing}. Deletion is disabled until a complete refresh. {error}",
-    "staleSnapshot": "Refresh failed. Showing the previous complete list. Missing {missing}. Deletion is disabled until a successful refresh. {error}"
+    "partialSnapshot": "The session list is incomplete. Showing available sessions. Deletion is disabled until a complete refresh.",
+    "staleSnapshot": "Refresh failed. Showing the previous complete list. Deletion is disabled until a successful refresh."
   },
   "status": {
     "title": "Codex status",
@@ -140,11 +167,13 @@
     "openUsage": "Open usage page",
     "usageNote": "Check remaining usage on the official Codex usage page.",
     "notExposed": "Not exposed",
-    "loading": "Status will appear after the first check."
+    "loading": "Status will appear after the first check.",
+    "checking": "Checking status…",
+    "failed": "Status check failed"
   },
   "delete": {
     "titleSingle": "Delete this session?",
-    "titleBulk": "Delete {count} selected sessions?",
+    "titleBulk": "Delete {count} session(s)?",
     "confirm": "Confirm",
     "pending": "Deleting...",
     "requestProgress": "Processed {processed}/{total} delete requests",
@@ -158,11 +187,11 @@
     "resultSummary": "Deleted {deleted} · Already missing {missing} · Failed {failed} · Unconfirmed {unconfirmed}",
     "resultUnknown": "Could not confirm deletion results. Review the refreshed list before retrying.",
     "failureDetails": "Failed sessions and error details",
-    "retryFailed": "Recheck results",
+    "retryFailed": "Review failed targets",
     "dismiss": "Dismiss",
     "preparing": "Checking deletion scope...",
     "prepareFailed": "Could not confirm deletion scope. No delete request was sent.",
-    "scope": "Selected {selected} · Total affected {affected} · Additional descendants {descendants}. Local Codex registration and history will be deleted. Cloud copies are preserved.",
+    "scope": "Requested {selected} · Additional child sessions {descendants} · Total affected {affected}. Local registration and history will be deleted. Copies in the sync folder are kept.",
     "guardianUnavailable": "No Guardians can be deleted",
     "ageUnavailable": "No eligible sessions for this period",
     "ageUnavailableDescription": "No sessions can be safely deleted under the selected condition.",
@@ -170,13 +199,37 @@
     "ageSkipped": "Excluded {count} sessions to protect recent activity or records with missing dates.",
     "guardiansSkipped": "Skipped {count} Guardians because their deletion could affect other kinds of records.",
     "warning": "Cleanup warning",
-    "snapshotRequired": "Refresh a complete session list before deleting."
+    "snapshotRequired": "Refresh a complete session list before deleting.",
+    "previewTitle": "{count} session(s) to delete",
+    "hiddenSelected": "{count} hidden selections",
+    "unselectHidden": "Deselect hidden sessions",
+    "page": "Page {current} of {total}",
+    "previousPage": "Previous page",
+    "nextPage": "Next page",
+    "recheck": "Review deletion scope again",
+    "confirmCount": "Delete {count} session(s)",
+    "cutoff": "Activity cutoff {date}.",
+    "direct": "Directly selected",
+    "selectedByAge": "Selected by age",
+    "selectedGuardian": "Selected by Guardian cleanup",
+    "hiddenBySearch": "Hidden by search",
+    "hiddenByCollapse": "In a collapsed branch",
+    "includedByParent": "Included with parent {name}",
+    "includedDescendant": "Automatically included child session",
+    "unknownTitle": "Title unavailable ({id})",
+    "nothingSelected": "No sessions to delete"
   },
   "detail": {
     "preview": "Preview",
     "firstMessage": "First user message",
     "parent": "Direct parent session",
-    "depth": "Tree depth"
+    "depth": "Tree depth",
+    "title": "Session details",
+    "ownActivity": "Activity of this session",
+    "branchActivity": "Latest activity in branch",
+    "autoSummary": "Auto summary",
+    "workingDirectory": "Working directory",
+    "version": "Codex version"
   },
   "kind": {
     "main": "Main",
@@ -185,5 +238,20 @@
     "otherInternal": "Other internal",
     "unknown": "Unknown",
     "summary": "Summary run"
+  },
+  "common": {
+    "close": "Close",
+    "retry": "Retry",
+    "technicalDetails": "Technical details"
+  },
+  "edit": {
+    "saveError": "Could not save your changes. Try again."
+  },
+  "notice": {
+    "resumeFailed": "Could not open {name}.",
+    "folderCopied": "A copy of {name} was saved to the selected folder. The local original was kept.",
+    "folderRestored": "Restored {name} locally.",
+    "folderSyncFailed": "Could not sync {name}.",
+    "openTerminalSettings": "Open terminal settings"
   }
 }

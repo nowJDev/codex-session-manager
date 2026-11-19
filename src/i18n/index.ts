@@ -20,7 +20,7 @@ export function createT(locale: Locale) {
     if (typeof s !== "string") return key;
     if (params) {
       for (const [k, v] of Object.entries(params)) {
-        s = s.replace(new RegExp(`\\{${k}\\}`, "g"), String(v));
+        s = s.replace(new RegExp(`\\{${k}\\}`, "g"), () => String(v));
       }
     }
     return s;

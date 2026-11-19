@@ -115,8 +115,24 @@ pub fn unarchive_session(session_id: String) -> Result<(), String> {
 }
 
 #[tauri::command]
-pub fn save_settings(patch: Settings) -> Result<(), String> {
-    session_service().save_settings(patch).map_err(to_str)
+pub async fn save_settings(
+    patch: Settings,
+    cloud_folder_root: Option<String>,
+) -> Result<(), String> {
+    tokio::task::spawn_blocking(move || {
+        session_service().save_settings_with_cloud_folder(patch, cloud_folder_root.as_deref())
+    })
+    .await
+    .map_err(to_str)?
+    .map_err(to_str)
+}
+
+#[tauri::command]
+pub fn preview_cloud_folder(root: String) -> String {
+    session_service()
+        .preview_cloud_folder(&root)
+        .to_string_lossy()
+        .into_owned()
 }
 
 #[tauri::command]

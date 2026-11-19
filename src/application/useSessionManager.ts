@@ -37,8 +37,11 @@ export function useSessionManager() {
     [data.sessions, query],
   );
 
-  const allRows = useMemo(() => buildSessionTreeRows(data.sessions, new Set(data.sessions.map((s) => s.sessionId))), [data.sessions]);
-  const selectedRow = allRows.find((row) => row.session.sessionId === selection.selectedId);
+  const branchActivities = useMemo(() => {
+    const allRows = buildSessionTreeRows(data.sessions, new Set(data.sessions.map((s) => s.sessionId)));
+    return new Map(allRows.map((row) => [row.session.sessionId, row]));
+  }, [data.sessions]);
+  const selectedRow = selection.selectedId ? branchActivities.get(selection.selectedId) : undefined;
   const total = data.sessions.length;
   const workerCount = data.sessions.filter((s) => s.sessionKind === "worker").length;
   const visibleSelectedCount = visibleSessions.filter((s) => s.registered && selection.selectedForDeleteIds.has(s.sessionId)).length;
@@ -57,12 +60,18 @@ export function useSessionManager() {
     displayedCount: visibleSessions.length,
     visibleSelectedCount,
     workerCount,
+    allSessions: data.sessions,
+    visibleSessions,
+    branchActivities,
+    selectedBranchLastTimestamp: selectedRow?.childCount ? selectedRow.branchLastTimestamp : null,
     selectedDepth: selectedRow?.depth ?? 0,
     selectedParentMissing: selectedRow?.parentMissing ?? false,
     canDelete: data.canDelete,
     snapshotStale: data.snapshotStale,
     missingCount: data.missingCount,
     loading: data.loading,
+    initialLoading: data.initialLoading,
+    codexStatusError: data.codexStatusError,
     refreshError: data.refreshError,
     locale: data.locale,
     config: data.config,
@@ -93,6 +102,10 @@ export function useSessionManager() {
     handleResume: commands.handleResume,
     handleDelete: commands.handleDelete,
     handleBulkDelete: commands.handleBulkDelete,
+    handleUnselectHiddenDelete: commands.handleUnselectHiddenDelete,
+    handleRecheckDelete: commands.handleRecheckDelete,
+    notice: commands.notice,
+    dismissNotice: commands.dismissNotice,
     handleDeleteByAge: (days: number) => commands.handleDeleteByAge(data.sessions, days),
     guardianCount: guardianTargets.length,
     handleDeleteGuardians: () => commands.prepareDelete(guardianTargets),
@@ -100,7 +113,7 @@ export function useSessionManager() {
     confirmDelete: commands.confirmDelete,
     cancelDelete: commands.cancelDelete,
     handleToggleArchive: commands.handleToggleArchive,
-    handleToggleCloud: commands.handleToggleCloud,
+    handleToggleCloud: (session: Session) => commands.handleToggleCloud(session, data.config.settings.cloudPath ?? ""),
     handleGenerateSummary: commands.handleGenerateSummary,
     handleToggleFavorite: commands.handleToggleFavorite,
     handleToggleSelected: (session: Session) => {

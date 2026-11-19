@@ -1,4 +1,4 @@
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import {
   Dialog,
   DialogContent,
@@ -10,6 +10,7 @@ import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import type { Locale } from "@/i18n";
+import type { CloudFolderCandidate } from "@/application/useSettingsActions";
 import type { EnvironmentReport, Settings, TerminalKind, UpdateInfo } from "@/types";
 
 type DebugLogInfo = { path: string; exists: boolean; size: number; tail: string };
@@ -23,14 +24,14 @@ interface Props {
   onClose: () => void;
   onSaved: () => void;
   onPickDirectory: () => Promise<string | null>;
-  onPickCloudFolder: () => Promise<string | null>;
+  onPickCloudFolder: () => Promise<CloudFolderCandidate | null>;
   onLoadDebugLog: () => Promise<DebugLogInfo>;
   onOpenDebugLogFolder: () => Promise<void>;
-  onConnectGoogleDrive: () => Promise<string>;
+  onDetectGoogleDrive: () => Promise<CloudFolderCandidate | null>;
   onCheckEnvironment: () => Promise<EnvironmentReport>;
   onCheckForUpdates: (onProgress: (message: string) => void) => Promise<UpdateCheckResult>;
   onOpenReleases: (url?: string) => Promise<void>;
-  onSaveSettings: (patch: Settings) => Promise<void>;
+  onSaveSettings: (patch: Settings, cloudFolderRoot?: string) => Promise<void>;
 }
 
 const ALL_TERMINAL_OPTIONS: Array<{ value: "auto" | TerminalKind; labelKey: string; defaultLabel: string }> = [
@@ -40,7 +41,7 @@ const ALL_TERMINAL_OPTIONS: Array<{ value: "auto" | TerminalKind; labelKey: stri
   { value: "powershell", labelKey: "", defaultLabel: "PowerShell" },
   { value: "cmd", labelKey: "", defaultLabel: "Command Prompt" },
   { value: "terminal", labelKey: "", defaultLabel: "Terminal.app" },
-  { value: "custom", labelKey: "", defaultLabel: "Custom..." },
+  { value: "custom", labelKey: "settings.customTerminal", defaultLabel: "Custom..." },
 ];
 
 function tx(t: Props["t"], key: string, fallback: string) {
@@ -59,14 +60,23 @@ export function SettingsDialog({
   onPickCloudFolder,
   onLoadDebugLog,
   onOpenDebugLogFolder,
-  onConnectGoogleDrive,
+  onDetectGoogleDrive,
   onCheckEnvironment,
   onCheckForUpdates,
   onOpenReleases,
   onSaveSettings,
 }: Props) {
   const [chosenLocale, setChosenLocale] = useState<string>(locale);
-  const [cloudPath, setCloudPath] = useState<string>(current.cloudPath || "");
+  const [savedCloudPath, setSavedCloudPath] = useState(current.cloudPath || "");
+  const [cloudCandidate, setCloudCandidate] = useState<CloudFolderCandidate | null>(null);
+  const [cloudBusy, setCloudBusy] = useState(false);
+  const [cloudError, setCloudError] = useState<string | null>(null);
+  const [saving, setSaving] = useState(false);
+  const [saveError, setSaveError] = useState<string | null>(null);
+  const wasOpen = useRef(false);
+  const draftVersion = useRef(0);
+  const cloudSelectionPending = useRef(false);
+  const savePending = useRef(false);
   const [terminal, setTerminal] = useState<string>(current.preferredTerminal || "auto");
   const [flagBypass, setFlagBypass] = useState<boolean>(false);
   const [flagDebug, setFlagDebug] = useState<boolean>(false);
@@ -108,9 +118,15 @@ export function SettingsDialog({
   const [updateProgress, setUpdateProgress] = useState<string | null>(null);
 
   useEffect(() => {
-    if (open) {
+    if (open && !wasOpen.current) {
+      draftVersion.current++;
       setChosenLocale(current.locale || locale);
-      setCloudPath(current.cloudPath || "");
+      setSavedCloudPath(current.cloudPath || "");
+      setCloudCandidate(null);
+      setCloudError(null);
+      setSaveError(null);
+      cloudSelectionPending.current = false;
+      setCloudBusy(false);
       setTerminal(current.preferredTerminal || "auto");
       const parsed = parseFlags(current.resumeFlags || "");
       setFlagBypass(parsed.bypass);
@@ -126,14 +142,34 @@ export function SettingsDialog({
       setUpdateError(null);
       setUpdateProgress(null);
     }
+    if (!open && wasOpen.current) draftVersion.current++;
+    wasOpen.current = open;
   }, [open, current, locale]);
 
-  async function pickFolder() {
-    const saved = await onPickCloudFolder();
-    if (saved) {
-      setCloudPath(saved);
+  async function selectCloudFolder(
+    select: () => Promise<CloudFolderCandidate | null>,
+    detecting = false,
+  ) {
+    if (savePending.current || cloudSelectionPending.current) return;
+    const version = draftVersion.current;
+    cloudSelectionPending.current = true;
+    setCloudBusy(true);
+    setCloudError(null);
+    try {
+      const candidate = await select();
+      if (draftVersion.current !== version) return;
+      if (candidate) setCloudCandidate(candidate);
+      else if (detecting) setCloudError(tx(t, "settings.cloudDriveNotFound", "Google Drive was not detected. You can choose a folder manually."));
+    } catch (err) {
+      if (draftVersion.current === version) {
+        setCloudError(`${tx(t, "settings.cloudFolderError", "Could not select a sync folder.")} ${String(err)}`);
+      }
+    } finally {
+      if (draftVersion.current === version) {
+        cloudSelectionPending.current = false;
+        setCloudBusy(false);
+      }
     }
-
   }
 
   const [debugLog, setDebugLog] = useState<DebugLogInfo | null>(null);
@@ -160,15 +196,6 @@ export function SettingsDialog({
     try {
       await navigator.clipboard.writeText(debugLog.tail);
       alert("로그 마지막 부분을 클립보드에 복사했어요. GitHub Issue에 붙여넣어 주세요.");
-    } catch (err) {
-      alert(String(err));
-    }
-  }
-
-  async function autoConnectGoogleDrive() {
-    try {
-      const saved = await onConnectGoogleDrive();
-      setCloudPath(saved);
     } catch (err) {
       alert(String(err));
     }
@@ -205,38 +232,43 @@ export function SettingsDialog({
   }
 
   async function save() {
-    await onSaveSettings({
-      locale: chosenLocale,
-      cloudPath: cloudPath || null,
-      preferredTerminal: terminal,
-      resumeFlags: composeFlags() || null,
-      customTerminalProgram: customProgram || null,
-      customTerminalArgs: customArgs || null,
-      extraProjectDirs: extraDirs,
-      wslAutoDetect: wslAuto,
-      excludedScanPaths: current.excludedScanPaths,
-    });
+    if (savePending.current || cloudSelectionPending.current) return;
+    savePending.current = true;
+    setSaving(true);
+    setSaveError(null);
+    try {
+      await onSaveSettings({
+        locale: chosenLocale,
+        preferredTerminal: terminal,
+        resumeFlags: composeFlags() || null,
+        customTerminalProgram: customProgram || null,
+        customTerminalArgs: customArgs || null,
+        extraProjectDirs: extraDirs,
+        wslAutoDetect: wslAuto,
+        excludedScanPaths: current.excludedScanPaths,
+      }, cloudCandidate?.root);
+    } catch (err) {
+      setSaveError(`${tx(t, "settings.saveError", "Could not save your settings. Try again.")} ${String(err)}`);
+      return;
+    } finally {
+      savePending.current = false;
+      setSaving(false);
+    }
     onSaved();
     onClose();
   }
 
-  // Filter terminal options to ones plausible for current OS, if known
-  const availableOptions = report
-    ? ALL_TERMINAL_OPTIONS.filter(
-        (opt) =>
-          opt.value === "auto" ||
-          report.terminals.some((d) => d.kind === opt.value),
-      )
-    : ALL_TERMINAL_OPTIONS;
-
   return (
-    <Dialog open={open} onOpenChange={(v) => !v && onClose()}>
-      <DialogContent className="max-w-xl max-h-[85vh] overflow-y-auto">
-        <DialogHeader>
+    <Dialog open={open} onOpenChange={(v) => !v && !savePending.current && onClose()}>
+      <DialogContent
+        className="flex max-h-[85vh] max-w-xl flex-col gap-0 overflow-hidden p-0"
+        closeLabel={tx(t, "common.close", "Close")}
+      >
+        <DialogHeader className="shrink-0 border-b border-border/60 px-6 py-4 pr-12">
           <DialogTitle>{tx(t, "settings.title", "Settings")}</DialogTitle>
         </DialogHeader>
 
-        <div className="space-y-5">
+        <div className="min-h-0 space-y-5 overflow-y-auto px-6 py-4">
           <div className="space-y-2">
             <Label>{tx(t, "settings.language", "Language")}</Label>
             <div className="flex gap-2">
@@ -254,17 +286,20 @@ export function SettingsDialog({
           </div>
 
           <div className="space-y-2">
-            <Label>{tx(t, "settings.preferredTerminal", "Preferred terminal")}</Label>
+            <Label htmlFor="settings-preferred-terminal">{tx(t, "settings.preferredTerminal", "Preferred terminal")}</Label>
             <select
+              id="settings-preferred-terminal"
               value={terminal}
               onChange={(e) => setTerminal(e.target.value)}
               className="w-full h-9 rounded-md border border-input bg-background px-3 text-sm focus:outline-none focus:ring-1 focus:ring-ring"
             >
-              {availableOptions.map((opt) => (
+              {ALL_TERMINAL_OPTIONS.map((opt) => (
                 <option key={opt.value} value={opt.value}>
-                  {opt.value === "auto"
-                    ? tx(t, "settings.auto", "Auto")
-                    : opt.defaultLabel}
+                  {opt.labelKey ? tx(t, opt.labelKey, opt.defaultLabel) : opt.defaultLabel}
+                  {report && opt.value !== "auto" && opt.value !== "custom" &&
+                    !report.terminals.some((d) => d.kind === opt.value)
+                    ? ` (${tx(t, "settings.terminalNotDetected", "Not detected")})`
+                    : ""}
                 </option>
               ))}
             </select>
@@ -275,20 +310,22 @@ export function SettingsDialog({
 
           {terminal === "custom" && (
             <div className="space-y-2 rounded-md border border-border/60 bg-muted/20 p-3">
-              <Label>Custom terminal</Label>
+              <Label>{tx(t, "settings.customTerminal", "Custom terminal")}</Label>
               <div className="space-y-1">
-                <span className="text-xs text-muted-foreground">Program (exe path)</span>
+                <Label htmlFor="settings-custom-program" className="text-xs text-muted-foreground">Program (exe path)</Label>
                 <Input
+                  id="settings-custom-program"
                   value={customProgram}
                   onChange={(e) => setCustomProgram(e.target.value)}
                   placeholder='C:\Program Files\Git\usr\bin\mintty.exe'
                 />
               </div>
               <div className="space-y-1">
-                <span className="text-xs text-muted-foreground">
+                <Label htmlFor="settings-custom-args" className="text-xs text-muted-foreground">
                   Args template — tokens: <code>{`{cwd}`}</code>, <code>{`{id}`}</code>, <code>{`{flags}`}</code>, <code>{`{codex_invoke}`}</code>
-                </span>
+                </Label>
                 <Input
+                  id="settings-custom-args"
                   value={customArgs}
                   onChange={(e) => setCustomArgs(e.target.value)}
                   placeholder='-e bash -c "cd {cwd} && {codex_invoke}; exec bash"'
@@ -424,25 +461,40 @@ export function SettingsDialog({
           </div>
 
           <div className="space-y-2">
-            <Label>Google Drive 동기화</Label>
-            <div className="flex gap-2">
-              <Input
-                value={cloudPath}
-                placeholder="아직 연결되지 않음"
-                readOnly
-              />
-              <Button variant="default" onClick={autoConnectGoogleDrive}>
-                자동 연결
+            <Label htmlFor="settings-cloud-folder">{tx(t, "settings.cloudSync", "Sync folder")}</Label>
+            <Input
+              id="settings-cloud-folder"
+              value={cloudCandidate?.path ?? savedCloudPath}
+              title={cloudCandidate?.path ?? savedCloudPath}
+              aria-describedby="settings-cloud-help"
+              placeholder={tx(t, "settings.cloudUnconfigured", "No sync folder configured")}
+              readOnly
+            />
+            <div className="flex flex-wrap items-center gap-2">
+              <Button
+                variant="outline"
+                onClick={() => selectCloudFolder(onDetectGoogleDrive, true)}
+                disabled={cloudBusy || saving}
+              >
+                {tx(t, "settings.cloudDetect", "Detect Google Drive")}
               </Button>
-              <Button variant="outline" onClick={pickFolder}>
-                직접 선택
+              <Button
+                variant="outline"
+                onClick={() => selectCloudFolder(onPickCloudFolder)}
+                disabled={cloudBusy || saving}
+              >
+                {tx(t, "settings.cloudPick", "Choose folder")}
               </Button>
             </div>
-            <p className="text-xs text-muted-foreground">
-              Google Drive 데스크탑 클라이언트가 설치돼 있으면 [자동 연결] 한 번으로 끝.
-              세션은 <code>{`<드라이브>/Codex Sessions/`}</code>에 저장됩니다.
-              업로드 후 로컬 jsonl은 자동 삭제(단일 본체 원칙).
+            <p id="settings-cloud-help" className="text-xs text-muted-foreground">
+              {tx(t, "settings.cloudHelp", "Save creates the Codex Sessions folder if needed. Sync copies supported sessions and keeps their local originals.")}
             </p>
+            {cloudCandidate && (
+              <p role="status" className="text-xs text-muted-foreground">
+                {tx(t, "settings.cloudPending", "This folder will be used after you save.")}
+              </p>
+            )}
+            {cloudError && <p role="alert" className="break-words text-xs text-destructive">{cloudError}</p>}
           </div>
 
           <div className="space-y-2 border-t border-border/60 pt-4">
@@ -606,11 +658,14 @@ export function SettingsDialog({
           </div>
         </div>
 
-        <DialogFooter className="gap-2">
-          <Button variant="outline" onClick={onClose}>
+        <DialogFooter className="shrink-0 flex-wrap items-center gap-2 border-t border-border/60 px-6 py-3">
+          {saveError && <p role="alert" className="mr-auto max-h-20 min-w-0 basis-full overflow-auto break-words text-sm text-destructive">{saveError}</p>}
+          <Button variant="outline" onClick={onClose} disabled={saving}>
             {tx(t, "settings.cancel", "Cancel")}
           </Button>
-          <Button onClick={save}>{tx(t, "settings.save", "Save")}</Button>
+          <Button onClick={save} disabled={saving || cloudBusy}>
+            {saving ? tx(t, "settings.saving", "Saving…") : tx(t, "settings.save", "Save")}
+          </Button>
         </DialogFooter>
       </DialogContent>
     </Dialog>

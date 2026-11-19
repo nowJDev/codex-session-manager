@@ -1,9 +1,20 @@
 import * as React from "react";
 import { cn } from "@/lib/utils";
 
-const Table = React.forwardRef<HTMLTableElement, React.HTMLAttributes<HTMLTableElement>>(
-  ({ className, ...props }, ref) => (
-    <div className="relative h-full w-full overflow-auto">
+interface TableProps extends React.HTMLAttributes<HTMLTableElement> {
+  viewportLabel?: string;
+  viewportStyle?: React.CSSProperties;
+}
+
+const Table = React.forwardRef<HTMLTableElement, TableProps>(
+  ({ className, viewportLabel, viewportStyle, ...props }, ref) => (
+    <div
+      role={viewportLabel ? "region" : undefined}
+      aria-label={viewportLabel}
+      tabIndex={viewportLabel ? 0 : undefined}
+      style={viewportStyle}
+      className="relative h-full w-full overflow-auto focus-visible:outline focus-visible:outline-2 focus-visible:-outline-offset-2 focus-visible:outline-ring"
+    >
       <table ref={ref} className={cn("w-full caption-bottom text-sm", className)} {...props} />
     </div>
   ),

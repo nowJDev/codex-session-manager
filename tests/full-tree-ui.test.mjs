@@ -81,16 +81,16 @@ test('saving other settings preserves historical exclusions while exclusion edit
 
 
 test('app uses table counts, removes visibility toggles and blocks destructive controls for stale data',()=>{
-  const item=session('p');const manager={t:(key,p)=>key==='list.counts'?JSON.stringify(p):key,query:'',setQuery(){},loading:false,refreshError:'offline',snapshotStale:true,missingCount:2,canDelete:false,
+  let guardianClicks=0; const item=session('p');const manager={t:(key,p)=>key==='list.counts'?JSON.stringify(p):key,query:'',setQuery(){},loading:false,refreshError:'offline',snapshotStale:true,missingCount:2,canDelete:false,
     locale:'ko',config:{settings:{}},selectedId:'p',selected:item,selectedDepth:4,selectedParentMissing:false,editMode:null,editTarget:null,settingsOpen:false,
     codexCliMissing:false,codexStatus:null,codexStatusLoading:false,selectedForDeleteIds:new Set(['p']),pendingDelete:{sessions:[{sessionId:'p'}],affectedIds:['p']},
     deleting:false,preparingDelete:false,deleteReport:null,filtered:[item,session('c','p')],selectedForDeleteCount:1,visibleSelectedCount:0,displayedCount:1,total:2,workerCount:1,localCount:2,cloudCount:0,
-    settingsActions:{},handleVisibleRowsChange(){},guardianCount:2,handleDeleteGuardians(){}};
+    settingsActions:{},handleVisibleRowsChange(){},guardianCount:2,handleDeleteGuardians(){guardianClicks++;}};
   const view=renderer('src/App.tsx',{'@/application/useSessionManager':{useSessionManager:()=>manager}});const out=view.render();
   assert.doesNotMatch(textOf(out),/list.showHidden/);assert.match(textOf(out),/"displayed":1/);assert.match(textOf(out),/warning.staleSnapshot/);
   const bulk=nodes(out).find(n=>n.type==='Button'&&n.props.variant==='destructive');assert.equal(bulk.props.disabled,true);
   const guardianBulk=nodes(out).find(n=>n.type==='Button'&&n.props.title==='action.deleteGuardians');
-  assert.equal(guardianBulk?.props.disabled,true);assert.equal(guardianBulk.props.onClick,manager.handleDeleteGuardians);
+  assert.equal(guardianBulk?.props.disabled,true);guardianBulk.props.onClick();assert.equal(guardianClicks,1);
   const retention=nodes(out).find(n=>n.type==='select'&&n.props['aria-label']==='action.retentionDays');
   assert.equal(retention?.props.value,7);
   assert.deepEqual(nodes(retention).filter(n=>n.type==='option').map(n=>n.props.value),[1,7,30]);

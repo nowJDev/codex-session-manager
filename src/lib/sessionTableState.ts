@@ -27,7 +27,7 @@ export const DEFAULT_COLUMN_WIDTHS: Record<ColKey, number> = {
   size: 90,
   project: 220,
   id: 100,
-  type: 70,
+  type: 120,
   actions: 48,
 };
 
@@ -53,7 +53,7 @@ export const MIN_COLUMN_WIDTH: Record<ColKey, number> = {
   size: 70,
   project: 100,
   id: 60,
-  type: 60,
+  type: 96,
   actions: 48,
 };
 
@@ -109,7 +109,12 @@ export function totalColumnWidth(source: Record<ColKey, number>): number {
   return COLUMN_ORDER.reduce((sum, key) => sum + source[key], 0);
 }
 
-export function compareSessions(a: Session, b: Session, sort: SortState): number {
+export function compareSessions(
+  a: Session,
+  b: Session,
+  sort: SortState,
+  activity?: ReadonlyMap<string, string | null>,
+): number {
   if (sort.key === "size" && (a.size === null) !== (b.size === null)) return a.size === null ? 1 : -1;
   if (a.favorite !== b.favorite) return a.favorite ? -1 : 1;
   const sign = sort.dir === "asc" ? 1 : -1;
@@ -125,7 +130,7 @@ export function compareSessions(a: Session, b: Session, sort: SortState): number
     case "project":
       return sign * cmp(a.project, b.project);
     case "lastActive":
-      return sign * cmp(a.lastTimestamp, b.lastTimestamp);
+      return sign * cmp(activity?.get(a.sessionId) ?? a.lastTimestamp, activity?.get(b.sessionId) ?? b.lastTimestamp);
     case "size":
       if (a.size === null) return b.size === null ? 0 : 1;
       if (b.size === null) return -1;
@@ -145,12 +150,16 @@ export interface SessionTreeRow {
   depth: number;
   childCount: number;
   parentMissing: boolean;
+  branchLastTimestamp: string | null;
 }
+
+export type SessionBranchActivities = ReadonlyMap<string, Pick<SessionTreeRow, "branchLastTimestamp" | "childCount">>;
 
 export function buildSessionTreeRows(
   sessions: Session[],
   expandedIds: ReadonlySet<string>,
   sort?: SortState,
+  branchActivities?: SessionBranchActivities,
 ): SessionTreeRow[] {
   const byId = new Map(sessions.map((session) => [session.sessionId, session]));
   const parents = new Map<string, string>();
@@ -181,31 +190,30 @@ export function buildSessionTreeRows(
       children.set(parent, siblings);
     } else roots.push(session);
   }
-  const activity = new Map<string, string>();
-  if (sort?.key === "lastActive") {
-    const traversal: Session[] = [];
-    const stack = [...roots];
-    while (stack.length) {
-      const session = stack.pop()!;
-      traversal.push(session);
-      stack.push(...children.get(session.sessionId) ?? []);
+  const activity = new Map<string, string | null>();
+  const traversal: Session[] = [];
+  const activityStack = [...roots];
+  while (activityStack.length) {
+    const session = activityStack.pop()!;
+    traversal.push(session);
+    for (const child of children.get(session.sessionId) ?? []) activityStack.push(child);
+  }
+  for (let i = traversal.length - 1; i >= 0; i--) {
+    const session = traversal[i];
+    const knownBranch = branchActivities?.get(session.sessionId);
+    if (knownBranch) {
+      activity.set(session.sessionId, knownBranch.branchLastTimestamp);
+      continue;
     }
-    for (let i = traversal.length - 1; i >= 0; i--) {
-      const session = traversal[i];
-      let latest = session.lastTimestamp ?? "";
-      for (const child of children.get(session.sessionId) ?? []) {
-        const stamp = activity.get(child.sessionId) ?? "";
-        if (stamp > latest) latest = stamp;
-      }
-      activity.set(session.sessionId, latest);
+    let latest = session.lastTimestamp;
+    for (const child of children.get(session.sessionId) ?? []) {
+      const stamp = activity.get(child.sessionId);
+      if (stamp && (!latest || stamp > latest)) latest = stamp;
     }
+    activity.set(session.sessionId, latest);
   }
   if (sort) {
-    const compare = (a: Session, b: Session) => compareSessions(
-      sort.key === "lastActive" ? { ...a, lastTimestamp: activity.get(a.sessionId) ?? null } : a,
-      sort.key === "lastActive" ? { ...b, lastTimestamp: activity.get(b.sessionId) ?? null } : b,
-      sort,
-    );
+    const compare = (a: Session, b: Session) => compareSessions(a, b, sort, activity);
     roots.sort(compare);
     for (const siblings of children.values()) siblings.sort(compare);
   }
@@ -215,7 +223,8 @@ export function buildSessionTreeRows(
     const { session, depth, visible } = stack.pop()!;
     const descendants = children.get(session.sessionId) ?? [];
     if (visible) rows.push({ session, depth, childCount: descendants.length,
-      parentMissing: !!session.parentId && !byId.has(session.parentId) });
+      parentMissing: !!session.parentId && !byId.has(session.parentId),
+      branchLastTimestamp: activity.get(session.sessionId) ?? null });
     for (let i = descendants.length - 1; i >= 0; i--) {
       stack.push({ session: descendants[i], depth: depth + 1,
         visible: visible && expandedIds.has(session.sessionId) });
