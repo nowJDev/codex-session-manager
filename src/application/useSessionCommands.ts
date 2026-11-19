@@ -1,7 +1,7 @@
 // 세션에 대한 사용자 명령 workflow를 관리한다.
 import { useRef, useState, type Dispatch, type SetStateAction } from "react";
 import { tauriGateway } from "@/adapters/tauriGateway";
-import type { DeleteSessionResult, DeleteSessionTarget, Session } from "@/types";
+import type { DeleteProgress, DeleteSessionResult, DeleteSessionTarget, Session } from "@/types";
 
 type EditMode = "rename" | "describe" | null;
 type PendingDelete = { sessions: DeleteSessionTarget[]; affectedIds: string[]; skippedGuardianCount?: number } | null;
@@ -94,14 +94,18 @@ export function useSessionCommands({
     await prepareDelete(targets, true);
   }
 
-  async function confirmDelete() {
+  async function confirmDelete(reportProgress: (update: DeleteProgress) => void = () => {}) {
     const targets = pendingDelete?.sessions ?? [];
     if (targets.length === 0 || deletingRef.current || deletionBlocked()) return;
     deletingRef.current = true;
     setDeleting(true);
     setDeleteReport(null);
+    let active = true;
     try {
-      const results = await tauriGateway.deleteSessions(targets, pendingDelete!.affectedIds);
+      reportProgress({ phase: "checkingScope" });
+      const results = await tauriGateway.deleteSessions(targets, pendingDelete!.affectedIds, (update) => {
+        if (active) reportProgress(update);
+      });
       setDeleteReport({ results, error: null, phase: "delete", guardianOnly: targets.some((target) => target.guardianOnly) });
       const deletedIds = new Set(
         results.filter((result) => result.status === "deleted" || result.status === "alreadyMissing").map((result) => result.sessionId),
@@ -119,6 +123,7 @@ export function useSessionCommands({
       console.error(err);
       setDeleteReport({ results: [], error: String(err), phase: "delete" });
     } finally {
+      active = false;
       setPendingDelete(null);
       try {
         await refresh();

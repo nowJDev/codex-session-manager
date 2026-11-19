@@ -5,8 +5,8 @@ use crate::application::ports::{
 };
 use crate::application::refresh_budget::RefreshBudget;
 use crate::types::{
-    Config, DeleteSessionResult, DeleteSessionTarget, DeletionPlan, Session, SessionMeta,
-    SessionSnapshot, Settings,
+    Config, DeleteProgress, DeleteSessionResult, DeleteSessionTarget, DeletionPlan, Session,
+    SessionMeta, SessionSnapshot, Settings,
 };
 use anyhow::Result;
 use std::collections::HashMap;
@@ -42,8 +42,9 @@ impl SessionCommandPort for DefaultSessionPorts {
         &self,
         targets: &[DeleteSessionTarget],
         approved_ids: &[String],
+        report_progress: &mut dyn FnMut(DeleteProgress),
     ) -> Result<Vec<DeleteSessionResult>> {
-        super::registered_sessions::delete_sessions(targets, approved_ids)
+        super::registered_sessions::delete_sessions(targets, approved_ids, report_progress)
     }
 
     fn archive_session(&self, session_id: &str) -> Result<()> {

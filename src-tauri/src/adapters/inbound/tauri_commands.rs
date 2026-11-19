@@ -8,8 +8,8 @@ use crate::application::ports::{
 use crate::application::session_service::SessionService;
 use crate::application::system_service::SystemService;
 use crate::types::{
-    Config, DeleteSessionResult, DeleteSessionTarget, DeletionPlan, Session, SessionMeta,
-    SessionSnapshot, Settings,
+    Config, DeleteProgress, DeleteSessionResult, DeleteSessionTarget, DeletionPlan, Session,
+    SessionMeta, SessionSnapshot, Settings,
 };
 
 fn to_str<E: std::fmt::Display>(e: E) -> String {
@@ -82,13 +82,22 @@ pub async fn delete_session(
 
 #[tauri::command]
 pub async fn delete_sessions(
+    webview: tauri::Webview,
     targets: Vec<DeleteSessionTarget>,
     approved_ids: Vec<String>,
+    progress: Option<tauri::ipc::JavaScriptChannelId>,
 ) -> Result<Vec<DeleteSessionResult>, String> {
-    tokio::task::spawn_blocking(move || session_service().delete_sessions(targets, &approved_ids))
-        .await
-        .map_err(to_str)?
-        .map_err(to_str)
+    let progress = progress.map(|id| id.channel_on::<_, DeleteProgress>(webview));
+    tokio::task::spawn_blocking(move || {
+        session_service().delete_sessions_with_progress(targets, &approved_ids, &mut |update| {
+            if let Some(progress) = &progress {
+                let _ = progress.send(update);
+            }
+        })
+    })
+    .await
+    .map_err(to_str)?
+    .map_err(to_str)
 }
 
 #[tauri::command]

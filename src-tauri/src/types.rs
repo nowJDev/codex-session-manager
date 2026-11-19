@@ -70,6 +70,22 @@ pub struct DeletionPlan {
     pub skipped_guardian_count: usize,
 }
 
+#[derive(Debug, Serialize)]
+#[serde(
+    tag = "phase",
+    rename_all = "camelCase",
+    rename_all_fields = "camelCase"
+)]
+pub enum DeleteProgress {
+    CheckingScope,
+    Deleting {
+        processed: usize,
+        total: usize,
+        elapsed_ms: u64,
+    },
+    Verifying,
+}
+
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub enum DeleteSessionStatus {

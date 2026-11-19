@@ -3,8 +3,8 @@ use crate::application::ports::{ResumePlan, SessionPorts};
 use crate::application::refresh_budget::RefreshBudget;
 use crate::domain::session::{classify_storage_state, StorageState};
 use crate::types::{
-    Config, DeleteSessionResult, DeleteSessionStatus, DeleteSessionTarget, DeletionPlan, Session,
-    SessionMeta, SessionSnapshot, Settings,
+    Config, DeleteProgress, DeleteSessionResult, DeleteSessionStatus, DeleteSessionTarget,
+    DeletionPlan, Session, SessionMeta, SessionSnapshot, Settings,
 };
 use anyhow::Result;
 use std::collections::HashMap;
@@ -89,7 +89,18 @@ impl<P: SessionPorts> SessionService<P> {
         targets: Vec<DeleteSessionTarget>,
         approved_ids: &[String],
     ) -> Result<Vec<DeleteSessionResult>> {
-        let mut results = self.ports.delete_sessions(&targets, approved_ids)?;
+        self.delete_sessions_with_progress(targets, approved_ids, &mut |_| {})
+    }
+
+    pub(crate) fn delete_sessions_with_progress(
+        &self,
+        targets: Vec<DeleteSessionTarget>,
+        approved_ids: &[String],
+        report_progress: &mut dyn FnMut(DeleteProgress),
+    ) -> Result<Vec<DeleteSessionResult>> {
+        let mut results = self
+            .ports
+            .delete_sessions(&targets, approved_ids, report_progress)?;
         for result in &mut results {
             if matches!(
                 result.status,
@@ -284,8 +295,8 @@ mod tests {
         SessionMetadataPort, SessionScanPort, SummaryPort,
     };
     use crate::types::{
-        Config, DeleteSessionResult, DeleteSessionStatus, DeleteSessionTarget, DeletionPlan,
-        Session, SessionMeta, SessionSnapshot, Settings,
+        Config, DeleteProgress, DeleteSessionResult, DeleteSessionStatus, DeleteSessionTarget,
+        DeletionPlan, Session, SessionMeta, SessionSnapshot, Settings,
     };
     use anyhow::Result;
     use std::cell::RefCell;
@@ -357,6 +368,7 @@ mod tests {
             &self,
             targets: &[DeleteSessionTarget],
             _approved_ids: &[String],
+            _report_progress: &mut dyn FnMut(DeleteProgress),
         ) -> Result<Vec<DeleteSessionResult>> {
             Ok(targets
                 .iter()

@@ -63,7 +63,7 @@ function commands(gateway, refresh=async()=>{}) {
 test("confirmation uses exact affected IDs and unconfirmed results remain selected",async()=>{
   const calls=[];
   const app=commands({prepareSessionDeletion:async targets=>({targets,affectedIds:["parent","child","uncertain"]}),
-    deleteSessions:async(...args)=>{calls.push(args);return [
+    deleteSessions:async(targets,ids)=>{calls.push([targets,ids]);return [
       {sessionId:"parent",status:"deleted",error:null,warning:"cleanup warning"},
       {sessionId:"child",status:"alreadyMissing",error:null,warning:null},
       {sessionId:"uncertain",status:"unconfirmed",error:"still registered",warning:null}];}});
@@ -81,6 +81,31 @@ test("preflight failures never show confirmation or send delete",async()=>{
   assert.equal(app.render().pendingDelete,null);assert.equal(deletes,0);
   assert.match(app.render().deleteReport.error,/scope unavailable/);
   assert.equal(app.render().deleteReport.phase,"prepare");
+});
+
+test("confirmation streams scoped progress and ignores late updates",async()=>{
+  let emit;
+  let finish;
+  const app=commands({
+    prepareSessionDeletion:async targets=>({targets,affectedIds:["parent","child"]}),
+    deleteSessions:async(_targets,_ids,onProgress)=>{
+      emit=onProgress;
+      return new Promise(resolve=>{finish=resolve});
+    },
+  });
+  await app.render().handleBulkDelete();
+  const updates=[];
+  const deleting=app.render().confirmDelete(update=>updates.push(update));
+  assert.deepEqual(updates,[{phase:"checkingScope"}]);
+  const progress={phase:"deleting",processed:2,total:5,elapsedMs:2400};
+  emit(progress);
+  const verifying={phase:"verifying"};
+  emit(verifying);
+  assert.deepEqual(updates,[{phase:"checkingScope"},progress,verifying]);
+  finish([]);
+  await deleting;
+  emit(progress);
+  assert.equal(updates.length,3);
 });
 test("duplicate preparations share a lock and retry refreshes then prepares again",async()=>{
   let finish;const events=[];

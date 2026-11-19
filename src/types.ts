@@ -50,6 +50,11 @@ export interface DeleteSessionTarget {
   guardianOnly?: boolean;
 }
 
+export type DeleteProgress =
+  | { phase: "checkingScope" }
+  | { phase: "deleting"; processed: number; total: number; elapsedMs: number }
+  | { phase: "verifying" };
+
 export type DeleteSessionStatus = "deleted" | "alreadyMissing" | "failed" | "unconfirmed";
 
 export interface DeletionPlan {

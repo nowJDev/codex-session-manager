@@ -1,8 +1,8 @@
 // 애플리케이션 use case가 외부 시스템에 기대는 기능 계약이다.
 use super::refresh_budget::RefreshBudget;
 use crate::types::{
-    Config, DeleteSessionResult, DeleteSessionTarget, DeletionPlan, Session, SessionMeta,
-    SessionSnapshot, Settings,
+    Config, DeleteProgress, DeleteSessionResult, DeleteSessionTarget, DeletionPlan, Session,
+    SessionMeta, SessionSnapshot, Settings,
 };
 use anyhow::Result;
 use std::collections::HashMap;
@@ -20,6 +20,7 @@ pub trait SessionCommandPort {
         &self,
         targets: &[DeleteSessionTarget],
         approved_ids: &[String],
+        report_progress: &mut dyn FnMut(DeleteProgress),
     ) -> Result<Vec<DeleteSessionResult>>;
     fn archive_session(&self, session_id: &str) -> Result<()>;
     fn unarchive_session(&self, session_id: &str) -> Result<()>;

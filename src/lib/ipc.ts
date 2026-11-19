@@ -1,7 +1,8 @@
 // 세션 ID를 기준으로 Tauri 명령을 호출한다.
-import { invoke } from "@tauri-apps/api/core";
+import { Channel, invoke } from "@tauri-apps/api/core";
 import type {
   AppConfig,
+  DeleteProgress,
   DeleteSessionTarget,
   DeleteSessionResult,
   DeletionPlan,
@@ -21,8 +22,8 @@ export const ipc = {
     invoke<void>("save_session_meta", { sessionId, patch }),
   prepareSessionDeletion: (targets: DeleteSessionTarget[]) =>
     invoke<DeletionPlan>("prepare_session_deletion", { targets }),
-  deleteSessions: (targets: DeleteSessionTarget[], approvedIds: string[]) =>
-    invoke<DeleteSessionResult[]>("delete_sessions", { targets, approvedIds }),
+  deleteSessions: (targets: DeleteSessionTarget[], approvedIds: string[], onProgress: (update: DeleteProgress) => void) =>
+    invoke<DeleteSessionResult[]>("delete_sessions", { targets, approvedIds, progress: new Channel(onProgress) }),
   archiveSession: (sessionId: string) =>
     invoke<void>("archive_session", { sessionId }),
   unarchiveSession: (sessionId: string) =>

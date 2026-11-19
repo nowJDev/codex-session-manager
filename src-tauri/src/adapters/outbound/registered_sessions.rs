@@ -3,13 +3,14 @@ use super::codex_app_server::{AppServer, RegisteredThread, RpcError};
 use super::full_catalog::parent_id;
 use crate::application::refresh_budget::RefreshBudget;
 use crate::types::{
-    Config, DeleteSessionResult, DeleteSessionStatus, DeleteSessionTarget, DeletionPlan, Session,
-    SessionKind, SessionSnapshot,
+    Config, DeleteProgress, DeleteSessionResult, DeleteSessionStatus, DeleteSessionTarget,
+    DeletionPlan, Session, SessionKind, SessionSnapshot,
 };
 use anyhow::{bail, Result};
 use serde_json::json;
 use std::collections::{HashMap, HashSet};
 use std::path::Path;
+use std::time::Instant;
 
 pub(crate) fn list_sessions(budget: RefreshBudget) -> Result<SessionSnapshot> {
     let mut out = SessionSnapshot {
@@ -256,14 +257,22 @@ impl RegistryApi for AppServer {
 pub(crate) fn delete_sessions(
     targets: &[DeleteSessionTarget],
     approved: &[String],
+    report_progress: &mut dyn FnMut(DeleteProgress),
 ) -> Result<Vec<DeleteSessionResult>> {
-    delete_using(&mut AppServer::connect()?, targets, approved)
+    delete_using(
+        &mut AppServer::connect()?,
+        targets,
+        approved,
+        report_progress,
+    )
 }
 fn delete_using(
     api: &mut impl RegistryApi,
     targets: &[DeleteSessionTarget],
     approved: &[String],
+    report_progress: &mut dyn FnMut(DeleteProgress),
 ) -> Result<Vec<DeleteSessionResult>> {
+    report_progress(DeleteProgress::CheckingScope);
     let before = api.list()?;
     let plan = deletion_plan(&before, targets)?;
     let approved: HashSet<_> = approved.iter().map(String::as_str).collect();
@@ -311,6 +320,20 @@ fn delete_using(
     }
     let mut attempts: HashMap<String, (DeleteSessionStatus, Option<String>)> = HashMap::new();
     let mut disconnected = false;
+    let total = roots
+        .iter()
+        .filter(|root| by_id.contains_key(root.session_id.as_str()))
+        .count();
+    let started = Instant::now();
+    let mut report_deleting = |processed| {
+        report_progress(DeleteProgress::Deleting {
+            processed,
+            total,
+            elapsed_ms: started.elapsed().as_millis() as u64,
+        })
+    };
+    let mut processed = 0;
+    report_deleting(processed);
     for root in roots {
         let group = deletion_plan(&before, std::slice::from_ref(&root))?.affected_ids;
         let outcome = if !by_id.contains_key(root.session_id.as_str()) {
@@ -321,7 +344,10 @@ fn delete_using(
                 Some("통신 중단으로 삭제 요청을 보내지 않았습니다.".into()),
             )
         } else {
-            match api.delete(&root.session_id) {
+            let result = api.delete(&root.session_id);
+            processed += 1;
+            report_deleting(processed);
+            match result {
                 Ok(()) => (DeleteSessionStatus::Deleted, None),
                 Err(error) => {
                     let rejected = error.downcast_ref::<RpcError>().is_some();
@@ -343,6 +369,7 @@ fn delete_using(
             attempts.entry(id).or_insert_with(|| outcome.clone());
         }
     }
+    report_progress(DeleteProgress::Verifying);
     let after = api
         .list()
         .map(|threads| threads.into_iter().map(|t| t.id).collect::<HashSet<_>>());
@@ -453,7 +480,7 @@ mod tests {
             fail_verify: false,
             lists: 0,
         };
-        assert!(delete_using(&mut api, &[target], &approved).is_err());
+        assert!(delete_using(&mut api, &[target], &approved, &mut |_| {}).is_err());
         assert!(api.requests.is_empty());
     }
 
@@ -636,7 +663,13 @@ mod tests {
     #[test]
     fn deletion_verifies_absence_and_deduplicates_selected_parent_and_child() {
         let mut api = fake();
-        let results = delete_using(&mut api, &targets(&[P, C]), &[P.into(), C.into()]).unwrap();
+        let results = delete_using(
+            &mut api,
+            &targets(&[P, C]),
+            &[P.into(), C.into()],
+            &mut |_| {},
+        )
+        .unwrap();
         assert_eq!(api.requests, vec![P.to_string()]);
         assert_eq!(results.len(), 2);
         assert!(results
@@ -647,23 +680,86 @@ mod tests {
     fn success_response_with_retained_registration_is_a_failure() {
         let mut api = fake();
         api.remain = true;
-        let results = delete_using(&mut api, &targets(&[P]), &[P.into(), C.into()]).unwrap();
+        let results =
+            delete_using(&mut api, &targets(&[P]), &[P.into(), C.into()], &mut |_| {}).unwrap();
         assert!(results
             .iter()
             .all(|r| r.status == DeleteSessionStatus::Failed));
     }
     #[test]
+    fn deletion_progress_counts_requests_and_checks_results_afterwards() {
+        const MISSING: &str = "44444444-4444-4444-8444-444444444444";
+        let mut api = fake();
+        let mut progress = Vec::new();
+        let result = delete_using(
+            &mut api,
+            &targets(&[P, C, O, MISSING]),
+            &[P.into(), C.into(), O.into(), MISSING.into()],
+            &mut |update| progress.push(serde_json::to_value(update).unwrap()),
+        )
+        .unwrap();
+        assert_eq!(api.requests, [P, O]);
+        assert_eq!(result.len(), 4);
+        assert_eq!(
+            progress
+                .iter()
+                .map(|update| update["phase"].as_str().unwrap())
+                .collect::<Vec<_>>(),
+            [
+                "checkingScope",
+                "deleting",
+                "deleting",
+                "deleting",
+                "verifying"
+            ]
+        );
+        let requests = &progress[1..4];
+        for (processed, update) in requests.iter().enumerate() {
+            assert_eq!(update["processed"], processed);
+            assert_eq!(update["total"], 2);
+            assert!(update["elapsedMs"].as_u64().is_some());
+        }
+        assert!(requests
+            .windows(2)
+            .all(|pair| pair[0]["elapsedMs"].as_u64() <= pair[1]["elapsedMs"].as_u64()));
+    }
+
+    #[test]
+    fn deletion_progress_does_not_count_unattempted_requests_after_disconnect() {
+        let mut api = fake();
+        api.uncertain = true;
+        let mut progress = Vec::new();
+        delete_using(
+            &mut api,
+            &targets(&[P, O]),
+            &[P.into(), C.into(), O.into()],
+            &mut |update| progress.push(serde_json::to_value(update).unwrap()),
+        )
+        .unwrap();
+        assert_eq!(api.requests, [P]);
+        assert_eq!(progress.len(), 4);
+        assert_eq!(progress[2]["processed"], 1);
+        assert_eq!(progress[2]["total"], 2);
+        assert_eq!(progress[3], json!({"phase":"verifying"}));
+    }
+
+    #[test]
     fn scope_growth_prevents_any_delete_request() {
         let mut api = fake();
-        assert!(delete_using(&mut api, &targets(&[P]), &[P.into()]).is_err());
+        assert!(delete_using(&mut api, &targets(&[P]), &[P.into()], &mut |_| {}).is_err());
         assert!(api.requests.is_empty());
     }
     #[test]
     fn transport_uncertainty_stops_further_requests_and_never_claims_success() {
         let mut api = fake();
         api.uncertain = true;
-        let results =
-            delete_using(&mut api, &targets(&[P, O]), &[P.into(), C.into(), O.into()]).unwrap();
+        let results = delete_using(
+            &mut api,
+            &targets(&[P, O]),
+            &[P.into(), C.into(), O.into()],
+            &mut |_| {},
+        )
+        .unwrap();
         assert_eq!(api.requests.len(), 1);
         assert!(results
             .iter()
@@ -677,7 +773,8 @@ mod tests {
     fn verification_failure_does_not_mean_already_missing() {
         let mut api = fake();
         api.fail_verify = true;
-        let results = delete_using(&mut api, &targets(&[P]), &[P.into(), C.into()]).unwrap();
+        let results =
+            delete_using(&mut api, &targets(&[P]), &[P.into(), C.into()], &mut |_| {}).unwrap();
         assert!(results
             .iter()
             .all(|r| r.status == DeleteSessionStatus::Unconfirmed));

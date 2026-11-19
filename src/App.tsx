@@ -305,7 +305,7 @@ function App() {
         }
         confirmLabel={t("delete.confirm")}
         cancelLabel={t("settings.cancel")}
-        pendingLabel={t("delete.pending")}
+        t={t}
         onConfirm={confirmDelete}
         onCancel={cancelDelete}
       />

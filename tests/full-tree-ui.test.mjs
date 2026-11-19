@@ -103,3 +103,22 @@ test('kind search accepts the displayed English labels as well as Korean labels'
   assert.deepEqual(state.filterSessionsWithAncestors(all,'Summary run').map(s=>s.sessionId),['summary']);
   assert.deepEqual(state.filterSessionsWithAncestors(all,'기타 내부').map(s=>s.sessionId),['p','internal']);
 });
+
+test('the deletion dialog estimates from completed requests and shows elapsed time during scope checks',()=>{
+  const dialog=renderer('src/components/DeleteConfirmDialog.tsx',{}, {effects:false});
+  let emit;
+  const props={open:true,count:100,pending:false,canDelete:true,title:'title',description:'description',confirmLabel:'confirm',
+    cancelLabel:'cancel',t:(key,values)=>key+(values?' '+Object.values(values).join('/'):''),onConfirm:onProgress=>{emit=onProgress;}};
+  nodes(dialog.render(props)).find(node=>node.type==='Button'&&node.props.variant==='destructive').props.onClick();
+  const renderProgress=update=>{emit(update);return dialog.render({...props,pending:true});};
+  const status=out=>textOf(nodes(out).find(node=>node.props.role==='status'));
+  assert.equal(status(renderProgress({phase:'checkingScope'})),'delete.preparing');
+  const single=renderProgress({phase:'deleting',processed:0,total:1,elapsedMs:0});
+  assert.match(status(single),/delete.requestProgress 0\/1/);
+  assert.doesNotMatch(status(single),/delete.remaining/);
+  assert.match(textOf(single),/delete.elapsed 0/);
+  const partial=renderProgress({phase:'deleting',processed:2,total:5,elapsedMs:2400});
+  assert.match(status(partial),/delete.requestProgress 2\/5/);
+  assert.match(status(partial),/delete.remaining 4/);
+  assert.equal(status(renderProgress({phase:'verifying'})),'delete.verifying');
+});

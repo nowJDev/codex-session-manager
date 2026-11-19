@@ -11,6 +11,7 @@ import type {
   AppConfig,
   CodexStatus,
   DeleteSessionTarget,
+  DeleteProgress,
   DeleteSessionResult,
   DeletionPlan,
   EnvironmentReport,
@@ -52,7 +53,8 @@ export const tauriGateway = {
   saveSessionMeta: (sessionId: string, patch: SessionMeta): Promise<void> =>
     ipc.saveSessionMeta(sessionId, patch),
   prepareSessionDeletion: (targets: DeleteSessionTarget[]): Promise<DeletionPlan> => ipc.prepareSessionDeletion(targets),
-  deleteSessions: (targets: DeleteSessionTarget[], approvedIds: string[]): Promise<DeleteSessionResult[]> => ipc.deleteSessions(targets, approvedIds),
+  deleteSessions: (targets: DeleteSessionTarget[], approvedIds: string[], onProgress: (update: DeleteProgress) => void): Promise<DeleteSessionResult[]> =>
+    ipc.deleteSessions(targets, approvedIds, onProgress),
   archiveSession: (sessionId: string): Promise<void> => ipc.archiveSession(sessionId),
   unarchiveSession: (sessionId: string): Promise<void> => ipc.unarchiveSession(sessionId),
   saveSettings: (patch: Settings): Promise<void> => ipc.saveSettings(patch),
