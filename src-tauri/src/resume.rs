@@ -63,9 +63,17 @@ pub fn build_resume_plan(session_id: &str, cwd: Option<&str>, target_os: &str) -
     let codex = crate::environment::locate_codex().unwrap_or_else(|| "codex".into());
     let mut plan =
         build_resume_command_with_codex(&term, session_id, cwd, flags.as_deref(), &codex);
-    let home = crate::scanner::codex_home().to_string_lossy().to_string();
+    prepare_terminal_args(
+        &mut plan,
+        term.kind,
+        &crate::scanner::codex_home().to_string_lossy(),
+    );
+    plan
+}
+
+fn prepare_terminal_args(plan: &mut ResumePlan, kind: TerminalKind, home: &str) {
     if let Some(command) = plan.args.last_mut() {
-        match term.kind {
+        match kind {
             TerminalKind::WindowsTerminal | TerminalKind::PowerShell => {
                 *command = format!(
                     "$env:CODEX_HOME='{}'; {}",
@@ -92,7 +100,12 @@ pub fn build_resume_plan(session_id: &str, cwd: Option<&str>, target_os: &str) -
             TerminalKind::Custom => {}
         }
     }
-    plan
+    if kind == TerminalKind::WindowsTerminal {
+        // wt.exe treats unescaped semicolons anywhere in its arguments as command separators.
+        for arg in &mut plan.args {
+            *arg = arg.replace(';', r"\;");
+        }
+    }
 }
 
 pub fn resume_in_new_terminal(session_id: &str, cwd: Option<&str>) -> Result<()> {
@@ -162,6 +175,50 @@ pub fn resume_in_new_terminal(session_id: &str, cwd: Option<&str>) -> Result<()>
 
 #[cfg(test)]
 mod tests {
+    use super::{
+        build_resume_command_with_codex, prepare_terminal_args, DetectedTerminal, TerminalKind,
+    };
+
+    #[test]
+    fn windows_terminal_escapes_semicolons_without_changing_powershell() {
+        let temp = tempfile::Builder::new()
+            .prefix("work;dir")
+            .tempdir()
+            .unwrap();
+        let cwd = temp.path().to_str().unwrap();
+        let home = r"C:\Codex's;home";
+        let codex = r"C:\Program Files\codex.exe";
+        let flags = "--config 'value;next'";
+        let script = r"$env:CODEX_HOME='C:\Codex''s;home'; & 'C:\Program Files\codex.exe' resume --config 'value;next' sid";
+
+        let mut terminal = DetectedTerminal {
+            kind: TerminalKind::WindowsTerminal,
+            program: "wt.exe".into(),
+            display_name: "Windows Terminal".into(),
+        };
+        let mut plan =
+            build_resume_command_with_codex(&terminal, "sid", Some(cwd), Some(flags), codex);
+        prepare_terminal_args(&mut plan, terminal.kind, home);
+        assert_eq!(
+            plan.args,
+            [
+                "new-tab".to_string(),
+                "-d".into(),
+                cwd.replace(';', r"\;"),
+                "powershell".into(),
+                "-NoExit".into(),
+                "-Command".into(),
+                script.replace(';', r"\;"),
+            ]
+        );
+
+        terminal.kind = TerminalKind::PowerShell;
+        terminal.program = "powershell.exe".into();
+        let mut plan = build_resume_command_with_codex(&terminal, "sid", None, Some(flags), codex);
+        prepare_terminal_args(&mut plan, terminal.kind, home);
+        assert_eq!(plan.args, ["-NoExit", "-Command", script]);
+    }
+
     #[test]
     fn windows_resume_plan_sets_home_inside_the_terminal_command() {
         let plan = super::build_resume_plan("sid", None, "windows");
