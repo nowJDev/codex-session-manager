@@ -26,6 +26,15 @@ interface Props {
   onCancel: () => void;
 }
 
+function formatDuration(totalSeconds: number, t: Props["t"]): string {
+  const hours = Math.floor(totalSeconds / 3600);
+  const minutes = Math.floor(totalSeconds / 60) % 60;
+  const seconds = totalSeconds % 60;
+  if (hours > 0) return t("delete.durationHours", { hours, minutes, seconds });
+  if (minutes > 0) return t("delete.durationMinutes", { minutes, seconds });
+  return t("delete.durationSeconds", { seconds });
+}
+
 export function DeleteConfirmDialog({
   open,
   count,
@@ -53,12 +62,13 @@ export function DeleteConfirmDialog({
   }, [showProgress]);
 
   let progressLabel = t("delete.preparing");
+  let remainingLabel: string | null = null;
   if (progress?.phase === "deleting") {
     const { processed, total, elapsedMs } = progress;
     progressLabel = total > 0 ? t("delete.requestProgress", { processed, total }) : t("delete.pending");
     if (processed >= 2 && processed < total && elapsedMs > 0) {
       const seconds = Math.ceil((elapsedMs / processed) * (total - processed) / 1000);
-      progressLabel += " · " + t("delete.remaining", { seconds });
+      remainingLabel = t("delete.remaining", { duration: formatDuration(seconds, t) });
     }
   } else if (progress?.phase === "verifying") {
     progressLabel = t("delete.verifying");
@@ -80,10 +90,15 @@ export function DeleteConfirmDialog({
         </DialogHeader>
 
         {showProgress && (
-          <div className="flex items-center gap-2 rounded-md border border-border bg-muted/35 px-3 py-2 text-sm text-muted-foreground">
-            <Loader2 aria-hidden="true" className="h-4 w-4 shrink-0 animate-spin text-foreground" />
-            <span role="status">{progressLabel}</span>
-            <span className="ml-auto shrink-0 tabular-nums">{t("delete.elapsed", { seconds: elapsedSeconds })}</span>
+          <div className="flex items-start gap-2 rounded-md border border-border bg-muted/35 px-3 py-2 text-sm text-muted-foreground">
+            <Loader2 aria-hidden="true" className="mt-0.5 h-4 w-4 shrink-0 animate-spin text-foreground" />
+            <div className="space-y-1 tabular-nums">
+              <div className="space-y-1" role="status">
+                <p>{progressLabel}</p>
+                {remainingLabel && <p>{remainingLabel}</p>}
+              </div>
+              <p>{t("delete.elapsed", { duration: formatDuration(elapsedSeconds, t) })}</p>
+            </div>
           </div>
         )}
 

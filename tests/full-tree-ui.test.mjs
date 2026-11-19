@@ -104,21 +104,38 @@ test('kind search accepts the displayed English labels as well as Korean labels'
   assert.deepEqual(state.filterSessionsWithAncestors(all,'기타 내부').map(s=>s.sessionId),['p','internal']);
 });
 
-test('the deletion dialog estimates from completed requests and shows elapsed time during scope checks',()=>{
-  const dialog=renderer('src/components/DeleteConfirmDialog.tsx',{}, {effects:false});
+test('the deletion dialog shows request count, remaining time and elapsed time on separate rows',ctx=>{
+  let now=1000;
+  let tick;
+  ctx.mock.method(performance,'now',()=>now);
+  const previousWindow=globalThis.window;
+  globalThis.window={setInterval(callback){tick=callback;return 1;},clearInterval(){}};
+  ctx.after(()=>{
+    if (previousWindow === undefined) delete globalThis.window;
+    else globalThis.window=previousWindow;
+  });
+
+  const dialog=renderer('src/components/DeleteConfirmDialog.tsx');
+  const {createT}=dialog.load('src/i18n/index.ts');
   let emit;
   const props={open:true,count:100,pending:false,canDelete:true,title:'title',description:'description',confirmLabel:'confirm',
-    cancelLabel:'cancel',t:(key,values)=>key+(values?' '+Object.values(values).join('/'):''),onConfirm:onProgress=>{emit=onProgress;}};
+    cancelLabel:'cancel',t:createT('ko'),onConfirm:onProgress=>{emit=onProgress;}};
   nodes(dialog.render(props)).find(node=>node.type==='Button'&&node.props.variant==='destructive').props.onClick();
-  const renderProgress=update=>{emit(update);return dialog.render({...props,pending:true});};
-  const status=out=>textOf(nodes(out).find(node=>node.props.role==='status'));
-  assert.equal(status(renderProgress({phase:'checkingScope'})),'delete.preparing');
-  const single=renderProgress({phase:'deleting',processed:0,total:1,elapsedMs:0});
-  assert.match(status(single),/delete.requestProgress 0\/1/);
-  assert.doesNotMatch(status(single),/delete.remaining/);
-  assert.match(textOf(single),/delete.elapsed 0/);
-  const partial=renderProgress({phase:'deleting',processed:2,total:5,elapsedMs:2400});
-  assert.match(status(partial),/delete.requestProgress 2\/5/);
-  assert.match(status(partial),/delete.remaining 4/);
-  assert.equal(status(renderProgress({phase:'verifying'})),'delete.verifying');
+  const lines=out=>nodes(out).filter(node=>node.type==='p').map(textOf);
+  const renderProgress=update=>{emit(update);return lines(dialog.render({...props,pending:true}));};
+  assert.deepEqual(renderProgress({phase:'checkingScope'}),['삭제 영향 범위를 조회하는 중...','경과 0초']);
+  assert.deepEqual(renderProgress({phase:'deleting',processed:0,total:1,elapsedMs:0}),
+    ['삭제 요청 0/1건 처리','경과 0초']);
+  assert.deepEqual(renderProgress({phase:'deleting',processed:2,total:5,elapsedMs:2400}),
+    ['삭제 요청 2/5건 처리','남은 시간 약 4초','경과 0초']);
+
+  now+=3_723_000;
+  tick();
+  assert.deepEqual(renderProgress({phase:'deleting',processed:2,total:4,elapsedMs:2_585_000}),
+    ['삭제 요청 2/4건 처리','남은 시간 약 43분 5초','경과 1시간 2분 3초']);
+  assert.deepEqual(renderProgress({phase:'deleting',processed:2,total:4,elapsedMs:3_600_000}),
+    ['삭제 요청 2/4건 처리','남은 시간 약 1시간 0분 0초','경과 1시간 2분 3초']);
+  assert.deepEqual(lines(dialog.render({...props,pending:true,t:createT('en')})),
+    ['Processed 2/4 delete requests','About 1h 0m 0s remaining','Elapsed 1h 2m 3s']);
+  assert.deepEqual(renderProgress({phase:'verifying'}),['삭제 결과 확인 중...','경과 1시간 2분 3초']);
 });
